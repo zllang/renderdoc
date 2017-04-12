@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 #include "3rdparty/glslang/SPIRV/spirv.hpp"
+#include "api/replay/replay_enums.h"
 
 using std::string;
 using std::vector;
@@ -86,7 +87,7 @@ struct SPVModule
   SPVInstruction *GetByID(uint32_t id);
   string Disassemble(const string &entryPoint);
 
-  void MakeReflection(const string &entryPoint, ShaderReflection *reflection,
+  void MakeReflection(ShaderStageType stage, const string &entryPoint, ShaderReflection *reflection,
                       ShaderBindpointMapping *mapping);
 };
 

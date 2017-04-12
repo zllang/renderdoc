@@ -1450,7 +1450,8 @@ void GLReplay::SavePipelineState()
 
           gl.glGetTexParameterfv(target, eGL_TEXTURE_MAX_LOD, &pipe.Samplers[unit].MaxLOD);
           gl.glGetTexParameterfv(target, eGL_TEXTURE_MIN_LOD, &pipe.Samplers[unit].MinLOD);
-          gl.glGetTexParameterfv(target, eGL_TEXTURE_LOD_BIAS, &pipe.Samplers[unit].MipLODBias);
+          if(!IsGLES)
+            gl.glGetTexParameterfv(target, eGL_TEXTURE_LOD_BIAS, &pipe.Samplers[unit].MipLODBias);
         }
         else
         {
@@ -2413,13 +2414,9 @@ byte *GLReplay::GetTextureData(ResourceId tex, uint32_t arrayIdx, uint32_t mip,
   // fetch and return data now
   {
     PixelUnpackState unpack;
-
     unpack.Fetch(&gl.GetHookset(), true);
 
-    PixelUnpackState identity = {0};
-    identity.alignment = 1;
-
-    identity.Apply(&gl.GetHookset(), true);
+    ResetPixelUnpackState(gl.GetHookset(), true, 1);
 
     if(texType == eGL_RENDERBUFFER)
     {

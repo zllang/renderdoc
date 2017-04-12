@@ -364,7 +364,7 @@ bool GLResourceManager::Prepare_InitialState(GLResource res, byte *blob)
     data->valid = true;
 
     GLuint prevfeedback = 0;
-    gl.glGetIntegerv(eGL_TRANSFORM_FEEDBACK, (GLint *)&prevfeedback);
+    gl.glGetIntegerv(eGL_TRANSFORM_FEEDBACK_BINDING, (GLint *)&prevfeedback);
 
     gl.glBindTransformFeedback(eGL_TRANSFORM_FEEDBACK, res.name);
 
@@ -642,7 +642,9 @@ void GLResourceManager::PrepareTextureInitialContents(ResourceId liveid, Resourc
       gl.glGetTextureParameterfvEXT(res.name, details.curType, eGL_TEXTURE_MAX_LOD, &state->maxLod);
       gl.glGetTextureParameterfvEXT(res.name, details.curType, eGL_TEXTURE_BORDER_COLOR,
                                     &state->border[0]);
-      gl.glGetTextureParameterfvEXT(res.name, details.curType, eGL_TEXTURE_LOD_BIAS, &state->lodBias);
+      if(!IsGLES)
+        gl.glGetTextureParameterfvEXT(res.name, details.curType, eGL_TEXTURE_LOD_BIAS,
+                                      &state->lodBias);
 
       // CLAMP isn't supported (border texels gone), assume they meant CLAMP_TO_EDGE
       if(state->wrap[0] == eGL_CLAMP)
@@ -779,47 +781,18 @@ void GLResourceManager::PrepareTextureInitialContents(ResourceId liveid, Resourc
          VendorCheck[VendorCheck_AMD_copy_compressed_cubemaps])
         avoidCopySubImage = true;
 
-      GLint packParams[8] = {0};
-      GLint unpackParams[8] = {0};
+      PixelPackState pack;
+      PixelUnpackState unpack;
       GLuint pixelPackBuffer = 0;
       GLuint pixelUnpackBuffer = 0;
+
       if(avoidCopySubImage)
       {
-        gl.glGetIntegerv(eGL_PACK_SWAP_BYTES, &packParams[0]);
-        gl.glGetIntegerv(eGL_PACK_LSB_FIRST, &packParams[1]);
-        gl.glGetIntegerv(eGL_PACK_ROW_LENGTH, &packParams[2]);
-        gl.glGetIntegerv(eGL_PACK_IMAGE_HEIGHT, &packParams[3]);
-        gl.glGetIntegerv(eGL_PACK_SKIP_PIXELS, &packParams[4]);
-        gl.glGetIntegerv(eGL_PACK_SKIP_ROWS, &packParams[5]);
-        gl.glGetIntegerv(eGL_PACK_SKIP_IMAGES, &packParams[6]);
-        gl.glGetIntegerv(eGL_PACK_ALIGNMENT, &packParams[7]);
+        pack.Fetch(&gl, false);
+        unpack.Fetch(&gl, false);
 
-        gl.glPixelStorei(eGL_PACK_SWAP_BYTES, 0);
-        gl.glPixelStorei(eGL_PACK_LSB_FIRST, 0);
-        gl.glPixelStorei(eGL_PACK_ROW_LENGTH, 0);
-        gl.glPixelStorei(eGL_PACK_IMAGE_HEIGHT, 0);
-        gl.glPixelStorei(eGL_PACK_SKIP_PIXELS, 0);
-        gl.glPixelStorei(eGL_PACK_SKIP_ROWS, 0);
-        gl.glPixelStorei(eGL_PACK_SKIP_IMAGES, 0);
-        gl.glPixelStorei(eGL_PACK_ALIGNMENT, 1);
-
-        gl.glGetIntegerv(eGL_UNPACK_SWAP_BYTES, &unpackParams[0]);
-        gl.glGetIntegerv(eGL_UNPACK_LSB_FIRST, &unpackParams[1]);
-        gl.glGetIntegerv(eGL_UNPACK_ROW_LENGTH, &unpackParams[2]);
-        gl.glGetIntegerv(eGL_UNPACK_IMAGE_HEIGHT, &unpackParams[3]);
-        gl.glGetIntegerv(eGL_UNPACK_SKIP_PIXELS, &unpackParams[4]);
-        gl.glGetIntegerv(eGL_UNPACK_SKIP_ROWS, &unpackParams[5]);
-        gl.glGetIntegerv(eGL_UNPACK_SKIP_IMAGES, &unpackParams[6]);
-        gl.glGetIntegerv(eGL_UNPACK_ALIGNMENT, &unpackParams[7]);
-
-        gl.glPixelStorei(eGL_UNPACK_SWAP_BYTES, 0);
-        gl.glPixelStorei(eGL_UNPACK_LSB_FIRST, 0);
-        gl.glPixelStorei(eGL_UNPACK_ROW_LENGTH, 0);
-        gl.glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, 0);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_PIXELS, 0);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_ROWS, 0);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_IMAGES, 0);
-        gl.glPixelStorei(eGL_UNPACK_ALIGNMENT, 1);
+        ResetPixelPackState(gl, false, 1);
+        ResetPixelUnpackState(gl, false, 1);
 
         gl.glGetIntegerv(eGL_PIXEL_PACK_BUFFER_BINDING, (GLint *)&pixelPackBuffer);
         gl.glGetIntegerv(eGL_PIXEL_UNPACK_BUFFER_BINDING, (GLint *)&pixelUnpackBuffer);
@@ -904,23 +877,8 @@ void GLResourceManager::PrepareTextureInitialContents(ResourceId liveid, Resourc
 
       if(avoidCopySubImage)
       {
-        gl.glPixelStorei(eGL_PACK_SWAP_BYTES, packParams[0]);
-        gl.glPixelStorei(eGL_PACK_LSB_FIRST, packParams[1]);
-        gl.glPixelStorei(eGL_PACK_ROW_LENGTH, packParams[2]);
-        gl.glPixelStorei(eGL_PACK_IMAGE_HEIGHT, packParams[3]);
-        gl.glPixelStorei(eGL_PACK_SKIP_PIXELS, packParams[4]);
-        gl.glPixelStorei(eGL_PACK_SKIP_ROWS, packParams[5]);
-        gl.glPixelStorei(eGL_PACK_SKIP_IMAGES, packParams[6]);
-        gl.glPixelStorei(eGL_PACK_ALIGNMENT, packParams[7]);
-
-        gl.glPixelStorei(eGL_UNPACK_SWAP_BYTES, unpackParams[0]);
-        gl.glPixelStorei(eGL_UNPACK_LSB_FIRST, unpackParams[1]);
-        gl.glPixelStorei(eGL_UNPACK_ROW_LENGTH, unpackParams[2]);
-        gl.glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, unpackParams[3]);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_PIXELS, unpackParams[4]);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_ROWS, unpackParams[5]);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_IMAGES, unpackParams[6]);
-        gl.glPixelStorei(eGL_UNPACK_ALIGNMENT, unpackParams[7]);
+        pack.Apply(&gl, false);
+        unpack.Apply(&gl, false);
 
         gl.glBindBuffer(eGL_PIXEL_PACK_BUFFER, pixelPackBuffer);
         gl.glBindBuffer(eGL_PIXEL_UNPACK_BUFFER, pixelUnpackBuffer);
@@ -1145,24 +1103,10 @@ bool GLResourceManager::Serialise_InitialState(ResourceId resid, GLResource res)
         gl.glGetIntegerv(eGL_PIXEL_PACK_BUFFER_BINDING, (GLint *)&ppb);
         gl.glBindBuffer(eGL_PIXEL_PACK_BUFFER, 0);
 
-        GLint packParams[8];
-        gl.glGetIntegerv(eGL_PACK_SWAP_BYTES, &packParams[0]);
-        gl.glGetIntegerv(eGL_PACK_LSB_FIRST, &packParams[1]);
-        gl.glGetIntegerv(eGL_PACK_ROW_LENGTH, &packParams[2]);
-        gl.glGetIntegerv(eGL_PACK_IMAGE_HEIGHT, &packParams[3]);
-        gl.glGetIntegerv(eGL_PACK_SKIP_PIXELS, &packParams[4]);
-        gl.glGetIntegerv(eGL_PACK_SKIP_ROWS, &packParams[5]);
-        gl.glGetIntegerv(eGL_PACK_SKIP_IMAGES, &packParams[6]);
-        gl.glGetIntegerv(eGL_PACK_ALIGNMENT, &packParams[7]);
+        PixelPackState pack;
+        pack.Fetch(&gl, false);
 
-        gl.glPixelStorei(eGL_PACK_SWAP_BYTES, 0);
-        gl.glPixelStorei(eGL_PACK_LSB_FIRST, 0);
-        gl.glPixelStorei(eGL_PACK_ROW_LENGTH, 0);
-        gl.glPixelStorei(eGL_PACK_IMAGE_HEIGHT, 0);
-        gl.glPixelStorei(eGL_PACK_SKIP_PIXELS, 0);
-        gl.glPixelStorei(eGL_PACK_SKIP_ROWS, 0);
-        gl.glPixelStorei(eGL_PACK_SKIP_IMAGES, 0);
-        gl.glPixelStorei(eGL_PACK_ALIGNMENT, 1);
+        ResetPixelPackState(gl, false, 1);
 
         int imgmips = 1;
 
@@ -1294,14 +1238,7 @@ bool GLResourceManager::Serialise_InitialState(ResourceId resid, GLResource res)
 
         gl.glBindBuffer(eGL_PIXEL_PACK_BUFFER, ppb);
 
-        gl.glPixelStorei(eGL_PACK_SWAP_BYTES, packParams[0]);
-        gl.glPixelStorei(eGL_PACK_LSB_FIRST, packParams[1]);
-        gl.glPixelStorei(eGL_PACK_ROW_LENGTH, packParams[2]);
-        gl.glPixelStorei(eGL_PACK_IMAGE_HEIGHT, packParams[3]);
-        gl.glPixelStorei(eGL_PACK_SKIP_PIXELS, packParams[4]);
-        gl.glPixelStorei(eGL_PACK_SKIP_ROWS, packParams[5]);
-        gl.glPixelStorei(eGL_PACK_SKIP_IMAGES, packParams[6]);
-        gl.glPixelStorei(eGL_PACK_ALIGNMENT, packParams[7]);
+        pack.Apply(&gl, false);
       }
     }
     else
@@ -1316,24 +1253,10 @@ bool GLResourceManager::Serialise_InitialState(ResourceId resid, GLResource res)
         gl.glGetIntegerv(eGL_PIXEL_UNPACK_BUFFER_BINDING, (GLint *)&pub);
         gl.glBindBuffer(eGL_PIXEL_UNPACK_BUFFER, 0);
 
-        GLint unpackParams[8];
-        gl.glGetIntegerv(eGL_UNPACK_SWAP_BYTES, &unpackParams[0]);
-        gl.glGetIntegerv(eGL_UNPACK_LSB_FIRST, &unpackParams[1]);
-        gl.glGetIntegerv(eGL_UNPACK_ROW_LENGTH, &unpackParams[2]);
-        gl.glGetIntegerv(eGL_UNPACK_IMAGE_HEIGHT, &unpackParams[3]);
-        gl.glGetIntegerv(eGL_UNPACK_SKIP_PIXELS, &unpackParams[4]);
-        gl.glGetIntegerv(eGL_UNPACK_SKIP_ROWS, &unpackParams[5]);
-        gl.glGetIntegerv(eGL_UNPACK_SKIP_IMAGES, &unpackParams[6]);
-        gl.glGetIntegerv(eGL_UNPACK_ALIGNMENT, &unpackParams[7]);
+        PixelUnpackState unpack;
+        unpack.Fetch(&gl, false);
 
-        gl.glPixelStorei(eGL_UNPACK_SWAP_BYTES, 0);
-        gl.glPixelStorei(eGL_UNPACK_LSB_FIRST, 0);
-        gl.glPixelStorei(eGL_UNPACK_ROW_LENGTH, 0);
-        gl.glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, 0);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_PIXELS, 0);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_ROWS, 0);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_IMAGES, 0);
-        gl.glPixelStorei(eGL_UNPACK_ALIGNMENT, 1);
+        ResetPixelUnpackState(gl, false, 1);
 
         TextureStateInitialData *state = (TextureStateInitialData *)Serialiser::AllocAlignedBuffer(
             sizeof(TextureStateInitialData));
@@ -1647,14 +1570,7 @@ bool GLResourceManager::Serialise_InitialState(ResourceId resid, GLResource res)
 
         gl.glBindBuffer(eGL_PIXEL_UNPACK_BUFFER, pub);
 
-        gl.glPixelStorei(eGL_UNPACK_SWAP_BYTES, unpackParams[0]);
-        gl.glPixelStorei(eGL_UNPACK_LSB_FIRST, unpackParams[1]);
-        gl.glPixelStorei(eGL_UNPACK_ROW_LENGTH, unpackParams[2]);
-        gl.glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, unpackParams[3]);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_PIXELS, unpackParams[4]);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_ROWS, unpackParams[5]);
-        gl.glPixelStorei(eGL_UNPACK_SKIP_IMAGES, unpackParams[6]);
-        gl.glPixelStorei(eGL_UNPACK_ALIGNMENT, unpackParams[7]);
+        unpack.Apply(&gl, false);
       }
     }
   }
@@ -1827,45 +1743,16 @@ void GLResourceManager::Apply_InitialState(GLResource live, InitialContentData i
            VendorCheck[VendorCheck_AMD_copy_compressed_cubemaps])
           avoidCopySubImage = true;
 
-        GLint packParams[8];
-        GLint unpackParams[8];
+        PixelPackState pack;
+        PixelUnpackState unpack;
+
         if(avoidCopySubImage)
         {
-          gl.glGetIntegerv(eGL_PACK_SWAP_BYTES, &packParams[0]);
-          gl.glGetIntegerv(eGL_PACK_LSB_FIRST, &packParams[1]);
-          gl.glGetIntegerv(eGL_PACK_ROW_LENGTH, &packParams[2]);
-          gl.glGetIntegerv(eGL_PACK_IMAGE_HEIGHT, &packParams[3]);
-          gl.glGetIntegerv(eGL_PACK_SKIP_PIXELS, &packParams[4]);
-          gl.glGetIntegerv(eGL_PACK_SKIP_ROWS, &packParams[5]);
-          gl.glGetIntegerv(eGL_PACK_SKIP_IMAGES, &packParams[6]);
-          gl.glGetIntegerv(eGL_PACK_ALIGNMENT, &packParams[7]);
+          pack.Fetch(&gl, false);
+          unpack.Fetch(&gl, false);
 
-          gl.glPixelStorei(eGL_PACK_SWAP_BYTES, 0);
-          gl.glPixelStorei(eGL_PACK_LSB_FIRST, 0);
-          gl.glPixelStorei(eGL_PACK_ROW_LENGTH, 0);
-          gl.glPixelStorei(eGL_PACK_IMAGE_HEIGHT, 0);
-          gl.glPixelStorei(eGL_PACK_SKIP_PIXELS, 0);
-          gl.glPixelStorei(eGL_PACK_SKIP_ROWS, 0);
-          gl.glPixelStorei(eGL_PACK_SKIP_IMAGES, 0);
-          gl.glPixelStorei(eGL_PACK_ALIGNMENT, 1);
-
-          gl.glGetIntegerv(eGL_UNPACK_SWAP_BYTES, &unpackParams[0]);
-          gl.glGetIntegerv(eGL_UNPACK_LSB_FIRST, &unpackParams[1]);
-          gl.glGetIntegerv(eGL_UNPACK_ROW_LENGTH, &unpackParams[2]);
-          gl.glGetIntegerv(eGL_UNPACK_IMAGE_HEIGHT, &unpackParams[3]);
-          gl.glGetIntegerv(eGL_UNPACK_SKIP_PIXELS, &unpackParams[4]);
-          gl.glGetIntegerv(eGL_UNPACK_SKIP_ROWS, &unpackParams[5]);
-          gl.glGetIntegerv(eGL_UNPACK_SKIP_IMAGES, &unpackParams[6]);
-          gl.glGetIntegerv(eGL_UNPACK_ALIGNMENT, &unpackParams[7]);
-
-          gl.glPixelStorei(eGL_UNPACK_SWAP_BYTES, 0);
-          gl.glPixelStorei(eGL_UNPACK_LSB_FIRST, 0);
-          gl.glPixelStorei(eGL_UNPACK_ROW_LENGTH, 0);
-          gl.glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, 0);
-          gl.glPixelStorei(eGL_UNPACK_SKIP_PIXELS, 0);
-          gl.glPixelStorei(eGL_UNPACK_SKIP_ROWS, 0);
-          gl.glPixelStorei(eGL_UNPACK_SKIP_IMAGES, 0);
-          gl.glPixelStorei(eGL_UNPACK_ALIGNMENT, 1);
+          ResetPixelPackState(gl, false, 1);
+          ResetPixelUnpackState(gl, false, 1);
         }
 
         // copy over mips
@@ -1948,23 +1835,8 @@ void GLResourceManager::Apply_InitialState(GLResource live, InitialContentData i
 
         if(avoidCopySubImage)
         {
-          gl.glPixelStorei(eGL_PACK_SWAP_BYTES, packParams[0]);
-          gl.glPixelStorei(eGL_PACK_LSB_FIRST, packParams[1]);
-          gl.glPixelStorei(eGL_PACK_ROW_LENGTH, packParams[2]);
-          gl.glPixelStorei(eGL_PACK_IMAGE_HEIGHT, packParams[3]);
-          gl.glPixelStorei(eGL_PACK_SKIP_PIXELS, packParams[4]);
-          gl.glPixelStorei(eGL_PACK_SKIP_ROWS, packParams[5]);
-          gl.glPixelStorei(eGL_PACK_SKIP_IMAGES, packParams[6]);
-          gl.glPixelStorei(eGL_PACK_ALIGNMENT, packParams[7]);
-
-          gl.glPixelStorei(eGL_UNPACK_SWAP_BYTES, unpackParams[0]);
-          gl.glPixelStorei(eGL_UNPACK_LSB_FIRST, unpackParams[1]);
-          gl.glPixelStorei(eGL_UNPACK_ROW_LENGTH, unpackParams[2]);
-          gl.glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, unpackParams[3]);
-          gl.glPixelStorei(eGL_UNPACK_SKIP_PIXELS, unpackParams[4]);
-          gl.glPixelStorei(eGL_UNPACK_SKIP_ROWS, unpackParams[5]);
-          gl.glPixelStorei(eGL_UNPACK_SKIP_IMAGES, unpackParams[6]);
-          gl.glPixelStorei(eGL_UNPACK_ALIGNMENT, unpackParams[7]);
+          pack.Apply(&gl, false);
+          unpack.Apply(&gl, false);
         }
       }
 
@@ -2012,7 +1884,9 @@ void GLResourceManager::Apply_InitialState(GLResource live, InitialContentData i
                                    (GLint *)&state->wrap[2]);
         gl.glTextureParameterfvEXT(live.name, details.curType, eGL_TEXTURE_BORDER_COLOR,
                                    state->border);
-        gl.glTextureParameterfvEXT(live.name, details.curType, eGL_TEXTURE_LOD_BIAS, &state->lodBias);
+        if(!IsGLES)
+          gl.glTextureParameterfvEXT(live.name, details.curType, eGL_TEXTURE_LOD_BIAS,
+                                     &state->lodBias);
         if(details.curType != eGL_TEXTURE_RECTANGLE)
         {
           gl.glTextureParameterfvEXT(live.name, details.curType, eGL_TEXTURE_MIN_LOD, &state->minLod);
@@ -2145,7 +2019,10 @@ void GLResourceManager::Apply_InitialState(GLResource live, InitialContentData i
       if(data->ReadBuffer == eGL_BACK || data->ReadBuffer == eGL_FRONT)
         data->ReadBuffer = eGL_COLOR_ATTACHMENT0;
 
-      gl.glDrawBuffers(ARRAY_COUNT(data->DrawBuffers), data->DrawBuffers);
+      GLuint maxDraws = 0;
+      gl.glGetIntegerv(eGL_MAX_DRAW_BUFFERS, (GLint *)&maxDraws);
+
+      gl.glDrawBuffers(RDCMIN(maxDraws, (GLuint)ARRAY_COUNT(data->DrawBuffers)), data->DrawBuffers);
 
       gl.glReadBuffer(data->ReadBuffer);
 
@@ -2160,7 +2037,7 @@ void GLResourceManager::Apply_InitialState(GLResource live, InitialContentData i
     if(data->valid)
     {
       GLuint prevfeedback = 0;
-      gl.glGetIntegerv(eGL_TRANSFORM_FEEDBACK, (GLint *)&prevfeedback);
+      gl.glGetIntegerv(eGL_TRANSFORM_FEEDBACK_BINDING, (GLint *)&prevfeedback);
 
       gl.glBindTransformFeedback(eGL_TRANSFORM_FEEDBACK, live.name);
 

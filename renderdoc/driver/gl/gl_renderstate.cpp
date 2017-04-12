@@ -63,10 +63,89 @@ static const GLenum enable_disable_cap[] = {
     eGL_RASTERIZER_DISCARD,
 };
 
+void ResetPixelPackState(const GLHookSet &gl, bool compressed, GLint alignment)
+{
+  PixelPackState empty;
+  empty.alignment = alignment;
+  empty.Apply(&gl, compressed);
+}
+
+void ResetPixelUnpackState(const GLHookSet &gl, bool compressed, GLint alignment)
+{
+  PixelUnpackState empty;
+  empty.alignment = alignment;
+  empty.Apply(&gl, compressed);
+}
+
+PixelStorageState::PixelStorageState()
+    : swapBytes(),
+      lsbFirst(),
+      rowlength(),
+      imageheight(),
+      skipPixels(),
+      skipRows(),
+      skipImages(),
+      alignment(),
+      compressedBlockWidth(),
+      compressedBlockHeight(),
+      compressedBlockDepth(),
+      compressedBlockSize()
+{
+}
+
+void PixelPackState::Fetch(const GLHookSet *funcs, bool compressed)
+{
+  if(!IsGLES)
+  {
+    funcs->glGetIntegerv(eGL_PACK_SWAP_BYTES, &swapBytes);
+    funcs->glGetIntegerv(eGL_PACK_LSB_FIRST, &lsbFirst);
+    funcs->glGetIntegerv(eGL_PACK_IMAGE_HEIGHT, &imageheight);
+    funcs->glGetIntegerv(eGL_PACK_SKIP_IMAGES, &skipImages);
+  }
+  funcs->glGetIntegerv(eGL_PACK_ROW_LENGTH, &rowlength);
+  funcs->glGetIntegerv(eGL_PACK_SKIP_PIXELS, &skipPixels);
+  funcs->glGetIntegerv(eGL_PACK_SKIP_ROWS, &skipRows);
+  funcs->glGetIntegerv(eGL_PACK_ALIGNMENT, &alignment);
+
+  if(!IsGLES && compressed)
+  {
+    funcs->glGetIntegerv(eGL_PACK_COMPRESSED_BLOCK_WIDTH, &compressedBlockWidth);
+    funcs->glGetIntegerv(eGL_PACK_COMPRESSED_BLOCK_HEIGHT, &compressedBlockHeight);
+    funcs->glGetIntegerv(eGL_PACK_COMPRESSED_BLOCK_DEPTH, &compressedBlockDepth);
+    funcs->glGetIntegerv(eGL_PACK_COMPRESSED_BLOCK_SIZE, &compressedBlockSize);
+  }
+}
+
+void PixelPackState::Apply(const GLHookSet *funcs, bool compressed)
+{
+  if(!IsGLES)
+  {
+    funcs->glPixelStorei(eGL_PACK_SWAP_BYTES, swapBytes);
+    funcs->glPixelStorei(eGL_PACK_LSB_FIRST, lsbFirst);
+    funcs->glPixelStorei(eGL_PACK_IMAGE_HEIGHT, imageheight);
+    funcs->glPixelStorei(eGL_PACK_SKIP_IMAGES, skipImages);
+  }
+  funcs->glPixelStorei(eGL_PACK_ROW_LENGTH, rowlength);
+  funcs->glPixelStorei(eGL_PACK_SKIP_PIXELS, skipPixels);
+  funcs->glPixelStorei(eGL_PACK_SKIP_ROWS, skipRows);
+  funcs->glPixelStorei(eGL_PACK_ALIGNMENT, alignment);
+
+  if(!IsGLES && compressed)
+  {
+    funcs->glPixelStorei(eGL_PACK_COMPRESSED_BLOCK_WIDTH, compressedBlockWidth);
+    funcs->glPixelStorei(eGL_PACK_COMPRESSED_BLOCK_HEIGHT, compressedBlockHeight);
+    funcs->glPixelStorei(eGL_PACK_COMPRESSED_BLOCK_DEPTH, compressedBlockDepth);
+    funcs->glPixelStorei(eGL_PACK_COMPRESSED_BLOCK_SIZE, compressedBlockSize);
+  }
+}
+
 void PixelUnpackState::Fetch(const GLHookSet *funcs, bool compressed)
 {
   if(!IsGLES)
+  {
     funcs->glGetIntegerv(eGL_UNPACK_SWAP_BYTES, &swapBytes);
+    funcs->glGetIntegerv(eGL_UNPACK_LSB_FIRST, &lsbFirst);
+  }
   funcs->glGetIntegerv(eGL_UNPACK_ROW_LENGTH, &rowlength);
   funcs->glGetIntegerv(eGL_UNPACK_IMAGE_HEIGHT, &imageheight);
   funcs->glGetIntegerv(eGL_UNPACK_SKIP_PIXELS, &skipPixels);
@@ -86,7 +165,10 @@ void PixelUnpackState::Fetch(const GLHookSet *funcs, bool compressed)
 void PixelUnpackState::Apply(const GLHookSet *funcs, bool compressed)
 {
   if(!IsGLES)
+  {
     funcs->glPixelStorei(eGL_UNPACK_SWAP_BYTES, swapBytes);
+    funcs->glPixelStorei(eGL_UNPACK_LSB_FIRST, lsbFirst);
+  }
   funcs->glPixelStorei(eGL_UNPACK_ROW_LENGTH, rowlength);
   funcs->glPixelStorei(eGL_UNPACK_IMAGE_HEIGHT, imageheight);
   funcs->glPixelStorei(eGL_UNPACK_SKIP_PIXELS, skipPixels);
@@ -717,7 +799,8 @@ void GLRenderState::FetchState(void *ctx, WrappedOpenGL *gl)
     m_Real->glGetFloatv(eGL_POINT_SIZE, &PointSize);
   }
 
-  m_Real->glGetIntegerv(eGL_PRIMITIVE_RESTART_INDEX, (GLint *)&PrimitiveRestartIndex);
+  if(!IsGLES)
+    m_Real->glGetIntegerv(eGL_PRIMITIVE_RESTART_INDEX, (GLint *)&PrimitiveRestartIndex);
   if(HasExt[ARB_clip_control])
   {
     m_Real->glGetIntegerv(eGL_CLIP_ORIGIN, (GLint *)&ClipOrigin);
@@ -728,7 +811,8 @@ void GLRenderState::FetchState(void *ctx, WrappedOpenGL *gl)
     ClipOrigin = eGL_LOWER_LEFT;
     ClipDepth = eGL_NEGATIVE_ONE_TO_ONE;
   }
-  m_Real->glGetIntegerv(eGL_PROVOKING_VERTEX, (GLint *)&ProvokingVertex);
+  if(!IsGLES)
+    m_Real->glGetIntegerv(eGL_PROVOKING_VERTEX, (GLint *)&ProvokingVertex);
 
   m_Real->glGetIntegerv(eGL_CURRENT_PROGRAM, (GLint *)&Program);
 
@@ -1028,14 +1112,17 @@ void GLRenderState::FetchState(void *ctx, WrappedOpenGL *gl)
   m_Real->glGetFloatv(eGL_COLOR_CLEAR_VALUE, &ColorClearValue.red);
 
   if(HasExt[ARB_tessellation_shader])
-  {
     m_Real->glGetIntegerv(eGL_PATCH_VERTICES, &PatchParams.numVerts);
+  else
+    PatchParams.numVerts = 3;
+
+  if(!IsGLES && HasExt[ARB_tessellation_shader])
+  {
     m_Real->glGetFloatv(eGL_PATCH_DEFAULT_INNER_LEVEL, &PatchParams.defaultInnerLevel[0]);
     m_Real->glGetFloatv(eGL_PATCH_DEFAULT_OUTER_LEVEL, &PatchParams.defaultOuterLevel[0]);
   }
   else
   {
-    PatchParams.numVerts = 3;
     PatchParams.defaultInnerLevel[0] = PatchParams.defaultInnerLevel[1] = 1.0f;
     PatchParams.defaultOuterLevel[0] = PatchParams.defaultOuterLevel[1] =
         PatchParams.defaultOuterLevel[2] = PatchParams.defaultOuterLevel[3] = 1.0f;
@@ -1152,10 +1239,12 @@ void GLRenderState::ApplyState(void *ctx, WrappedOpenGL *gl)
     m_Real->glPointSize(PointSize);
   }
 
-  m_Real->glPrimitiveRestartIndex(PrimitiveRestartIndex);
+  if(!IsGLES)
+    m_Real->glPrimitiveRestartIndex(PrimitiveRestartIndex);
   if(m_Real->glClipControl && HasExt[ARB_clip_control])
     m_Real->glClipControl(ClipOrigin, ClipDepth);
-  m_Real->glProvokingVertex(ProvokingVertex);
+  if(!IsGLES)
+    m_Real->glProvokingVertex(ProvokingVertex);
 
   m_Real->glUseProgram(Program);
   if(HasExt[ARB_separate_shader_objects])
@@ -1404,11 +1493,16 @@ void GLRenderState::ApplyState(void *ctx, WrappedOpenGL *gl)
   if(HasExt[ARB_tessellation_shader])
   {
     m_Real->glPatchParameteri(eGL_PATCH_VERTICES, PatchParams.numVerts);
-    m_Real->glPatchParameterfv(eGL_PATCH_DEFAULT_INNER_LEVEL, PatchParams.defaultInnerLevel);
-    m_Real->glPatchParameterfv(eGL_PATCH_DEFAULT_OUTER_LEVEL, PatchParams.defaultOuterLevel);
+    if(!IsGLES)
+    {
+      m_Real->glPatchParameterfv(eGL_PATCH_DEFAULT_INNER_LEVEL, PatchParams.defaultInnerLevel);
+      m_Real->glPatchParameterfv(eGL_PATCH_DEFAULT_OUTER_LEVEL, PatchParams.defaultOuterLevel);
+    }
   }
 
-  m_Real->glPolygonMode(eGL_FRONT_AND_BACK, PolygonMode);
+  if(!IsGLES)
+    m_Real->glPolygonMode(eGL_FRONT_AND_BACK, PolygonMode);
+
   if(HasExt[EXT_polygon_offset_clamp] && m_Real->glPolygonOffsetClampEXT)
     m_Real->glPolygonOffsetClampEXT(PolygonOffset[0], PolygonOffset[1], PolygonOffset[2]);
   else
@@ -1828,6 +1922,7 @@ void GLRenderState::Serialise(LogState state, void *ctx, WrappedOpenGL *gl)
   m_pSerialiser->Serialise("GL_CULL_FACE_MODE", CullFace);
 
   m_pSerialiser->Serialise("GL_UNPACK_SWAP_BYTES", Unpack.swapBytes);
+  // TODO serialise GL_UNPACK_LSB_FIRST?
   m_pSerialiser->Serialise("GL_UNPACK_ROW_LENGTH", Unpack.rowlength);
   m_pSerialiser->Serialise("GL_UNPACK_IMAGE_HEIGHT", Unpack.imageheight);
   m_pSerialiser->Serialise("GL_UNPACK_SKIP_PIXELS", Unpack.skipPixels);
