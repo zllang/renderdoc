@@ -126,7 +126,7 @@
             this.texListShow = new System.Windows.Forms.ToolStripButton();
             this.viewTexBuffer = new System.Windows.Forms.ToolStripButton();
             this.texlistContainer = new System.Windows.Forms.TableLayoutPanel();
-            this.textureList = new renderdocui.Controls.TextureListBox();
+            this.textureList = new renderdocui.Controls.TextureListView();
             this.texturefilter = new System.Windows.Forms.ComboBox();
             this.label1 = new System.Windows.Forms.Label();
             this.clearTexFilter = new System.Windows.Forms.Button();
@@ -1069,12 +1069,8 @@
             // 
             this.texlistContainer.SetColumnSpan(this.textureList, 2);
             this.textureList.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.textureList.DrawMode = System.Windows.Forms.DrawMode.OwnerDrawFixed;
-            this.textureList.IntegralHeight = false;
-            this.textureList.ItemHeight = 16;
             this.textureList.Location = new System.Drawing.Point(3, 50);
             this.textureList.Name = "textureList";
-            this.textureList.SelectionMode = System.Windows.Forms.SelectionMode.None;
             this.textureList.Size = new System.Drawing.Size(130, 207);
             this.textureList.TabIndex = 0;
             this.textureList.MouseUp += new System.Windows.Forms.MouseEventHandler(this.textureList_MouseUp);
@@ -1418,7 +1414,7 @@
         private Controls.RangeHistogram rangeHistogram;
         private Controls.NoScrollPanel renderContainer;
         private Controls.NoScrollPanel render;
-        private Controls.TextureListBox textureList;
+        private Controls.TextureListView textureList;
         private Controls.ThumbnailStrip rwPanel;
         private Controls.ThumbnailStrip roPanel;
         private System.Windows.Forms.ToolStrip zoomStrip;

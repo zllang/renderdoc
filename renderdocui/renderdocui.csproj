@@ -362,6 +362,9 @@
     <Compile Include="Windows\StatisticsViewer.Designer.cs">
       <DependentUpon>StatisticsViewer.cs</DependentUpon>
     </Compile>
+    <Compile Include="Windows\TextureListView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Windows\TextureViewer.cs">
       <SubType>Form</SubType>
     </Compile>
