@@ -713,16 +713,29 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
             Unwrap(*pMemory),
         };
 
-        memoryDeviceAddress.opaqueCaptureAddress =
+        VkMemoryOpaqueCaptureAddressAllocateInfo *addr =
+            (VkMemoryOpaqueCaptureAddressAllocateInfo *)FindNextStruct(
+                &serialisedInfo, VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO);
+
+        uint64_t opaque =
             ObjDisp(device)->GetDeviceMemoryOpaqueCaptureAddress(Unwrap(device), &getInfo);
 
-        // we explicitly DON'T assert on this, because some drivers will only need the device
-        // address specified at allocate time.
-        // RDCASSERT(memoryDeviceAddress.opaqueCaptureAddress);
+        if(addr)
+        {
+          RDCASSERT(addr->opaqueCaptureAddress == opaque, addr->opaqueCaptureAddress, opaque);
+        }
+        else
+        {
+          memoryDeviceAddress.opaqueCaptureAddress = opaque;
 
-        // push this struct onto the start of the chain
-        memoryDeviceAddress.pNext = serialisedInfo.pNext;
-        serialisedInfo.pNext = &memoryDeviceAddress;
+          // we explicitly DON'T assert on this, because some drivers will only need the device
+          // address specified at allocate time.
+          // RDCASSERT(memoryDeviceAddress.opaqueCaptureAddress);
+
+          // push this struct onto the start of the chain
+          memoryDeviceAddress.pNext = serialisedInfo.pNext;
+          serialisedInfo.pNext = &memoryDeviceAddress;
+        }
 
         memFlags->flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT;
 
@@ -1877,16 +1890,30 @@ VkResult WrappedVulkan::vkCreateBuffer(VkDevice device, const VkBufferCreateInfo
 
         if(GetExtensions(GetRecord(device)).ext_KHR_buffer_device_address)
         {
-          bufferDeviceAddressCoreOrKHR.opaqueCaptureAddress =
-              ObjDisp(device)->GetBufferOpaqueCaptureAddress(Unwrap(device), &getInfo);
+          VkBufferOpaqueCaptureAddressCreateInfo *addr =
+              (VkBufferOpaqueCaptureAddressCreateInfo *)FindNextStruct(
+                  &serialisedCreateInfo, VK_STRUCTURE_TYPE_BUFFER_OPAQUE_CAPTURE_ADDRESS_CREATE_INFO);
 
-          // we explicitly DON'T assert on this, because some drivers will only need the device
-          // address specified at allocate time.
-          // RDCASSERT(bufferDeviceAddressKHR.opaqueCaptureAddress);
+          uint64_t opaque = ObjDisp(device)->GetBufferOpaqueCaptureAddress(Unwrap(device), &getInfo);
 
-          // push this struct onto the start of the chain
-          bufferDeviceAddressCoreOrKHR.pNext = serialisedCreateInfo.pNext;
-          serialisedCreateInfo.pNext = &bufferDeviceAddressCoreOrKHR;
+          if(addr)
+          {
+            RDCASSERT(opaque == addr->opaqueCaptureAddress, opaque, addr->opaqueCaptureAddress);
+          }
+          else
+          {
+            addr = &bufferDeviceAddressCoreOrKHR;
+
+            bufferDeviceAddressCoreOrKHR.opaqueCaptureAddress = opaque;
+
+            // we explicitly DON'T assert on this, because some drivers will only need the device
+            // address specified at allocate time.
+            // RDCASSERT(bufferDeviceAddressKHR.opaqueCaptureAddress);
+
+            // push this struct onto the start of the chain
+            bufferDeviceAddressCoreOrKHR.pNext = serialisedCreateInfo.pNext;
+            serialisedCreateInfo.pNext = &bufferDeviceAddressCoreOrKHR;
+          }
         }
         else if(GetExtensions(GetRecord(device)).ext_EXT_buffer_device_address)
         {
