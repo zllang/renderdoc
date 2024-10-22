@@ -4163,11 +4163,36 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
                   pArgumentBuffer, ArgumentBufferOffset,
                   (pCountBuffer ? pCountBuffer->GetGPUVirtualAddress() : 0) + CountBufferOffset,
                   MaxCommandCount);
+
+          m_Cmd->m_IndirectData.argsBuffer = patched.first;
+          m_Cmd->m_IndirectData.argsOffset = patched.second;
+
+          ID3D12Resource *argBuffer = Unwrap(patched.first);
+          uint64_t argOffset = patched.second;
+
+          if(comSig->sig.raytraced)
+          {
+            PatchedRayDispatch patchedDispatch = {};
+            patchedDispatch = GetResourceManager()->GetRTManager()->PatchIndirectRayDispatch(
+                Unwrap(list), state.heaps, comSig, MaxCommandCount, patched.first, patched.second,
+                pCountBuffer, CountBufferOffset);
+
+            argBuffer = patchedDispatch.resources.argumentBuffer->Resource();
+            argOffset = patchedDispatch.resources.argumentBuffer->Offset();
+
+            // restore state that would have been mutated by the patching process
+            Unwrap(list)->SetComputeRootSignature(Unwrap(
+                GetResourceManager()->GetCurrentAs<ID3D12RootSignature>(state.compute.rootsig)));
+            Unwrap4((ID3D12GraphicsCommandList4 *)list)
+                ->SetPipelineState1(
+                    Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
+            state.ApplyComputeRootElementsUnwrapped(Unwrap(list));
+            m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
+          }
+
           for(uint32_t i = 0; i < count; i++)
           {
             m_Cmd->m_IndirectData.commandSig = pCommandSignature;
-            m_Cmd->m_IndirectData.argsBuffer = patched.first;
-            m_Cmd->m_IndirectData.argsOffset = patched.second;
             ActionFlags drawType =
                 comSig->sig.graphics ? ActionFlags::Drawcall : ActionFlags::Dispatch;
 
@@ -4175,15 +4200,15 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
                 m_Cmd->HandlePreCallback(list, drawType, (i + 1) * comSig->sig.arguments.count());
 
             // action up to and including i. The previous draws will be nop'd out
-            Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, Unwrap(patched.first),
-                                          patched.second, NULL, 0);
+            Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, argBuffer, argOffset, NULL,
+                                          0);
 
             if(drawType == ActionFlags::Drawcall)
             {
               if(eventId && m_Cmd->m_ActionCallback->PostDraw(eventId, list))
               {
-                Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, Unwrap(patched.first),
-                                              patched.second, NULL, 0);
+                Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, argBuffer, argOffset,
+                                              NULL, 0);
                 m_Cmd->m_ActionCallback->PostRedraw(eventId, list);
               }
             }
@@ -4191,8 +4216,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             {
               if(eventId && m_Cmd->m_ActionCallback->PostDispatch(eventId, list))
               {
-                Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, Unwrap(patched.first),
-                                              patched.second, NULL, 0);
+                Unwrap(list)->ExecuteIndirect(Unwrap(pCommandSignature), 1, argBuffer, argOffset,
+                                              NULL, 0);
                 m_Cmd->m_ActionCallback->PostRedispatch(eventId, list);
               }
             }
@@ -4201,7 +4226,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             m_Cmd->m_IndirectData.argsBuffer = NULL;
             m_Cmd->m_IndirectData.argsOffset = 0;
 
-            patched.second += comSig->sig.ByteStride;
+            argOffset += comSig->sig.ByteStride;
           }
 
           D3D12MarkerRegion::End(list);
@@ -4222,20 +4247,19 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
           {
             PatchedRayDispatch patchedDispatch = {};
             patchedDispatch = GetResourceManager()->GetRTManager()->PatchIndirectRayDispatch(
-                Unwrap(pCommandList), state.heaps, comSig, MaxCommandCount, patched.first,
-                patched.second, pCountBuffer, CountBufferOffset);
+                Unwrap(list), state.heaps, comSig, MaxCommandCount, patched.first, patched.second,
+                pCountBuffer, CountBufferOffset);
 
             argBuffer = patchedDispatch.resources.argumentBuffer->Resource();
             argOffset = patchedDispatch.resources.argumentBuffer->Offset();
 
             // restore state that would have been mutated by the patching process
-            Unwrap(pCommandList)
-                ->SetComputeRootSignature(Unwrap(
-                    GetResourceManager()->GetCurrentAs<ID3D12RootSignature>(state.compute.rootsig)));
-            Unwrap4((ID3D12GraphicsCommandList4 *)pCommandList)
+            Unwrap(list)->SetComputeRootSignature(Unwrap(
+                GetResourceManager()->GetCurrentAs<ID3D12RootSignature>(state.compute.rootsig)));
+            Unwrap4((ID3D12GraphicsCommandList4 *)list)
                 ->SetPipelineState1(
                     Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
-            state.ApplyComputeRootElementsUnwrapped(Unwrap(pCommandList));
+            state.ApplyComputeRootElementsUnwrapped(Unwrap(list));
             m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
           }
 
