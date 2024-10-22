@@ -1975,6 +1975,9 @@ void WrappedID3D12Device::Unmap(ID3D12Resource *Resource, UINT Subresource, byte
 
   D3D12_RANGE range = {0, (SIZE_T)map.totalSize};
 
+  // unfortunately this can't be trusted - e.g. imgui maps/unmaps with empty written range. We have
+  // to assume the worst and assume it's all modified
+#if 0
   if(pWrittenRange)
   {
     range = *pWrittenRange;
@@ -1983,6 +1986,7 @@ void WrappedID3D12Device::Unmap(ID3D12Resource *Resource, UINT Subresource, byte
     if(range.End < range.Begin)
       range.End = range.Begin;
   }
+#endif
 
   if(capframe)
     MapDataWrite(Resource, Subresource, mapPtr, range, false);
