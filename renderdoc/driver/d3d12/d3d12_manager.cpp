@@ -1386,7 +1386,10 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
       else
       {
         if(desc.Triangles.Transform3x4)
+        {
           byteSize += sizeof(float) * 3 * 4;
+          byteSize = AlignUp16(byteSize);
+        }
 
         if(desc.Triangles.IndexBuffer)
         {
@@ -1396,11 +1399,13 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           byteSize += isize * desc.Triangles.IndexCount;
           byteSize = AlignUp16(byteSize);
 
-          ResourceId vbId = WrappedID3D12Resource::GetResIDFromAddr(desc.Triangles.VertexBuffer.RVA);
+          ResourceId vbId;
+          uint64_t srcOffs = 0;
+          WrappedID3D12Resource::GetResIDFromAddr(desc.Triangles.VertexBuffer.RVA, vbId, srcOffs);
           ID3D12Resource *sourceBuffer =
               m_wrappedDevice->GetResourceManager()->GetCurrentAs<ID3D12Resource>(vbId);
 
-          uint64_t vbSize = sourceBuffer->GetDesc().Width;
+          uint64_t vbSize = sourceBuffer->GetDesc().Width - srcOffs;
 
           uint32_t untrustedVertexCount = desc.Triangles.VertexCount;
           uint32_t estimatedVertexCount =
@@ -1519,16 +1524,21 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           ID3D12Resource *sourceBuffer =
               m_wrappedDevice->GetResourceManager()->GetCurrentAs<ID3D12Resource>(vbId);
 
-          uint64_t vbSize = sourceBuffer->GetDesc().Width;
+          uint64_t vbSize = sourceBuffer->GetDesc().Width - srcOffs;
 
-          vbSize =
-              RDCMIN(vbSize, desc.Triangles.VertexBuffer.StrideInBytes * desc.Triangles.VertexCount);
+          uint32_t untrustedVertexCount = desc.Triangles.VertexCount;
+          uint32_t estimatedVertexCount =
+              untrustedVertexCount +
+              (untrustedVertexCount / 100) * D3D12_Debug_RTMaxVertexPercentIncrease() +
+              D3D12_Debug_RTMaxVertexIncrement();
+
+          vbSize = RDCMIN(vbSize, desc.Triangles.VertexBuffer.StrideInBytes * estimatedVertexCount);
 
           unwrappedCmd->CopyBufferRegion(dstRes, dstOffset, Unwrap(sourceBuffer), srcOffs, vbSize);
 
           desc.Triangles.VertexBuffer.RVA = dstOffset - baseOffset;
 
-          dstOffset = AlignUp16(dstOffset + byteSize);
+          dstOffset = AlignUp16(dstOffset + vbSize);
         }
         else
         {
