@@ -1660,7 +1660,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 {
                   if(GetShaderVariable(inst.args[a], opCode, dxOpCode, arg))
                   {
-                    // TODO: get the type of the value's make sure it an expected value
                     const uint32_t dstComp = a - 4;
                     const uint32_t srcComp = 0;
                     result.value.u32v[dstComp] = arg.value.u32v[srcComp];
@@ -1762,12 +1761,13 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
-            // TODO: HALF TYPE
-            // TODO: DOUBLE TYPE
-            RDCASSERTEQUAL(arg.type, VarType::Float);
             RDCASSERTEQUAL(arg.rows, 1);
             RDCASSERTEQUAL(arg.columns, 1);
-            result.value.f32v[0] = arg.value.f32v[0] - floorf(arg.value.f32v[0]);
+            const uint32_t c = 0;
+#undef _IMPL
+#define _IMPL(T) comp<T>(result, c) = comp<T>(arg, c) - floor(comp<T>(arg, c));
+
+            IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
             break;
           }
           case DXOp::Cos:
