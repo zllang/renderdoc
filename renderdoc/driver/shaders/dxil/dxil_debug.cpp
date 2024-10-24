@@ -2161,6 +2161,41 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::IMul:
           case DXOp::UMul:
           case DXOp::UDiv:
+          {
+            RDCASSERTEQUAL(inst.args[0]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[0]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, b));
+            RDCASSERTEQUAL(a.type, b.type);
+            const uint32_t c = 0;
+
+            if(dxOpCode == DXOp::IMul)
+            {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<I>(result, c) = comp<I>(a, c) * comp<I>(b, c)
+
+              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+            }
+            else if(dxOpCode == DXOp::UMul)
+            {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(result, c) = comp<U>(a, c) * comp<U>(b, c)
+
+              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+            }
+            else if(dxOpCode == DXOp::UDiv)
+            {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(result, c) = comp<U>(a, c) / comp<U>(b, c)
+
+              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+            }
+            break;
+          }
           case DXOp::TempRegLoad:
           case DXOp::TempRegStore:
           case DXOp::MinPrecXRegLoad:

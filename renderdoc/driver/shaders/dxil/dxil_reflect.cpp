@@ -1787,9 +1787,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::TempRegStore:
               case DXOp::MinPrecXRegLoad:
               case DXOp::MinPrecXRegStore:
-              case DXOp::IMul:
-              case DXOp::UMul:
-              case DXOp::UDiv:
               case DXOp::UAddc:
               case DXOp::USubb:
               case DXOp::Fma:
