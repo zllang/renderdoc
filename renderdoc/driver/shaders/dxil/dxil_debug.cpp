@@ -2142,15 +2142,29 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
+          case DXOp::Bfrev:
+          case DXOp::Countbits:
+          {
+            ShaderVariable arg;
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            RDCASSERTEQUAL(arg.rows, 1);
+            RDCASSERTEQUAL(arg.columns, 1);
+
+            if(dxOpCode == DXOp::Bfrev)
+              result.value.u32v[0] = BitwiseReverseLSB16(arg.value.u32v[0]);
+            else if(dxOpCode == DXOp::Countbits)
+              result.value.u32v[0] = PopCount(arg.value.u32v[0]);
+            break;
+          }
+          case DXOp::IMul:
+          case DXOp::UMul:
+          case DXOp::UDiv:
           case DXOp::TempRegLoad:
           case DXOp::TempRegStore:
           case DXOp::MinPrecXRegLoad:
           case DXOp::MinPrecXRegStore:
-          case DXOp::Bfrev:
-          case DXOp::Countbits:
-          case DXOp::IMul:
-          case DXOp::UMul:
-          case DXOp::UDiv:
           case DXOp::UAddc:
           case DXOp::USubb:
           case DXOp::Fma:
