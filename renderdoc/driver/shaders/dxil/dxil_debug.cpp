@@ -1796,24 +1796,42 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
-            // TODO: HALF TYPE
-            // TODO: DOUBLE TYPE
             RDCASSERTEQUAL(arg.rows, 1);
             RDCASSERTEQUAL(arg.columns, 1);
-            RDCASSERTEQUAL(arg.type, VarType::Float);
+            const uint32_t c = 0;
             if(dxOpCode == DXOp::Round_pi)
+            {
               // Round_pi(value) : positive infinity -> ceil()
-              result.value.f32v[0] = ceilf(arg.value.f32v[0]);
+#undef _IMPL
+#define _IMPL(T) comp<T>(result, c) = ceil(comp<T>(arg, c));
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
             else if(dxOpCode == DXOp::Round_ne)
+            {
               // Round_ne(value) : to nearest even int (banker's rounding)
-              result.value.f32v[0] = round_ne(arg.value.f32v[0]);
+#undef _IMPL
+#define _IMPL(T) comp<T>(result, c) = round_ne(comp<T>(arg, c));
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
             else if(dxOpCode == DXOp::Round_ni)
+            {
               // Round_ni(value) : negative infinity -> floor()
-              result.value.f32v[0] = floorf(arg.value.f32v[0]);
+#undef _IMPL
+#define _IMPL(T) comp<T>(result, c) = floor(comp<T>(arg, c));
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
             else if(dxOpCode == DXOp::Round_z)
+            {
               // Round_z(value) : towards zero
-              result.value.f32v[0] =
-                  arg.value.f32v[0] < 0 ? ceilf(arg.value.f32v[0]) : floorf(arg.value.f32v[0]);
+#undef _IMPL
+#define _IMPL(T) \
+  comp<T>(result, c) = comp<T>(arg, c) < 0.0 ? ceil(comp<T>(arg, c)) : floor(comp<T>(arg, c));
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
             break;
           }
           case DXOp::FAbs:

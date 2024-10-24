@@ -386,6 +386,16 @@ float round_ne(float x)
   return x - rem;
 }
 
+double round_ne(double x)
+{
+  if(!RDCISFINITE(x))
+    return x;
+
+  double rem = remainder(x, 1.0);
+
+  return x - rem;
+}
+
 float flush_denorm(const float f)
 {
   uint32_t x;

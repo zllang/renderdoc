@@ -114,6 +114,7 @@ double dxbc_min(double a, double b);
 float dxbc_max(float a, float b);
 double dxbc_max(double a, double b);
 float round_ne(float x);
+double round_ne(double x);
 float flush_denorm(const float f);
 
 void get_sample_position(uint32_t sampleIndex, uint32_t sampleCount, float *position);
