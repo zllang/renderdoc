@@ -1639,25 +1639,6 @@ ShaderVariable ThreadState::GetSrc(const Operand &oper, const Operation &op, boo
   return v;
 }
 
-static uint32_t BitwiseReverseLSB16(uint32_t x)
-{
-  // Reverse the bits in x, then discard the lower half
-  // https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
-  x = ((x >> 1) & 0x55555555) | ((x & 0x55555555) << 1);
-  x = ((x >> 2) & 0x33333333) | ((x & 0x33333333) << 2);
-  x = ((x >> 4) & 0x0F0F0F0F) | ((x & 0x0F0F0F0F) << 4);
-  x = ((x >> 8) & 0x00FF00FF) | ((x & 0x00FF00FF) << 8);
-  return x << 16;
-}
-
-static uint32_t PopCount(uint32_t x)
-{
-  // https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
-  x = x - ((x >> 1) & 0x55555555);
-  x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
-  return (((x + (x >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
-}
-
 void FlattenSingleVariable(const rdcstr &cbufferName, uint32_t byteOffset, const rdcstr &basename,
                            const ShaderVariable &v, rdcarray<ShaderVariable> &outvars,
                            rdcarray<SourceVariableMapping> &sourcevars)
