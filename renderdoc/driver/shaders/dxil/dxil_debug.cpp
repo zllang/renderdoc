@@ -29,6 +29,45 @@
 #include "maths/formatpacking.h"
 #include "replay/common/var_dispatch_helpers.h"
 
+// normal is not zero, not subnormal, not infinite, not NaN
+inline bool RDCISNORMAL(float input)
+{
+  union
+  {
+    uint32_t u;
+    float f;
+  } x;
+
+  x.f = input;
+
+  x.u &= 0x7fffffffU;
+  if(x.u < 0x800000U)
+    return false;
+  if(x.u >= 0x7f800000U)
+    return false;
+
+  return true;
+}
+
+inline bool RDCISNORMAL(double input)
+{
+  union
+  {
+    uint64_t u;
+    double f;
+  } x;
+
+  x.f = input;
+
+  x.u &= 0x7fffffffffffffffULL;
+  if(x.u < 0x80000000000000ULL)
+    return false;
+  if(x.u >= 0x7ff0000000000000ULL)
+    return false;
+
+  return true;
+}
+
 using namespace DXIL;
 using namespace DXDebug;
 
@@ -2063,14 +2102,50 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
-          case DXOp::TempRegLoad:
-          case DXOp::TempRegStore:
-          case DXOp::MinPrecXRegLoad:
-          case DXOp::MinPrecXRegStore:
           case DXOp::IsNaN:
           case DXOp::IsInf:
           case DXOp::IsFinite:
           case DXOp::IsNormal:
+          {
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            RDCASSERTEQUAL(arg.rows, 1);
+            RDCASSERTEQUAL(arg.columns, 1);
+            const uint32_t c = 0;
+            if(dxOpCode == DXOp::IsNaN)
+            {
+#undef _IMPL
+#define _IMPL(T) comp<uint32_t>(result, c) = RDCISNAN(comp<T>(arg, c)) ? 1 : 0
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
+            else if(dxOpCode == DXOp::IsInf)
+            {
+#undef _IMPL
+#define _IMPL(T) comp<uint32_t>(result, c) = RDCISINF(comp<T>(arg, c)) ? 1 : 0
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
+            else if(dxOpCode == DXOp::IsFinite)
+            {
+#undef _IMPL
+#define _IMPL(T) comp<uint32_t>(result, c) = RDCISFINITE(comp<T>(arg, c)) ? 1 : 0
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
+            else if(dxOpCode == DXOp::IsNormal)
+            {
+#undef _IMPL
+#define _IMPL(T) comp<uint32_t>(result, c) = RDCISNORMAL(comp<T>(arg, c)) ? 1 : 0
+
+              IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, arg.type);
+            }
+            break;
+          }
+          case DXOp::TempRegLoad:
+          case DXOp::TempRegStore:
+          case DXOp::MinPrecXRegLoad:
+          case DXOp::MinPrecXRegStore:
           case DXOp::Bfrev:
           case DXOp::Countbits:
           case DXOp::IMul:

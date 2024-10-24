@@ -1787,10 +1787,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::TempRegStore:
               case DXOp::MinPrecXRegLoad:
               case DXOp::MinPrecXRegStore:
-              case DXOp::IsNaN:
-              case DXOp::IsInf:
-              case DXOp::IsFinite:
-              case DXOp::IsNormal:
               case DXOp::Bfrev:
               case DXOp::Countbits:
               case DXOp::IMul:

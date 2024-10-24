@@ -40,6 +40,10 @@ inline bool RDCISINF(half_float::half input)
 {
   return half_float::isinf(input);
 }
+inline bool RDCISNORMAL(half_float::half input)
+{
+  return half_float::isnormal(input);
+}
 
 template <typename T>
 inline T &comp(ShaderVariable &val, uint32_t c);
