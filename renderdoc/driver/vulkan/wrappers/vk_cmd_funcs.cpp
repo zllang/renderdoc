@@ -5643,7 +5643,7 @@ void WrappedVulkan::vkCmdPushDescriptorSetKHR(VkCommandBuffer commandBuffer,
     for(uint32_t i = 0; i < descriptorWriteCount; i++)
     {
       unwrappedWrites[i] = pDescriptorWrites[i];
-      unwrappedWrites[i].dstSet = Unwrap(unwrappedWrites[i].dstSet);
+      unwrappedWrites[i].dstSet = VK_NULL_HANDLE;    // ignored, may be invalid
 
       VkDescriptorBufferInfo *bufInfos = nextDescriptors;
       VkDescriptorImageInfo *imInfos = (VkDescriptorImageInfo *)bufInfos;
@@ -5716,9 +5716,16 @@ void WrappedVulkan::vkCmdPushDescriptorSetKHR(VkCommandBuffer commandBuffer,
 
     CACHE_THREAD_SERIALISER();
 
+    // sanitise the descriptor set writes in case there is an invalid set which must be ignored
+    VkWriteDescriptorSet *sanitised =
+        (VkWriteDescriptorSet *)GetTempMemory(sizeof(VkWriteDescriptorSet) * descriptorWriteCount);
+    memcpy(sanitised, pDescriptorWrites, sizeof(VkWriteDescriptorSet) * descriptorWriteCount);
+    for(uint32_t i = 0; i < descriptorWriteCount; i++)
+      sanitised[i].dstSet = VK_NULL_HANDLE;
+
     SCOPED_SERIALISE_CHUNK(VulkanChunk::vkCmdPushDescriptorSetKHR);
     Serialise_vkCmdPushDescriptorSetKHR(ser, commandBuffer, pipelineBindPoint, layout, set,
-                                        descriptorWriteCount, pDescriptorWrites);
+                                        descriptorWriteCount, sanitised);
 
     record->AddChunk(scope.Get(&record->cmdInfo->alloc));
     record->MarkResourceFrameReferenced(GetResID(layout), eFrameRef_Read);

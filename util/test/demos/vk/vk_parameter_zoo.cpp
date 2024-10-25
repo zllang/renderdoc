@@ -1780,6 +1780,12 @@ void main()
           vkCmdPushDescriptorSetWithTemplateKHR(cmd, pushtempl, layout, 1, &pushdata);
         vkCmdDraw(cmd, 3, 1, 0, 0);
 
+        if(KHR_push_descriptor)
+          vkCmdPushDescriptorSetKHR(
+              cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1,
+              vkh::WriteDescriptorSet((VkDescriptorSet)0x1234, 20,
+                                      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, validBufInfos));
+
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, immutpipe);
         vkh::cmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, immutlayout, 0,
                                    {immutdescset}, {});
