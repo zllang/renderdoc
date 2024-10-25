@@ -4121,7 +4121,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
 
     RDCASSERTEQUAL(samplerRef->resourceBase.resClass, ResourceClass::Sampler);
     // samplerRef->resourceBase must be a Sampler
-    const DXIL::EntryPointInterface::Sampler &sampler = resRef->resourceBase.samplerData;
+    const DXIL::EntryPointInterface::Sampler &sampler = samplerRef->resourceBase.samplerData;
     samplerData.bias = 0.0f;
     samplerData.binding.registerSpace = samplerRef->resourceBase.space;
     samplerData.binding.shaderRegister = samplerRef->resourceBase.regBase;
