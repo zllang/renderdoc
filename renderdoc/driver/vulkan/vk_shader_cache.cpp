@@ -35,6 +35,7 @@ enum class FeatureCheck
   NonMetalBackend = 0x4,
   FormatlessWrite = 0x8,
   SampleShading = 0x10,
+  Geometry = 0x20,
 };
 
 BITMASK_OPERATORS(FeatureCheck);
@@ -110,7 +111,7 @@ static const BuiltinShaderConfig builtinShaders[] = {
                         rdcspv::ShaderStage::Compute),
     BuiltinShaderConfig(BuiltinShader::PixelHistoryPrimIDFS,
                         EmbeddedResource(glsl_pixelhistory_primid_frag),
-                        rdcspv::ShaderStage::Fragment),
+                        rdcspv::ShaderStage::Fragment, FeatureCheck::Geometry),
     BuiltinShaderConfig(BuiltinShader::ShaderDebugSampleVS,
                         EmbeddedResource(glsl_shaderdebug_sample_vert), rdcspv::ShaderStage::Vertex),
     BuiltinShaderConfig(BuiltinShader::DiscardFS, EmbeddedResource(glsl_discard_frag),
@@ -187,6 +188,14 @@ static bool PassesChecks(const BuiltinShaderConfig &config, const VkDriverInfo &
     // via a more advanced query
     if(driverVersion.RunningOnMetal())
       return false;
+  }
+
+  if(config.checks & FeatureCheck::Geometry)
+  {
+    if(!features.geometryShader)
+    {
+      return false;
+    }
   }
 
   if(config.stage == rdcspv::ShaderStage::Geometry && !features.geometryShader)
