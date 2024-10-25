@@ -2285,6 +2285,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
+          case DXOp::Barrier:
+          {
+            break;
+          }
           case DXOp::TempRegLoad:
           case DXOp::TempRegStore:
           case DXOp::MinPrecXRegLoad:
@@ -2303,7 +2307,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::CheckAccessFullyMapped:
           case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
-          case DXOp::Barrier:
           case DXOp::CalculateLOD:
           case DXOp::Discard:
           case DXOp::DerivFineX:
