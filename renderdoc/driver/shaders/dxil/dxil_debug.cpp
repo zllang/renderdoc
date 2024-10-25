@@ -4670,6 +4670,7 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
       const DIDerivedType *derivedType = base->As<DIDerivedType>();
       switch(derivedType->tag)
       {
+        case DW_TAG_const_type:
         case DW_TAG_typedef: typeData = AddDebugType(derivedType->base); break;
         default:
           RDCERR("Unhandled DIDerivedType DIDerivedType Tag type %s",
