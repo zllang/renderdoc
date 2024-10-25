@@ -99,6 +99,12 @@ struct StackFrame
   rdcarray<uint32_t> dormant;
 };
 
+struct GlobalVariable
+{
+  Id id;
+  ShaderVariable var;
+};
+
 class DebugAPIWrapper
 {
 public:
@@ -150,6 +156,7 @@ struct ThreadState
                          ShaderVariable &var, bool flushDenormInput = true) const;
   bool GetVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
                    ShaderVariable &var) const;
+  void AllocateMemoryForType(const DXIL::Type *type, Id allocId, ShaderVariable &var);
   void UpdateBackingMemoryFromVariable(void *ptr, size_t allocSize, const ShaderVariable &var);
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
 
@@ -168,13 +175,13 @@ struct ThreadState
 
   void InitialiseHelper(const ThreadState &activeState);
 
-  struct StackAlloc
+  struct MemoryAlloc
   {
     void *backingMemory;
     size_t size;
   };
 
-  struct StackAllocPointer
+  struct MemoryAllocPointer
   {
     Id baseMemoryId;
     void *backingMemory;
@@ -196,8 +203,7 @@ struct ThreadState
   ShaderDebugState *m_State = NULL;
 
   ShaderVariable m_Input;
-  ShaderVariable m_Output;
-  uint32_t m_OutputSSAId = ~0U;
+  GlobalVariable m_Output;
 
   // Known active SSA ShaderVariables
   std::map<Id, ShaderVariable> m_LiveVariables;
@@ -211,11 +217,10 @@ struct ThreadState
   const FunctionInfo *m_FunctionInfo = NULL;
   DXBC::ShaderType m_ShaderType;
 
-  // Track stack allocations
-  // A single global stack, do not bother popping when leaving functions
-  size_t m_StackAllocTop = 0;
-  std::map<Id, StackAlloc> m_StackAllocs;
-  std::map<Id, StackAllocPointer> m_StackAllocPointers;
+  // Track memory allocations
+  // For stack allocations do not bother freeing when leaving functions
+  std::map<Id, MemoryAlloc> m_MemoryAllocs;
+  std::map<Id, MemoryAllocPointer> m_MemoryAllocPointers;
 
   // The instruction index within the current function
   uint32_t m_FunctionInstructionIdx = ~0U;
@@ -304,7 +309,7 @@ struct GlobalState
   rdcarray<ShaderVariable> readWriteResources;
   rdcarray<ShaderVariable> samplers;
   // Globals across workgroups including inputs (immutable) and outputs (mutable)
-  rdcarray<ShaderVariable> globals;
+  rdcarray<GlobalVariable> globals;
 };
 
 struct LocalMapping
