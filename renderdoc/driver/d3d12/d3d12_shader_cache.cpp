@@ -493,6 +493,7 @@ rdcstr D3D12ShaderCache::GetShaderBlob(const char *source, const char *entry,
       uint32_t flags = DXBC::DecodeFlags(compileFlags) & ~D3DCOMPILE_NO_PRESHADER;
       rdcarray<rdcwstr> argsData;
       DXBC::EncodeDXCFlags(flags, argsData);
+      argsData.push_back(L"-select-validator internal");
       rdcarray<LPCWSTR> arguments;
       for(const rdcwstr &arg : argsData)
         arguments.push_back(arg.c_str());
