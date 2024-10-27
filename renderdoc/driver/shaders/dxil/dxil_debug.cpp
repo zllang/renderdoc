@@ -1181,9 +1181,9 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
     if(destIdx == 0)
       ApplyDerivatives(global, quad, input, numWords, ddy_coarse, 1.0f, 2, 3);
     else if(destIdx == 1)
-      ApplyDerivatives(global, quad, input, numWords, ddy_coarse, -1.0f, 2, -1);
+      ApplyDerivatives(global, quad, input, numWords, ddy_coarse, 1.0f, 2, -1);
     else if(destIdx == 2)
-      ApplyDerivatives(global, quad, input, numWords, ddy_coarse, 1.0f, 0, 1);
+      ApplyDerivatives(global, quad, input, numWords, ddy_coarse, -1.0f, 0, 1);
 
     ddy_coarse += numWords;
   }
