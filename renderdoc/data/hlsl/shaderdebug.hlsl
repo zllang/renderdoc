@@ -701,60 +701,6 @@ float4 DoFloatOpcode(float4 uv)
     }
   }
 #endif    // #if __SHADER_TARGET_MINOR >= 7
-#if __SHADER_TARGET_MINOR >= 8
-  else if(opcode == DEBUG_SAMPLE_TEX_SAMPLE_CMP_GRAD)    // SM6.8
-  {
-    switch(debugSampleTexDim)
-    {
-      default:
-      case DEBUG_SAMPLE_TEX1D:
-      {
-        switch(debugSampleRetType)
-        {
-          case DEBUG_SAMPLE_UNORM:
-            return t1D_unorm.SampleCmpGrad(s, uv.xy, compare, ddx_.x, ddy_.x, offsets.x);
-          case DEBUG_SAMPLE_SNORM:
-            return t1D_snorm.SampleCmpGrad(s, uv.xy, compare, ddx_.x, ddy_.x, offsets.x);
-          default: return t1D_float.SampleCmpGrad(s, uv.xy, compare, ddx_.x, ddy_.x, offsets.x);
-        }
-      }
-      case DEBUG_SAMPLE_TEX2D:
-      {
-        switch(debugSampleRetType)
-        {
-          case DEBUG_SAMPLE_UNORM:
-            return t2D_unorm.SampleCmpGrad(s, uv.xyz, compare, ddx_.xy, ddy_.xy, offsets.xy);
-          case DEBUG_SAMPLE_SNORM:
-            return t2D_snorm.SampleCmpGrad(s, uv.xyz, compare, ddx_.xy, ddy_.xy, offsets.xy);
-          default: return t2D_float.SampleCmpGrad(s, uv.xyz, compare, ddx_.xy, ddy_.xy, offsets.xy);
-        }
-      }
-      case DEBUG_SAMPLE_TEX3D:
-      {
-        switch(debugSampleRetType)
-        {
-          case DEBUG_SAMPLE_UNORM:
-            return t3D_unorm.SampleCmpGrad(s, uv.xyz, compare, ddx_.xyz, ddy_.xyz, offsets.xyz);
-          case DEBUG_SAMPLE_SNORM:
-            return t3D_snorm.SampleCmpGrad(s, uv.xyz, compare, ddx_.xyz, ddy_.xyz, offsets.xyz);
-          default:
-            return t3D_float.SampleCmpGrad(s, uv.xyz, compare, ddx_.xyz, ddy_.xyz, offsets.xyz);
-        }
-      }
-      case DEBUG_SAMPLE_TEXCUBE:
-      {
-        switch(debugSampleRetType)
-        {
-          case DEBUG_SAMPLE_UNORM:
-            return tCube_unorm.SampleCmpGrad(s, uv, compare, ddx_.xyz, ddy_.xyz);
-          case DEBUG_SAMPLE_SNORM:
-            return tCube_snorm.SampleCmpGrad(s, uv, compare, ddx_.xyz, ddy_.xyz);
-          default: return tCube_float.SampleCmpGrad(s, uv, compare, ddx_.xyz, ddy_.xyz);
-        }
-      }
-    }
-  }
-#endif    // #if __SHADER_TARGET_MINOR >= 8
 #endif    // #if __SHADER_TARGET_MAJOR >= 6
   else
   {
