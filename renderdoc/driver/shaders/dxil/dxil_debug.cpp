@@ -689,7 +689,7 @@ static void ConvertDXILTypeToShaderVariable(const Type *type, ShaderVariable &va
 
 size_t ComputeDXILTypeByteSize(const Type *type)
 {
-  // JAKE TODO: byte alignment
+  // TODO: byte alignment
   size_t byteSize = 0;
   switch(type->type)
   {
@@ -4263,7 +4263,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     // SampleGrad DDX is argument 10, DDY is argument 14
     // SampleCmpGrad DDX is argument 11, DDY is argument 15
     uint32_t ddx0 = dxOpCode == DXOp::SampleGrad ? 10 : 11;
-    uint32_t ddy0 = ddx0 + 4;
+    uint32_t ddy0 = ddx0 + 3;
     ShaderVariable arg;
     for(uint32_t i = 0; i < 4; i++)
     {
