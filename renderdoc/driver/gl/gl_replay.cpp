@@ -2387,106 +2387,109 @@ rdcarray<SamplerDescriptor> GLReplay::GetSamplerDescriptors(ResourceId descripto
       // GL has separate sampler objects but they don't exist as separate sampler descriptors
       ret[dst].type = DescriptorType::ImageSampler;
 
-      if(samp != 0)
-        drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_BORDER_COLOR,
-                                    ret[dst].borderColorValue.floatValue.data());
-      else
-        drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_BORDER_COLOR,
-                                       ret[dst].borderColorValue.floatValue.data());
-
-      ret[dst].borderColorType = CompType::Float;
-
-      GLint v;
-      v = 0;
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_WRAP_S, &v);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_WRAP_S, &v);
-      ret[dst].addressU = MakeAddressMode((GLenum)v);
-
-      v = 0;
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_WRAP_T, &v);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_WRAP_T, &v);
-      ret[dst].addressV = MakeAddressMode((GLenum)v);
-
-      v = 0;
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_WRAP_R, &v);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_WRAP_R, &v);
-      ret[dst].addressW = MakeAddressMode((GLenum)v);
-
-      // GLES 3 is always seamless
-      if(IsGLES && GLCoreVersion > 30)
-      {
-        ret[dst].seamlessCubemaps = true;
-      }
-      else if(!IsGLES)
-      {
-        // on GLES 2 this is always going to be false, GL has a toggle
-        ret[dst].seamlessCubemaps = drv.glIsEnabled(eGL_TEXTURE_CUBE_MAP_SEAMLESS) != GL_FALSE;
-      }
-
-      v = 0;
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_COMPARE_FUNC, &v);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_COMPARE_FUNC, &v);
-      ret[dst].compareFunction = MakeCompareFunc((GLenum)v);
-
-      GLint minf = 0;
-      GLint magf = 0;
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_MIN_FILTER, &minf);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_MIN_FILTER, &minf);
-
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_MAG_FILTER, &magf);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_MAG_FILTER, &magf);
-
-      if(HasExt[ARB_texture_filter_anisotropic])
+      if(target != eGL_TEXTURE_2D_MULTISAMPLE && target != eGL_TEXTURE_2D_MULTISAMPLE_ARRAY)
       {
         if(samp != 0)
-          drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_MAX_ANISOTROPY, &ret[dst].maxAnisotropy);
+          drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_BORDER_COLOR,
+                                      ret[dst].borderColorValue.floatValue.data());
         else
-          drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_MAX_ANISOTROPY,
-                                         &ret[dst].maxAnisotropy);
-      }
-      else
-      {
-        ret[dst].maxAnisotropy = 0.0f;
-      }
+          drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_BORDER_COLOR,
+                                         ret[dst].borderColorValue.floatValue.data());
 
-      ret[dst].filter = MakeFilter((GLenum)minf, (GLenum)magf, ret[dst].maxAnisotropy);
+        ret[dst].borderColorType = CompType::Float;
 
-      v = 0;
-      if(samp != 0)
-        drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_COMPARE_MODE, &v);
-      else
-        drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_COMPARE_MODE, &v);
-      ret[dst].filter.filter = (GLenum)v == eGL_COMPARE_REF_TO_TEXTURE ? FilterFunction::Comparison
-                                                                       : FilterFunction::Normal;
-
-      if(samp != 0)
-        drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_MAX_LOD, &ret[dst].maxLOD);
-      else
-        drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_MAX_LOD, &ret[dst].maxLOD);
-
-      if(samp != 0)
-        drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_MIN_LOD, &ret[dst].minLOD);
-      else
-        drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_MIN_LOD, &ret[dst].minLOD);
-
-      if(!IsGLES)
-      {
+        GLint v;
+        v = 0;
         if(samp != 0)
-          drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_LOD_BIAS, &ret[dst].mipBias);
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_WRAP_S, &v);
         else
-          drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_LOD_BIAS, &ret[dst].mipBias);
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_WRAP_S, &v);
+        ret[dst].addressU = MakeAddressMode((GLenum)v);
+
+        v = 0;
+        if(samp != 0)
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_WRAP_T, &v);
+        else
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_WRAP_T, &v);
+        ret[dst].addressV = MakeAddressMode((GLenum)v);
+
+        v = 0;
+        if(samp != 0)
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_WRAP_R, &v);
+        else
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_WRAP_R, &v);
+        ret[dst].addressW = MakeAddressMode((GLenum)v);
+
+        // GLES 3 is always seamless
+        if(IsGLES && GLCoreVersion > 30)
+        {
+          ret[dst].seamlessCubemaps = true;
+        }
+        else if(!IsGLES)
+        {
+          // on GLES 2 this is always going to be false, GL has a toggle
+          ret[dst].seamlessCubemaps = drv.glIsEnabled(eGL_TEXTURE_CUBE_MAP_SEAMLESS) != GL_FALSE;
+        }
+
+        v = 0;
+        if(samp != 0)
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_COMPARE_FUNC, &v);
+        else
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_COMPARE_FUNC, &v);
+        ret[dst].compareFunction = MakeCompareFunc((GLenum)v);
+
+        GLint minf = 0;
+        GLint magf = 0;
+        if(samp != 0)
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_MIN_FILTER, &minf);
+        else
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_MIN_FILTER, &minf);
+
+        if(samp != 0)
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_MAG_FILTER, &magf);
+        else
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_MAG_FILTER, &magf);
+
+        if(HasExt[ARB_texture_filter_anisotropic])
+        {
+          if(samp != 0)
+            drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_MAX_ANISOTROPY, &ret[dst].maxAnisotropy);
+          else
+            drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_MAX_ANISOTROPY,
+                                           &ret[dst].maxAnisotropy);
+        }
+        else
+        {
+          ret[dst].maxAnisotropy = 0.0f;
+        }
+
+        ret[dst].filter = MakeFilter((GLenum)minf, (GLenum)magf, ret[dst].maxAnisotropy);
+
+        v = 0;
+        if(samp != 0)
+          drv.glGetSamplerParameteriv(samp, eGL_TEXTURE_COMPARE_MODE, &v);
+        else
+          drv.glGetTextureParameterivEXT(tex, target, eGL_TEXTURE_COMPARE_MODE, &v);
+        ret[dst].filter.filter = (GLenum)v == eGL_COMPARE_REF_TO_TEXTURE ? FilterFunction::Comparison
+                                                                         : FilterFunction::Normal;
+
+        if(samp != 0)
+          drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_MAX_LOD, &ret[dst].maxLOD);
+        else
+          drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_MAX_LOD, &ret[dst].maxLOD);
+
+        if(samp != 0)
+          drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_MIN_LOD, &ret[dst].minLOD);
+        else
+          drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_MIN_LOD, &ret[dst].minLOD);
+
+        if(!IsGLES)
+        {
+          if(samp != 0)
+            drv.glGetSamplerParameterfv(samp, eGL_TEXTURE_LOD_BIAS, &ret[dst].mipBias);
+          else
+            drv.glGetTextureParameterfvEXT(tex, target, eGL_TEXTURE_LOD_BIAS, &ret[dst].mipBias);
+        }
       }
     }
   }
