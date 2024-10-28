@@ -5166,12 +5166,23 @@ bool WrappedOpenGL::Serialise_glTextureStorage2DMultisampleEXT(SerialiserType &s
     m_Textures[liveId].emulated = emulated;
     m_Textures[liveId].mipsValid = 1;
 
-    if(target != eGL_NONE)
-      GL.glTextureStorage2DMultisampleEXT(texture.name, target, samples, internalformat, width,
-                                          height, fixedsamplelocations);
+    // some applications may resize MSAA textures using old-style functions, so we can't promote to
+    // storage DSA (and a non-storage DSA does not exist so can't be emulated)...
+    if(gl_CurChunk == GLChunk::glTexImage2DMultisample)
+    {
+      GL.glBindTexture(eGL_TEXTURE_2D_MULTISAMPLE, texture.name);
+      GL.glTexImage2DMultisample(eGL_TEXTURE_2D_MULTISAMPLE, samples, internalformat, width, height,
+                                 fixedsamplelocations);
+    }
     else
-      GL.glTextureStorage2DMultisample(texture.name, samples, internalformat, width, height,
-                                       fixedsamplelocations);
+    {
+      if(target != eGL_NONE)
+        GL.glTextureStorage2DMultisampleEXT(texture.name, target, samples, internalformat, width,
+                                            height, fixedsamplelocations);
+      else
+        GL.glTextureStorage2DMultisample(texture.name, samples, internalformat, width, height,
+                                         fixedsamplelocations);
+    }
 
     AddResourceInitChunk(texture);
   }
