@@ -1716,7 +1716,9 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
 
         HRESULT hr = S_OK;
 
-        if(copyDst->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+        D3D12_RESOURCE_DESC desc = copyDst->GetDesc();
+
+        if(desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
         {
           hr = Unwrap(copyDst)->Map(0, NULL, (void **)&dst);
           CHECK_HR(m_Device, hr);
@@ -1735,8 +1737,6 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
         }
         else
         {
-          D3D12_RESOURCE_DESC desc = copyDst->GetDesc();
-
           UINT numSubresources = desc.MipLevels;
           if(desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D)
             numSubresources *= desc.DepthOrArraySize;
@@ -1751,7 +1751,10 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
 
           for(UINT i = 0; i < numSubresources; i++)
           {
-            hr = Unwrap(copyDst)->Map(i, NULL, (void **)&dst);
+            if(desc.Layout == D3D12_TEXTURE_LAYOUT_UNKNOWN)
+              hr = Unwrap(copyDst)->Map(i, NULL, NULL);
+            else
+              hr = Unwrap(copyDst)->Map(i, NULL, (void **)&dst);
             CHECK_HR(m_Device, hr);
 
             if(FAILED(hr))
@@ -1765,15 +1768,33 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
               byte *bufPtr = src + layouts[i].Offset;
               byte *texPtr = dst;
 
+              D3D12_BOX box = {};
+
+              box.right = layouts[i].Footprint.Width;
+              box.back = 1;
+
               for(UINT d = 0; d < layouts[i].Footprint.Depth; d++)
               {
+                box.top = 0;
+                box.bottom = 1;
                 for(UINT r = 0; r < numrows[i]; r++)
                 {
-                  memcpy(bufPtr, texPtr, (size_t)rowsizes[i]);
+                  if(texPtr)
+                    memcpy(bufPtr, texPtr, (size_t)rowsizes[i]);
+                  else
+                    copyDst->WriteToSubresource(i, &box, bufPtr, (UINT)rowsizes[i],
+                                                (UINT)rowsizes[i]);
 
                   bufPtr += layouts[i].Footprint.RowPitch;
-                  texPtr += rowsizes[i];
+                  if(texPtr)
+                    texPtr += rowsizes[i];
+
+                  box.top++;
+                  box.bottom++;
                 }
+
+                box.front++;
+                box.back++;
               }
             }
 
