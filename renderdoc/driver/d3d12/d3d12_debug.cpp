@@ -835,11 +835,29 @@ bool D3D12DebugManager::CreateShaderDebugResources()
       RDCERR("Failed to compile DXIL vertex shader for shader debugging");
       return false;
     }
+    // CheckFeatureSupport returns E_INVALIDARG if HighestShaderModel isn't known by the current runtime.
+    int smMajor = 6;
+    int smMinor = -1;
+    for(smMinor = D3D_HIGHEST_SHADER_MODEL & 0xF; smMinor >= 0; smMinor--)
+    {
+      D3D_SHADER_MODEL smModel = (D3D_SHADER_MODEL)(smMajor << 4 | smMinor);
+      D3D12_FEATURE_DATA_SHADER_MODEL smMaxSupport = {smModel};
+      if(m_pDevice->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &smMaxSupport,
+                                        sizeof(smMaxSupport)) == S_OK)
+      {
+        smMajor = smMaxSupport.HighestShaderModel >> 4;
+        smMinor = smMaxSupport.HighestShaderModel & 0xF;
+        break;
+      }
+    }
+    if(smMinor < 0)
+    {
+      RDCERR("Failed to find highest shader model 6.x supported by the current runtime");
+      return false;
+    }
+
     ID3DBlob *dxilPsBlob = NULL;
-    D3D12_FEATURE_DATA_SHADER_MODEL smMaxSupport = {D3D_SHADER_MODEL_6_8};
-    m_pDevice->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &smMaxSupport, sizeof(smMaxSupport));
-    D3D_SHADER_MODEL smModel = smMaxSupport.HighestShaderModel;
-    rdcstr psSM = StringFormat::Fmt("ps_%d_%d", (smModel >> 4), (smModel & 0xf));
+    rdcstr psSM = StringFormat::Fmt("ps_%d_%d", smMajor, smMinor);
     if(m_pDevice->GetShaderCache()->GetShaderBlob(hlsl.c_str(), "RENDERDOC_DebugSamplePS",
                                                   D3DCOMPILE_WARNINGS_ARE_ERRORS, {}, psSM.c_str(),
                                                   &dxilPsBlob) != "")
