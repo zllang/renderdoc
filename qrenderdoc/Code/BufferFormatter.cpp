@@ -880,7 +880,8 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
         {
           cur->structDef.type.arrayByteStride = cur->offset;
 
-          cur->alignment = GetAlignment(pack, cur->structDef);
+          if(cur->alignment == 0)
+            cur->alignment = GetAlignment(pack, cur->structDef);
 
           // if we don't have tight arrays, struct byte strides are always 16-byte aligned
           if(!pack.tight_arrays)
@@ -900,9 +901,11 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
             else
             {
               reportError(tr("Struct %1 declared size %2 bytes is less than derived structure "
-                             "size %3 bytes.")
+                             "size:\n%3 bytes with alignment %4 meaning %5 bytes total size.")
                               .arg(cur->structDef.type.name)
                               .arg(cur->paddedStride)
+                              .arg(cur->offset)
+                              .arg(cur->alignment)
                               .arg(cur->structDef.type.arrayByteStride));
               success = false;
               break;
@@ -955,6 +958,18 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
                 break;
               }
               cur->paddedStride = annot.param.toUInt();
+            }
+            else if(annot.name == lit("align") || annot.name == lit("alignment"))
+            {
+              if(annot.param.isEmpty())
+              {
+                reportError(tr("Annotation '%1' requires a parameter with the size in bytes.\n\n"
+                               "e.g. [[%1(128)]]")
+                                .arg(annot.name));
+                success = false;
+                break;
+              }
+              cur->alignment = annot.param.toUInt();
             }
             else if(annot.name == lit("single") || annot.name == lit("fixed"))
             {
@@ -2129,7 +2144,10 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
     end = qMax(
         end, fixed.type.members.back().byteOffset + GetVarSizeAndTrail(fixed.type.members.back()));
 
-  fixed.type.arrayByteStride = AlignUp(end, GetAlignment(pack, fixed));
+  if(root.alignment != 0)
+    fixed.type.arrayByteStride = AlignUp(end, root.alignment);
+  else
+    fixed.type.arrayByteStride = AlignUp(end, GetAlignment(pack, fixed));
 
   if(!fixed.type.members.isEmpty() && fixed.type.members.back().type.elements == ~0U)
   {
