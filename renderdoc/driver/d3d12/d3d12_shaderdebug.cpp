@@ -2462,15 +2462,14 @@ struct PSInitialData
   bool inputHas_SV_SampleIndex = false;
   bool inputHas_SV_Coverage = false;
   bool inputHas_SV_IsFrontFace = false;
+  // SV_Coverage, SV_IsFrontFace, SV_SampleIndex : are not in the input structure, see
+  // GatherPSInputDataForInitialValues
 
   // DXC compiler errors if a semantic input is declared in multiple places
   if(dxbc->GetDXILByteCode())
   {
     inputHas_SV_Position = extractHlsl.contains(": SV_Position");
     inputHas_SV_PrimitiveID = extractHlsl.contains(": SV_PrimitiveID");
-    inputHas_SV_SampleIndex = extractHlsl.contains(": SV_SampleIndex");
-    inputHas_SV_Coverage = extractHlsl.contains(": SV_Coverage");
-    inputHas_SV_IsFrontFace = extractHlsl.contains(": SV_IsFrontFace");
   }
 
   extractHlsl += "void ExtractInputsPS(PSInput IN";
@@ -2492,12 +2491,6 @@ struct PSInitialData
     extractHlsl += "  float4 debug_pixelPos = IN.input_SV_Position;\n";
   if(usePrimitiveID && inputHas_SV_PrimitiveID)
     extractHlsl += "  uint prim = IN.input_SV_PrimitiveID;\n";
-  if(inputHas_SV_SampleIndex)
-    extractHlsl += "  uint sample = IN.input_SV_SampleIndex;\n";
-  if(inputHas_SV_Coverage)
-    extractHlsl += "  uint covge = IN.input_SV_Coverage;\n";
-  if(inputHas_SV_IsFrontFace)
-    extractHlsl += "  bool fface = IN.input_SV_IsFrontFace;\n";
 
   extractHlsl += "  uint idx = " + ToStr(overdrawLevels) + ";\n";
   extractHlsl += StringFormat::Fmt(
