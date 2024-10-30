@@ -1808,6 +1808,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // CreateHandle(resourceClass,rangeId,index,nonUniformIndex
             // CreateHandleFromBinding(bind,index,nonUniformIndex)
             rdcstr baseResource = result.name;
+            result.name.clear();
             if(dxOpCode == DXOp::AnnotateHandle)
               baseResource = GetArgumentName(1);
 
@@ -1830,6 +1831,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
               rdcstr resName = m_Program.GetHandleAlias(baseResource);
               const rdcarray<ShaderVariable> &resources = *list;
+              result.name.clear();
               for(uint32_t i = 0; i < resources.size(); ++i)
               {
                 if(resources[i].name == resName)
@@ -1839,19 +1841,20 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 }
               }
               recordChange = false;
-              RDCASSERT(!result.name.empty());
+              if(result.name.isEmpty())
+              {
+                // TODO: support for dynamic handles i.e. array lookups
+                RDCERR("Unhandled dynamic handle %s", resName.c_str());
+                // Need to make a shader variable for the return : it needs to have a binding point
+                // DescriptorCategory category;
+                // uint32_t index;
+                // uint32_t arrayElement = 0;
+                // result.SetBindIndex(ShaderBindIndex(category, index, arrayElement));
+              }
             }
             else
             {
-              // TODO: support for dynamic handles i.e. array lookups
-              RDCERR("Unhandled dynamic handle");
-              /*
-                            DescriptorCategory category;
-                            uint32_t index;
-                            uint32_t arrayElement = 0;
-                            // Need to make a shader variable for the return : it needs to have a
-                 binding point result.SetBindIndex(ShaderBindIndex(category, index, arrayElement));
-              */
+              RDCERR("Base Resource not found %s", baseResource.c_str());
             }
             break;
           }
