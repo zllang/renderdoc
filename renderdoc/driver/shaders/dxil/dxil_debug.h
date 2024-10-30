@@ -424,6 +424,10 @@ public:
   const DXBC::DXBCContainer *const GetDXBCContainer() { return m_DXBC; }
   uint32_t GetEventId() { return m_EventId; }
   const FunctionInfo *GetFunctionInfo(const DXIL::Function *function) const;
+  const rdcarray<DXIL::EntryPointInterface::Signature> &GetDXILEntryPointInputs(void) const
+  {
+    return m_EntryPointInterface->inputs;
+  }
 
 private:
   void CalcActiveMask(rdcarray<bool> &activeMask);
@@ -456,6 +460,7 @@ private:
   const DXBC::DXBCContainer *m_DXBC = NULL;
   const DXIL::Program *m_Program = NULL;
   const DXIL::Function *m_EntryPointFunction = NULL;
+  const DXIL::EntryPointInterface *m_EntryPointInterface = NULL;
   ShaderStage m_Stage;
 
   uint32_t m_EventId = 0;

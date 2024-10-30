@@ -3078,6 +3078,8 @@ struct PSInitialData
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
     DXILDebug::ThreadState &activeState = debugger->GetActiveLane();
     rdcarray<ShaderVariable> &ins = activeState.m_Input.members;
+    const rdcarray<DXIL::EntryPointInterface::Signature> &dxilInputs =
+        debugger->GetDXILEntryPointInputs();
 
     // Fetch constant buffer data from root signature
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.graphics, refl,
@@ -3086,15 +3088,35 @@ struct PSInitialData
     // TODO SAMPLE EVALUTE MASK
     // globalState.sampleEvalRegisterMask = sampleEvalRegisterMask;
 
+    // The initial values are packed into register and elements
+    // DXIL Inputs are not packed and contain the register and element linkage
     rdcarray<DXILDebug::PSInputData> psInputDatas;
     for(int i = 0; i < initialValues.count(); i++)
     {
-      PSInputElement &elem = initialValues[i];
-      if(elem.reg >= 0)
-        psInputDatas.emplace_back(i, elem.numwords, elem.sysattribute, elem.included, data);
+      PSInputElement &inputElement = initialValues[i];
+      int packedRegister = inputElement.reg;
+      if(packedRegister >= 0)
+      {
+        int dxilInputIdx = -1;
+        int packedElement = inputElement.elem;
+        // Find the DXIL Input index and element from that matches the register and element
+        for(int j = 0; j < dxilInputs.count(); ++j)
+        {
+          const DXIL::EntryPointInterface::Signature &dxilParam = dxilInputs[j];
+          if((dxilParam.startRow == (int32_t)packedRegister) && (dxilParam.startCol == packedElement))
+          {
+            dxilInputIdx = j;
+            break;
+          }
+        }
+        RDCASSERT(dxilInputIdx >= 0);
 
-      if(elem.included)
-        data += elem.numwords;
+        psInputDatas.emplace_back(dxilInputIdx, inputElement.numwords, inputElement.sysattribute,
+                                  inputElement.included, data);
+      }
+
+      if(inputElement.included)
+        data += inputElement.numwords;
     }
 
     {
@@ -3110,26 +3132,27 @@ struct PSInitialData
         int32_t *rawout = NULL;
 
         ShaderVariable &invar = ins[psInput.input];
+        int outElement = 0;
 
         if(psInput.sysattribute == ShaderBuiltin::PrimitiveIndex)
         {
-          invar.value.u32v[0] = pHit->primitive;
+          invar.value.u32v[outElement] = pHit->primitive;
         }
         else if(psInput.sysattribute == ShaderBuiltin::MSAASampleIndex)
         {
-          invar.value.u32v[0] = pHit->sample;
+          invar.value.u32v[outElement] = pHit->sample;
         }
         else if(psInput.sysattribute == ShaderBuiltin::MSAACoverage)
         {
-          invar.value.u32v[0] = pHit->coverage;
+          invar.value.u32v[outElement] = pHit->coverage;
         }
         else if(psInput.sysattribute == ShaderBuiltin::IsFrontFace)
         {
-          invar.value.u32v[0] = pHit->isFrontFace ? ~0U : 0;
+          invar.value.u32v[outElement] = pHit->isFrontFace ? ~0U : 0;
         }
         else
         {
-          rawout = &invar.value.s32v[0];
+          rawout = &invar.value.s32v[outElement];
           memcpy(rawout, psInput.data, psInput.numwords * 4);
         }
       }

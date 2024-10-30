@@ -5710,11 +5710,23 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   ParseDebugData();
 
   // Add inputs to the shader trace
-  const rdcarray<SigParameter> &inParams = dxbcContainer->GetReflection()->InputSig;
+  // Use the DXIL reflection data to map the input signature to input variables
+  const EntryPointInterface *entryPointIf = NULL;
+  for(size_t e = 0; e < m_Program->m_EntryPointInterfaces.size(); ++e)
+  {
+    if(entryFunction == m_Program->m_EntryPointInterfaces[e].name)
+    {
+      entryPointIf = &m_Program->m_EntryPointInterfaces[e];
+      break;
+    }
+  }
+  RDCASSERT(entryPointIf);
+  m_EntryPointInterface = entryPointIf;
+  const rdcarray<EntryPointInterface::Signature> &inputs = m_EntryPointInterface->inputs;
 
-  // TODO: compute this from DXIL
+  // TODO: compute coverage from DXIL
   const bool inputCoverage = false;
-  const uint32_t countInParams = (uint32_t)inParams.size();
+  const uint32_t countInParams = (uint32_t)inputs.size();
 
   if(countInParams || inputCoverage)
   {
@@ -5726,46 +5738,42 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     inStruct.type = VarType::Struct;
     inStruct.members.resize(countInParams + (inputCoverage ? 1 : 0));
 
-    for(uint32_t sigIdx = 0; sigIdx < countInParams; sigIdx++)
+    const rdcarray<SigParameter> &dxbcInParams = dxbcContainer->GetReflection()->InputSig;
+    for(uint32_t i = 0; i < countInParams; ++i)
     {
-      const SigParameter &sig = inParams[sigIdx];
+      const EntryPointInterface::Signature &sig = inputs[i];
 
-      ShaderVariable v;
-      v.name = sig.semanticIdxName;
-      v.rows = 1;
-      v.columns = (uint8_t)sig.compCount;
-      v.type = sig.varType;
+      ShaderVariable &v = inStruct.members[i];
 
-      ShaderVariable &dst = inStruct.members[sigIdx];
-
-      // if the variable hasn't been initialised, just assign. If it has, we're in a situation
-      // where two input parameters are assigned to the same variable overlapping, so just update
-      // the number of columns to the max of both. The source mapping (either from debug info or
-      // our own below) will handle distinguishing better.
-      if(dst.name.empty())
-        dst = v;
+      // Get the name from the DXBC reflection
+      SigParameter sigParam;
+      if(FindSigParameter(dxbcInParams, sig, sigParam))
+      {
+        v.name = sigParam.semanticIdxName;
+      }
       else
-        dst.columns = RDCMAX(dst.columns, v.columns);
+      {
+        v.name = sig.name;
+      }
+      v.rows = (uint8_t)sig.rows;
+      v.columns = (uint8_t)sig.cols;
+      v.type = VarTypeForComponentType(sig.type);
 
       SourceVariableMapping inputMapping;
       inputMapping.name = v.name;
       inputMapping.type = v.type;
-      inputMapping.rows = 1;
-      inputMapping.columns = sig.compCount;
-      inputMapping.signatureIndex = sigIdx;
-      inputMapping.variables.reserve(sig.compCount);
-      for(uint32_t c = 0; c < 4; c++)
+      inputMapping.rows = sig.rows;
+      inputMapping.columns = sig.cols;
+      inputMapping.variables.reserve(sig.cols);
+      inputMapping.signatureIndex = sig.startRow;
+      for(uint32_t c = 0; c < sig.cols; ++c)
       {
-        if(sig.regChannelMask & (1 << c))
-        {
-          DebugVariableReference ref;
-          ref.type = DebugVariableType::Input;
-          ref.name = inStruct.name + "." + v.name;
-          ref.component = c;
-          inputMapping.variables.push_back(ref);
-        }
+        DebugVariableReference ref;
+        ref.type = DebugVariableType::Input;
+        ref.name = inStruct.name + "." + v.name;
+        ref.component = c;
+        inputMapping.variables.push_back(ref);
       }
-      // ret->sourceVars.push_back(inputMapping);
 
       // Put the coverage mask at the end
       if(inputCoverage)
@@ -5830,10 +5838,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
 
     ShaderVariable &dst = outStruct.members[sigIdx];
 
-    // if the variable hasn't been initialised, just assign. If it has, we're in a situation where
-    // two input parameters are assigned to the same variable overlapping, so just update the
-    // number of columns to the max of both. The source mapping (either from debug info or our own
-    // below) will handle distinguishing better.
     if(dst.name.empty())
       dst = v;
     else
