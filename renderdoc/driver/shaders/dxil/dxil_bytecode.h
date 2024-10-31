@@ -1619,6 +1619,7 @@ protected:
 
   const ResourceReference *GetResourceReference(const rdcstr &handleStr) const;
   rdcstr GetHandleAlias(const rdcstr &handleStr) const;
+  static DXILDebug::Id GetResultSSAId(const DXIL::Instruction &inst);
   static void MakeResultId(const Instruction &inst, rdcstr &resultId);
   rdcstr GetArgId(const Instruction &inst, uint32_t arg) const;
   rdcstr GetArgId(const Value *v) const;
@@ -1726,6 +1727,8 @@ bool getival(const Value *v, T &out)
   return false;
 }
 
+bool FindSigParameter(const rdcarray<SigParameter> &inputSig,
+                      const EntryPointInterface::Signature &dxilParam, SigParameter &sigParam);
 bool IsSSA(const Value *dxilValue);
 DXILDebug::Id GetSSAId(const DXIL::Value *value);
 bool IsDXCNop(const Instruction &inst);

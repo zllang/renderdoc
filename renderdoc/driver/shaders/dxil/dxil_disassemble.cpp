@@ -138,6 +138,31 @@ DXILDebug::Id DXIL::GetSSAId(const DXIL::Value *value)
   return DXILDebug::INVALID_ID;
 }
 
+bool DXIL::FindSigParameter(const rdcarray<SigParameter> &inputSig,
+                            const EntryPointInterface::Signature &dxilParam, SigParameter &sigParam)
+{
+  for(const SigParameter &param : inputSig)
+  {
+    if(dxilParam.startRow == (int32_t)param.regIndex)
+    {
+      const int firstElem = param.regChannelMask & 0x1   ? 0
+                            : param.regChannelMask & 0x2 ? 1
+                            : param.regChannelMask & 0x4 ? 2
+                            : param.regChannelMask & 0x8 ? 3
+                                                         : -1;
+      if(dxilParam.startCol == firstElem)
+      {
+        if(param.semanticName == dxilParam.name)
+        {
+          sigParam = param;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 static const char *shaderNames[] = {
     "Pixel",      "Vertex",  "Geometry",      "Hull",         "Domain",
     "Compute",    "Library", "RayGeneration", "Intersection", "AnyHit",
@@ -5804,6 +5829,11 @@ rdcstr Program::GetArgId(const Value *v) const
 {
   rdcstr ret = ArgToString(v, false);
   return ret;
+}
+
+DXILDebug::Id Program::GetResultSSAId(const DXIL::Instruction &inst)
+{
+  return inst.slot;
 }
 
 void Program::MakeResultId(const DXIL::Instruction &inst, rdcstr &resultId)
