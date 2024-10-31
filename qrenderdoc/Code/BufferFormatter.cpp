@@ -553,7 +553,8 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
           "(?<mat>x[1-9])?"                              // or a matrix
           "("                                            // pointer or space
           "(?<ptr>\\s*\\*\\s*)|"                         // pointer asterisk
-          "\\s+"                                         // or just some whitespace
+          "\\s+|"                                        // or just some whitespace
+          "$"                                            // or the end, if it's nameless
           ")"                                            // end pointer or space
           "(?<name>[A-Za-z@_][A-Za-z0-9@_]*)?"           // get identifier name
           "(?<array>\\s*\\[[0-9]*\\])?"                  // optional array dimension
@@ -4339,6 +4340,24 @@ TEST_CASE("Buffer format parsing", "[formatter]")
       CHECK(parsed.fixed.type.members[0].name == "a");
       CHECK((parsed.fixed.type.members[0].type == expect_type));
     }
+  };
+
+  SECTION("variable-less quick formats")
+  {
+    parsed = BufferFormatter::ParseFormatString(lit("float"), 0, true);
+
+    CHECK(parsed.errors.isEmpty());
+    CHECK(parsed.repeating.type.members.empty());
+    REQUIRE(parsed.fixed.type.members.size() == 1);
+    CHECK((parsed.fixed.type.members[0].type == float_type));
+
+    parsed = BufferFormatter::ParseFormatString(lit("int4"), 0, true);
+
+    CHECK(parsed.errors.isEmpty());
+    CHECK(parsed.repeating.type.members.empty());
+    REQUIRE(parsed.fixed.type.members.size() == 1);
+    CHECK(parsed.fixed.type.members[0].type.baseType == VarType::SInt);
+    CHECK(parsed.fixed.type.members[0].type.columns == 4);
   };
 
   SECTION("C-style sized formats")
