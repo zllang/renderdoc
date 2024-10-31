@@ -2861,7 +2861,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           {
             if(needBlankLine)
               DisassemblyAddNewLine();
-            EntryPointInterface::Signature &sig = entryPoint->inputs[j];
+            EntryPointInterface::Signature sig = entryPoint->inputs[j];
 
             m_Disassembly += "  ";
 
@@ -2875,10 +2875,10 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             if(sig.cols > 1)
               m_Disassembly += ToStr(sig.cols);
 
-            if(reflection && sig.rows == 1 && j < reflection->InputSig.size())
+            if(reflection && sig.rows == 1)
             {
-              const SigParameter &sigParam = reflection->InputSig[j];
-              if(sigParam.semanticName == sig.name)
+              SigParameter sigParam;
+              if(FindSigParameter(reflection->InputSig, sig, sigParam))
               {
                 sig.name = sigParam.semanticIdxName;
               }
