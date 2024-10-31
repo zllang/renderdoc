@@ -5291,6 +5291,39 @@ ulong2 *arr[3];
     }
 
     def = R"(
+int *a;
+int* a;
+int*a;
+int * a;
+int * ;
+int *;
+int* ;
+int*;
+)";
+
+    parsed = BufferFormatter::ParseFormatString(def, 0, true);
+
+    CHECK(parsed.errors.isEmpty());
+    REQUIRE(parsed.fixed.type.members.size() == 8);
+    for(size_t i = 0; i < parsed.fixed.type.members.size(); i++)
+    {
+      CHECK(parsed.fixed.type.members[i].type.baseType == VarType::GPUPointer);
+      CHECK(parsed.fixed.type.members[i].type.arrayByteStride == 8);
+      CHECK(parsed.fixed.type.members[i].type.elements == 1);
+
+      ShaderConstantType innerType;
+      innerType =
+          PointerTypeRegistry::GetTypeDescriptor(parsed.fixed.type.members[i].type.pointerTypeID);
+      REQUIRE(innerType.members.size() == 1);
+      CHECK(innerType.name.isEmpty());
+      CHECK(innerType.members[0].name == parsed.fixed.type.members[i].name);
+      innerType = innerType.members[0].type;
+      CHECK(innerType.baseType == VarType::SInt);
+      CHECK(innerType.rows == 1);
+      CHECK(innerType.columns == 1);
+    }
+
+    def = R"(
 struct inner
 {
   int a;
