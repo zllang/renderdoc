@@ -3445,6 +3445,8 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
         bufdata->postOut1 = r->GetPostVSData(0, bufdata->inConfig.curView, MeshDataStage::TaskOut);
         bufdata->postOut2 = r->GetPostVSData(0, bufdata->inConfig.curView, MeshDataStage::MeshOut);
 
+        const uint32_t vertsPerPrim = RENDERDOC_NumVerticesPerPrimitive(bufdata->postOut2.topology);
+
         // apply mesh/task filtering to mesh data here, which will also propagate to preview
         if(m_FilteredMeshGroup != ~0U)
         {
@@ -3465,6 +3467,9 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
               bufdata->postOut2.numIndices = numIndices;
               bufdata->postOut2.meshletSizes = {meshletSize};
               bufdata->postOut2.indexByteOffset += indexCount * bufdata->postOut2.indexByteStride;
+
+              bufdata->postOut2.perPrimitiveOffset +=
+                  (indexCount / vertsPerPrim) * bufdata->postOut2.perPrimitiveStride;
             }
             indexCount += numIndices;
             vertexCount += meshletSize.numVertices;
@@ -3511,6 +3516,9 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
                   bufdata->postOut2.meshletOffset = meshletCounter;
                   bufdata->out2Config.taskOrMeshletOffset = meshletCounter;
                   bufdata->postOut2.indexByteOffset += indexCount * bufdata->postOut2.indexByteStride;
+
+                  bufdata->postOut2.perPrimitiveOffset +=
+                      (indexCount / vertsPerPrim) * bufdata->postOut2.perPrimitiveStride;
                 }
                 indexCount += indicesInMeshlet;
                 vertexCount += bufdata->postOut2.meshletSizes[i].numVertices;
