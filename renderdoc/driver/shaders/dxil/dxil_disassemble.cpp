@@ -3538,6 +3538,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   DXILDebug::Id handleId = GetSSAId(inst.args[1]);
                   const ResourceReference *resRef = GetResourceReference(handleId);
                   rdcstr handleStr = GetArgId(inst, 1);
+                  rdcstr resName = GetHandleAlias(handleStr);
                   bool useFallback = true;
                   if(entryPoint && resRef)
                   {
@@ -3570,13 +3571,13 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                           }
                         }
                         lineStr +=
-                            MakeCBufferRegisterStr(regIndex, bytesPerElement, cbuffer, handleStr);
+                            MakeCBufferRegisterStr(regIndex, bytesPerElement, cbuffer, resName);
                         commentStr += " cbuffer = " + resource.name;
                         commentStr += ", byte_offset = " + ToStr(regIndex * 16);
                       }
                       else
                       {
-                        lineStr += handleStr;
+                        lineStr += resName;
                         lineStr += ".Load4(";
                         lineStr += "byte_offset = " + ToStr(regIndex * 16);
                         lineStr += ")";
@@ -3585,7 +3586,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   if(useFallback)
                   {
-                    lineStr += GetHandleAlias(handleStr);
+                    lineStr += resName;
                     lineStr += ".Load4(";
                     lineStr += "byte_offset = ";
                     uint32_t regIndex;
