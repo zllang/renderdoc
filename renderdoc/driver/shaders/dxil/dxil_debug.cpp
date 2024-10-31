@@ -1427,12 +1427,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::GetDimensions:
           {
             // GetDimensions(handle,mipLevel)
-            rdcstr handleId = GetArgumentName(1);
-            const ResourceReference *resRef = GetResource(handleId);
+            Id handleId = GetArgumentId(1);
+            ShaderBindIndex bindIndex;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
             if(!resRef)
               break;
 
-            BindingSlot binding(resRef->resourceBase.regBase, resRef->resourceBase.space);
+            BindingSlot binding(resRef->resourceBase.regBase + bindIndex.arrayElement,
+                                resRef->resourceBase.space);
             ShaderVariable data;
             uint32_t mipLevel = 0;
             if(!isUndef(inst.args[2]))
@@ -1460,12 +1462,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::Texture2DMSGetSamplePosition:
           {
             // Texture2DMSGetSamplePosition(srv,index)
-            rdcstr handleId = GetArgumentName(1);
-            const ResourceReference *resRef = GetResource(handleId);
+            Id handleId = GetArgumentId(1);
+            ShaderBindIndex bindIndex;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
             if(!resRef)
               break;
 
-            BindingSlot binding(resRef->resourceBase.regBase, resRef->resourceBase.space);
+            BindingSlot binding(resRef->resourceBase.regBase + bindIndex.arrayElement,
+                                resRef->resourceBase.space);
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
             const char *opString = ToStr(dxOpCode).c_str();
@@ -1528,12 +1532,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::TextureGather:
           case DXOp::TextureGatherCmp:
           {
-            rdcstr handleId = GetArgumentName(1);
-            const ResourceReference *resRef = GetResource(handleId);
+            Id handleId = GetArgumentId(1);
+            ShaderBindIndex bindIndex;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
             if(!resRef)
               break;
 
-            PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRef, apiWrapper, inst, result);
+            PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRef, bindIndex, apiWrapper, inst,
+                                 result);
             eventFlags |= ShaderEvents::SampleLoadGather;
             break;
           }
@@ -1550,8 +1556,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
             // RawBufferLoad(srv,index,elementOffset,mask,alignment)
             // RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
-            rdcstr handleId = GetArgumentName(1);
-            const ResourceReference *resRef = GetResource(handleId);
+            Id handleId = GetArgumentId(1);
+            ShaderBindIndex bindIndex;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
             if(!resRef)
               break;
 
@@ -1559,7 +1566,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // SRV TextureLoad is done on the GPU
             if((dxOpCode == DXOp::TextureLoad) && (resClass == ResourceClass::SRV))
             {
-              PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRef, apiWrapper, inst, result);
+              PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRef, bindIndex, apiWrapper,
+                                   inst, result);
               eventFlags |= ShaderEvents::SampleLoadGather;
               break;
             }
@@ -1809,10 +1817,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // CreateHandleFromBinding(bind,index,nonUniformIndex)
             rdcstr baseResource = result.name;
             result.name.clear();
+            uint32_t resIndexArgId = ~0U;
             if(dxOpCode == DXOp::AnnotateHandle)
               baseResource = GetArgumentName(1);
+            else if(dxOpCode == DXOp::CreateHandle)
+              resIndexArgId = 3;
+            else if(dxOpCode == DXOp::CreateHandleFromBinding)
+              resIndexArgId = 2;
+            else
+              RDCERR("Unhandled DXOp %s", ToStr(dxOpCode).c_str());
 
-            const ResourceReference *resRef = m_Program.GetResourceReference(baseResource);
+            const ResourceReference *resRef = m_Program.GetResourceReference(resultId);
             if(resRef)
             {
               const rdcarray<ShaderVariable> *list = NULL;
@@ -1843,35 +1858,41 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               recordChange = false;
               if(result.name.isEmpty())
               {
-                // TODO: support for dynamic handles i.e. array lookups
-                RDCERR("Unhandled dynamic handle %s", resName.c_str());
-                // Need to make a shader variable for the return : it needs to have a binding point
-                // DescriptorCategory category;
-                // uint32_t index;
-                // uint32_t arrayElement = 0;
-                // result.SetBindIndex(ShaderBindIndex(category, index, arrayElement));
+                if(resIndexArgId < inst.args.size())
+                {
+                  // Make the ShaderVariable to represent the dynamic binding
+                  // The base binding exists : array index is in argument "resIndexArgId"
+                  ShaderVariable arg;
+                  RDCASSERT(GetShaderVariable(inst.args[resIndexArgId], opCode, dxOpCode, arg));
+                  uint32_t arrayIndex = arg.value.u32v[0];
+                  bool isSRV = (resRef->resourceBase.resClass == ResourceClass::SRV);
+                  DescriptorCategory category = isSRV ? DescriptorCategory::ReadOnlyResource
+                                                      : DescriptorCategory::ReadWriteResource;
+                  result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
+                  baseResource = result.name = baseResource;
+                }
+                else
+                {
+                  RDCERR("Unhandled dynamic handle %s with invalid resIndexArgId", resName.c_str(),
+                         resIndexArgId);
+                }
               }
             }
             else
             {
-              RDCERR("Base Resource not found %s", baseResource.c_str());
+              RDCERR("Unknown Base Resource %s", baseResource.c_str());
             }
             break;
           }
           case DXOp::CBufferLoadLegacy:
           {
             // CBufferLoadLegacy(handle,regIndex)
-            // Need to find the resource
-            rdcstr handleName = GetArgumentName(1);
-            const ResourceReference *resRef = GetResource(handleName);
-            if(!resRef)
-              break;
+            Id handleId = GetArgumentId(1);
 
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
             uint32_t regIndex = arg.value.u32v[0];
 
-            Id handleId = GetArgumentId(1);
             RDCASSERT(m_Live.contains(handleId));
             auto itVar = m_LiveVariables.find(handleId);
             RDCASSERT(itVar != m_LiveVariables.end());
@@ -3899,8 +3920,9 @@ bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, 
 bool ThreadState::GetVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
 {
   RDCASSERT(m_Live.contains(id));
-  RDCASSERTEQUAL(m_LiveVariables.count(id), 1);
-  var = m_LiveVariables.at(id);
+  auto it = m_LiveVariables.find(id);
+  RDCASSERT(it != m_LiveVariables.end());
+  var = it->second;
 
   bool flushDenorm = OperationFlushing(op, dxOpCode);
   if(var.type == VarType::Double)
@@ -3934,39 +3956,32 @@ void ThreadState::SetResult(const Id &id, ShaderVariable &result, Operation op, 
   }
 }
 
-void ThreadState::MarkResourceAccess(const rdcstr &name, const DXIL::ResourceReference *resRef)
+void ThreadState::MarkResourceAccess(const rdcstr &name, const ShaderBindIndex &bindIndex)
 {
   if(m_State == NULL)
     return;
 
-  ResourceClass resClass = resRef->resourceBase.resClass;
-  if(resClass != ResourceClass::UAV && resClass != ResourceClass::SRV)
+  if(bindIndex.category != DescriptorCategory::ReadOnlyResource &&
+     bindIndex.category != DescriptorCategory::ReadWriteResource)
     return;
 
-  bool isSRV = (resClass == ResourceClass::SRV);
+  bool isSRV = (bindIndex.category == DescriptorCategory::ReadOnlyResource);
+
   m_State->changes.push_back(ShaderVariableChange());
+
   ShaderVariableChange &change = m_State->changes.back();
   change.after.rows = change.after.columns = 1;
   change.after.type = isSRV ? VarType::ReadOnlyResource : VarType::ReadWriteResource;
-
-  const DXIL::EntryPointInterface::ResourceBase &resourceBase = resRef->resourceBase;
+  change.after.SetBindIndex(bindIndex);
+  // The resource name will already have the array index appended to it (perhaps unresolved)
   change.after.name = name;
-  // TODO: find the array index
-  uint32_t arrayIdx = 0;
-  if(resourceBase.regCount > 1)
-    change.after.name += StringFormat::Fmt("[%u]", arrayIdx);
-
-  change.after.SetBindIndex(ShaderBindIndex(
-      isSRV ? DescriptorCategory::ReadOnlyResource : DescriptorCategory::ReadWriteResource,
-      resRef->resourceIndex, arrayIdx));
 
   // Check whether this resource was visited before
   bool found = false;
-  ShaderBindIndex bp = change.after.GetBindIndex();
   rdcarray<ShaderBindIndex> &accessed = isSRV ? m_accessedSRVs : m_accessedUAVs;
   for(size_t i = 0; i < accessed.size(); ++i)
   {
-    if(accessed[i] == bp)
+    if(accessed[i] == bindIndex)
     {
       found = true;
       break;
@@ -3976,7 +3991,7 @@ void ThreadState::MarkResourceAccess(const rdcstr &name, const DXIL::ResourceRef
   if(found)
     change.before = change.after;
   else
-    accessed.push_back(bp);
+    accessed.push_back(bindIndex);
 }
 
 void ThreadState::AllocateMemoryForType(const DXIL::Type *type, Id allocId, ShaderVariable &var)
@@ -4030,8 +4045,8 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
 
 void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, Operation opCode,
                                        DXOp dxOpCode, const DXIL::ResourceReference *resRef,
-                                       DebugAPIWrapper *apiWrapper, const DXIL::Instruction &inst,
-                                       ShaderVariable &result)
+                                       const ShaderBindIndex &bindIndex, DebugAPIWrapper *apiWrapper,
+                                       const DXIL::Instruction &inst, ShaderVariable &result)
 {
   // TextureLoad(srv,mipLevelOrSampleCount,coord0,coord1,coord2,offset0,offset1,offset2)
   // Sample(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,clamp)
@@ -4070,7 +4085,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
   resourceData.sampleCount = srv.sampleCount;
 
   resourceData.binding.registerSpace = resRef->resourceBase.space;
-  resourceData.binding.shaderRegister = resRef->resourceBase.regBase;
+  resourceData.binding.shaderRegister = resRef->resourceBase.regBase + bindIndex.arrayElement;
 
   ShaderVariable uv;
   int8_t texelOffsets[3] = {0, 0, 0};
@@ -4117,8 +4132,9 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
   else
   {
     // Sampler is in arg 2
-    rdcstr samplerId = GetArgumentName(2);
-    const ResourceReference *samplerRef = GetResource(samplerId);
+    Id samplerId = GetArgumentId(2);
+    ShaderBindIndex samplerBindIndex;
+    const DXIL::ResourceReference *samplerRef = GetResource(samplerId, samplerBindIndex);
     if(!samplerRef)
       return;
 
@@ -4127,7 +4143,8 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     const DXIL::EntryPointInterface::Sampler &sampler = samplerRef->resourceBase.samplerData;
     samplerData.bias = 0.0f;
     samplerData.binding.registerSpace = samplerRef->resourceBase.space;
-    samplerData.binding.shaderRegister = samplerRef->resourceBase.regBase;
+    samplerData.binding.shaderRegister =
+        samplerRef->resourceBase.regBase + samplerBindIndex.arrayElement;
     samplerData.mode = ConvertSamplerKindToSamplerMode(sampler.samplerType);
 
     int32_t biasArg = -1;
@@ -4304,23 +4321,30 @@ rdcstr ThreadState::GetArgumentName(uint32_t i) const
   return m_Program.GetArgId(*m_CurrentInstruction, i);
 }
 
-Id ThreadState::GetArgumentId(uint32_t i) const
+DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
 {
   DXIL::Value *arg = m_CurrentInstruction->args[i];
   return GetSSAId(arg);
 }
 
-const DXIL::ResourceReference *ThreadState::GetResource(rdcstr handle)
+const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindIndex &bindIndex)
 {
-  const DXIL::ResourceReference *resRef = m_Program.GetResourceReference(handle);
-  if(resRef)
+  RDCASSERT(m_Live.contains(handleId));
+  auto it = m_LiveVariables.find(handleId);
+  if(it != m_LiveVariables.end())
   {
-    rdcstr alias = m_Program.GetHandleAlias(handle);
-    MarkResourceAccess(alias, resRef);
-    return resRef;
+    const ShaderVariable &var = m_LiveVariables.at(handleId);
+    const DXIL::ResourceReference *resRef = m_Program.GetResourceReference(handleId);
+    if(resRef)
+    {
+      rdcstr alias = m_Program.GetHandleAlias(resRef->handleID);
+      bindIndex = var.GetBindIndex();
+      MarkResourceAccess(alias, bindIndex);
+      return resRef;
+    }
   }
 
-  RDCERR("Unknown resource handle '%s'", handle.c_str());
+  RDCERR("Unknown resource handle %u", handleId);
   return NULL;
 }
 
@@ -5535,6 +5559,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     for(uint32_t i = 0; i < list.resources.size(); i++)
     {
       const ShaderResource &res = list.resources[i];
+      // Ignore arrays the debugger execution will mark specific array elements used
+      if(res.bindArraySize > 1)
+        continue;
 
       // Fetch the resource name
       BindingSlot slot(res.fixedBindNumber, res.fixedBindSetOrSpace);

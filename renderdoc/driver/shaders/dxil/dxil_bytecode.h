@@ -1617,7 +1617,7 @@ protected:
   uint32_t GetMetaSlot(const DebugLocation *l) const;
   void AssignMetaSlot(rdcarray<Metadata *> &metaSlots, uint32_t &nextMetaSlot, DebugLocation &l);
 
-  const ResourceReference *GetResourceReference(const rdcstr &handleStr) const;
+  const ResourceReference *GetResourceReference(const DXILDebug::Id handleId) const;
   rdcstr GetHandleAlias(const rdcstr &handleStr) const;
   static DXILDebug::Id GetResultSSAId(const DXIL::Instruction &inst);
   static void MakeResultId(const Instruction &inst, rdcstr &resultId);
@@ -1693,7 +1693,7 @@ protected:
   rdcstr m_Triple, m_Datalayout;
 
   rdcarray<EntryPointInterface> m_EntryPointInterfaces;
-  std::map<rdcstr, size_t> m_ResourceHandles;
+  std::map<DXILDebug::Id, size_t> m_ResourceByIdHandles;
   std::map<rdcstr, rdcstr> m_SsaAliases;
   std::map<rdcstr, uint32_t> m_ResourceAnnotateCounts;
   rdcarray<LocalSourceVariable> m_Locals;

@@ -2076,12 +2076,13 @@ void Program::GetLocals(const DXBC::DXBCContainer *dxbc, size_t instruction, uin
   }
 }
 
-const ResourceReference *Program::GetResourceReference(const rdcstr &handleStr) const
+const ResourceReference *Program::GetResourceReference(const DXILDebug::Id handleId) const
 {
-  if(m_ResourceHandles.count(handleStr) > 0)
+  auto it = m_ResourceByIdHandles.find(handleId);
+  if(it != m_ResourceByIdHandles.end())
   {
-    size_t resRefIndex = m_ResourceHandles.find(handleStr)->second;
-    if(resRefIndex < m_ResourceHandles.size())
+    size_t resRefIndex = it->second;
+    if(resRefIndex < m_ResourceReferences.size())
     {
       return &m_ResourceReferences[resRefIndex];
     }

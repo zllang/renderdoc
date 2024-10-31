@@ -3189,6 +3189,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
         }
         rdcstr resultIdStr;
         MakeResultId(inst, resultIdStr);
+        DXILDebug::Id resultId = GetResultSSAId(inst);
 
         bool showDxFuncName = false;
         rdcstr commentStr;
@@ -3299,7 +3300,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                     nonUniformIndexArgId = 3;
                   }
 
-                  const ResourceReference *resRef = GetResourceReference(resultIdStr);
+                  const ResourceReference *resRef = GetResourceReference(resultId);
                   if(resRef)
                   {
                     uint32_t index = 0;
@@ -3534,8 +3535,9 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                 {
                   // CBufferLoad(handle,byteOffset,alignment)
                   // CBufferLoadLegacy(handle,regIndex)
+                  DXILDebug::Id handleId = GetSSAId(inst.args[1]);
+                  const ResourceReference *resRef = GetResourceReference(handleId);
                   rdcstr handleStr = GetArgId(inst, 1);
-                  const ResourceReference *resRef = GetResourceReference(handleStr);
                   bool useFallback = true;
                   if(entryPoint && resRef)
                   {
@@ -3683,8 +3685,9 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                 case DXOp::TextureLoad:
                 {
                   // TextureLoad(srv,mipLevelOrSampleCount,coord0,coord1,coord2,offset0,offset1,offset2)
+                  DXILDebug::Id handleId = GetSSAId(inst.args[1]);
+                  const ResourceReference *resRef = GetResourceReference(handleId);
                   rdcstr handleStr = GetArgId(inst, 1);
-                  const ResourceReference *resRef = GetResourceReference(handleStr);
                   uint32_t sampleCount = 0;
                   if(entryPoint && resRef)
                   {
@@ -4928,6 +4931,7 @@ void Program::ParseReferences(const DXBC::Reflection *reflection)
           {
             rdcstr resultIdStr;
             MakeResultId(inst, resultIdStr);
+            DXILDebug::Id resultId = GetResultSSAId(inst);
 
             DXOp dxOpCode = DXOp::NumOpCodes;
             RDCASSERT(getival<DXOp>(inst.args[0], dxOpCode));
@@ -5085,9 +5089,9 @@ void Program::ParseReferences(const DXBC::Reflection *reflection)
 
                 if(resourceBase)
                 {
-                  RDCASSERT(!GetResourceReference(resultIdStr));
+                  RDCASSERT(!GetResourceReference(resultId));
                   ResourceReference resRef(resultIdStr, *resourceBase, resIndex);
-                  m_ResourceHandles[resultIdStr] = m_ResourceHandles.size();
+                  m_ResourceByIdHandles[resultId] = m_ResourceByIdHandles.size();
                   m_ResourceReferences.push_back(resRef);
                   resName = resourceBase->name;
                   uint32_t index = 0;
@@ -5137,13 +5141,14 @@ void Program::ParseReferences(const DXBC::Reflection *reflection)
 
                 // If the underlying handle points to a known resource then duplicate the resource
                 // and register it as resultIdStr
+                DXILDebug::Id handleId = GetSSAId(inst.args[1]);
+                const ResourceReference *resRef = GetResourceReference(handleId);
                 rdcstr baseResource = GetArgId(inst, 1);
-                const ResourceReference *resRef = GetResourceReference(baseResource);
                 rdcstr resBaseName = "typed_descriptor";
                 if(resRef)
                 {
                   resBaseName = resRef->resourceBase.name;
-                  m_ResourceHandles[resultIdStr] = m_ResourceHandles.size();
+                  m_ResourceByIdHandles[resultId] = m_ResourceByIdHandles.size();
                   m_ResourceReferences.push_back(*resRef);
                 }
                 uint32_t annotateHandleCount = m_ResourceAnnotateCounts[resBaseName];

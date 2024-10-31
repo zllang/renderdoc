@@ -146,12 +146,12 @@ struct ThreadState
   bool Finished() const;
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroups);
 
-  void MarkResourceAccess(const rdcstr &name, const DXIL::ResourceReference *resRef);
+  void MarkResourceAccess(const rdcstr &name, const ShaderBindIndex &bindIndex);
   void SetResult(const Id &id, ShaderVariable &result, DXIL::Operation op, DXIL::DXOp dxOpCode,
                  ShaderEvents flags);
   rdcstr GetArgumentName(uint32_t i) const;
   Id GetArgumentId(uint32_t i) const;
-  const DXIL::ResourceReference *GetResource(rdcstr handle);
+  const DXIL::ResourceReference *GetResource(Id handleId, ShaderBindIndex &bindIndex);
   bool GetShaderVariable(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                          ShaderVariable &var, bool flushDenormInput = true) const;
   bool GetVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
@@ -162,8 +162,8 @@ struct ThreadState
 
   void PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, DXIL::Operation opCode,
                             DXIL::DXOp dxOpCode, const DXIL::ResourceReference *resRef,
-                            DebugAPIWrapper *apiWrapper, const DXIL::Instruction &inst,
-                            ShaderVariable &result);
+                            const ShaderBindIndex &bindIndex, DebugAPIWrapper *apiWrapper,
+                            const DXIL::Instruction &inst, ShaderVariable &result);
   void Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderValue &ret) const;
 
   ShaderValue DDX(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
