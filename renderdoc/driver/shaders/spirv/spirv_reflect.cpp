@@ -1035,9 +1035,6 @@ void Reflector::MakeReflection(const GraphicsAPI sourceAPI, const ShaderStage st
   if(!cmdline.empty())
     reflection.debugInfo.compileFlags.flags = {{"@cmdline", cmdline}};
 
-  reflection.debugInfo.compileFlags.flags.push_back(
-      {"@spirver", StringFormat::Fmt("spirv%d.%d", m_MajorVersion, m_MinorVersion)});
-
   reflection.debugInfo.entrySourceName = entryPoint;
 
   {
@@ -1054,6 +1051,9 @@ void Reflector::MakeReflection(const GraphicsAPI sourceAPI, const ShaderStage st
         reflection.debugInfo.editBaseFile = (int32_t)debugFuncToBaseFile[it->second];
     }
   }
+
+  reflection.debugInfo.compileFlags.flags.push_back(
+      {"@spirver", StringFormat::Fmt("spirv%d.%d", m_MajorVersion, m_MinorVersion)});
 
   PreprocessLineDirectives(reflection.debugInfo.files);
 
