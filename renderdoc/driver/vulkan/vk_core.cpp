@@ -3376,6 +3376,10 @@ RDResult WrappedVulkan::ContextReplayLog(CaptureState readType, uint32_t startEv
       {
         VkDebugUtilsObjectNameInfoEXT name = {VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
         name.pObjectName = it->second.c_str();
+
+        if(!GetResourceManager()->HasCurrentResource(it->first))
+          continue;
+
         WrappedVkRes *res = GetResourceManager()->GetCurrentResource(it->first);
 
         if(res)
