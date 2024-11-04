@@ -2376,6 +2376,10 @@ static void AddMeshShaderOutputStores(const ShaderReflection &refl,
       if(type.type == rdcspv::DataType::VectorType)
         byteSize = scalarAlign * type.vector().count;
 
+      // pad matrices up to 4-vector rows to keep things simple
+      if(type.type == rdcspv::DataType::MatrixType)
+        byteSize = type.matrix().count * scalarAlign * 4;
+
       stride = byteSize;
 
       uint32_t offset = 0;
@@ -2510,6 +2514,14 @@ static void AddMeshShaderOutputStores(const ShaderReflection &refl,
         RDCASSERT(typeDec.flags & rdcspv::Decorations::HasArrayStride);
         layout.sigLocations[i].offset += typeDec.arrayStride * memberIdx;
         type = &editor.GetDataType(type->InnerType());
+        continue;
+      }
+
+      if(type->type == rdcspv::DataType::MatrixType)
+      {
+        const uint32_t scalarAlign = VarTypeByteSize(type->scalar().Type());
+        layout.sigLocations[i].offset += scalarAlign * 4 * memberIdx;
+        RDCASSERT(memberChain.empty());
         continue;
       }
 
