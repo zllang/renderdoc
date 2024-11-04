@@ -520,7 +520,7 @@ bool WrappedVulkan::PatchIndirectDraw(size_t drawIndex, uint32_t paramStride,
 
   action.drawIndex = (uint32_t)drawIndex;
 
-  if(type == VkIndirectPatchType::MeshIndirectCount)
+  if(type == VkIndirectPatchType::MeshIndirect || type == VkIndirectPatchType::MeshIndirectCount)
   {
     if(argptr && argptr + sizeof(VkDrawMeshTasksIndirectCommandEXT) <= argend)
     {
@@ -617,6 +617,12 @@ bool WrappedVulkan::PatchIndirectDraw(size_t drawIndex, uint32_t paramStride,
         sub->data.basic.u = action.indexOffset;
       if(SDObject *sub = command->FindChild("firstInstance"))
         sub->data.basic.u = action.instanceOffset;
+      if(SDObject *sub = command->FindChild("groupCountX"))
+        sub->data.basic.u = action.dispatchDimension[0];
+      if(SDObject *sub = command->FindChild("groupCountY"))
+        sub->data.basic.u = action.dispatchDimension[1];
+      if(SDObject *sub = command->FindChild("groupCountZ"))
+        sub->data.basic.u = action.dispatchDimension[2];
     }
   }
 
@@ -653,29 +659,10 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
       n.action.dispatchDimension[1] = args->y;
       n.action.dispatchDimension[2] = args->z;
     }
-    else if(n.indirectPatch.type == VkIndirectPatchType::MeshIndirect)
-    {
-      VkDrawMeshTasksIndirectCommandEXT unknown = {0};
-      bytebuf argbuf;
-      GetDebugManager()->GetBufferData(GetResID(n.indirectPatch.buf), 0, 0, argbuf);
-      VkDrawMeshTasksIndirectCommandEXT *args = (VkDrawMeshTasksIndirectCommandEXT *)&argbuf[0];
-
-      if(argbuf.size() < sizeof(VkDrawMeshTasksIndirectCommandEXT))
-      {
-        RDCERR("Couldn't fetch arguments buffer for vkCmdDrawMeshTasksIndirectEXT");
-        args = &unknown;
-      }
-
-      n.action.customName =
-          StringFormat::Fmt("vkCmdDrawMeshTasksIndirectEXT(<%u, %u, %u>)", args->groupCountX,
-                            args->groupCountY, args->groupCountZ);
-      n.action.dispatchDimension[0] = args->groupCountX;
-      n.action.dispatchDimension[1] = args->groupCountY;
-      n.action.dispatchDimension[2] = args->groupCountZ;
-    }
     else if(n.indirectPatch.type == VkIndirectPatchType::DrawIndirectByteCount ||
             n.indirectPatch.type == VkIndirectPatchType::DrawIndirect ||
             n.indirectPatch.type == VkIndirectPatchType::DrawIndexedIndirect ||
+            n.indirectPatch.type == VkIndirectPatchType::MeshIndirect ||
             n.indirectPatch.type == VkIndirectPatchType::DrawIndirectCount ||
             n.indirectPatch.type == VkIndirectPatchType::DrawIndexedIndirectCount ||
             n.indirectPatch.type == VkIndirectPatchType::MeshIndirectCount)
@@ -843,7 +830,8 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
 
           name = GetStructuredFile()->chunks[n2.action.events.back().chunkIndex]->name;
 
-          if(n.indirectPatch.type == VkIndirectPatchType::MeshIndirectCount)
+          if(n.indirectPatch.type == VkIndirectPatchType::MeshIndirect ||
+             n.indirectPatch.type == VkIndirectPatchType::MeshIndirectCount)
           {
             if(valid)
               n2.action.customName = StringFormat::Fmt(
