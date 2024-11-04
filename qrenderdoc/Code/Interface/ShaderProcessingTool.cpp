@@ -279,7 +279,7 @@ ShaderToolOutput ShaderProcessingTool::DisassembleShader(QWidget *window,
       arg = output_file = tmpPath(lit("shader_output"));
     if(arg == lit("{entry_point}"))
     {
-      arg = shaderDetails->debugInfo.entrySourceName;
+      arg = shaderDetails->entryPoint;
       if(arg.isEmpty())
         arg = lit("main");
     }
