@@ -1157,6 +1157,9 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
 
   for(const PSInputData &psInput : psInputs)
   {
+    if(!psInput.included)
+      continue;
+
     const int input = psInput.input;
     const int numWords = psInput.numwords;
     if(destIdx == 0)
@@ -1176,6 +1179,8 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
 
   for(const PSInputData &psInput : psInputs)
   {
+    if(!psInput.included)
+      continue;
     const int input = psInput.input;
     const int numWords = psInput.numwords;
     if(destIdx == 0)
@@ -1192,6 +1197,8 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
 
   for(const PSInputData &psInput : psInputs)
   {
+    if(!psInput.included)
+      continue;
     const int input = psInput.input;
     const int numWords = psInput.numwords;
 
@@ -1207,6 +1214,8 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
 
   for(const PSInputData &psInput : psInputs)
   {
+    if(!psInput.included)
+      continue;
     const int input = psInput.input;
     const int numWords = psInput.numwords;
 
