@@ -321,6 +321,13 @@ bool D3D12ShaderDebug::CalculateSampleGather(
        sampleOp == DEBUG_SAMPLE_TEX_GATHER4_CMP || sampleOp == DEBUG_SAMPLE_TEX_GATHER4_PO_CMP)
       samp.ptr += sizeof(D3D12Descriptor);
 
+    if((sampleOp == DEBUG_SAMPLE_TEX_SAMPLE_BIAS || sampleOp == DEBUG_SAMPLE_TEX_SAMPLE_CMP_BIAS) &&
+       samplerData.bias != 0.0f)
+    {
+      D3D12_SAMPLER_DESC2 desc = descriptor.GetSampler();
+      desc.MipLODBias = RDCCLAMP(desc.MipLODBias + samplerData.bias, -15.99f, 15.99f);
+      descriptor.Init(&desc);
+    }
     descriptor.Create(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, device, samp);
   }
 
