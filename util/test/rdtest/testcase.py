@@ -263,22 +263,28 @@ class TestCase:
 
     def _find_action(self, name: str, start_event: int, action_list):
         action: rd.ActionDescription
+        bestMatch = None
+        distance = 1000000
         for action in action_list:
             # If this action matches, return it
             if action.eventId >= start_event and (name == '' or name in self.action_name(action)):
-                return action
+                if action.eventId - start_event < distance:
+                    bestMatch = action
+                    distance = action.eventId - start_event
 
             # Recurse to children - depth-first search
             ret: rd.ActionDescription = self._find_action(name, start_event, action.children)
 
             # If we found our action, return
             if ret is not None:
-                return ret
+                if ret.eventId - start_event < distance:
+                    bestMatch = ret
+                    distance = ret.eventId - start_event
 
             # Otherwise continue to next in the list
 
         # If we didn't find anything, return None
-        return None
+        return bestMatch
 
     def find_action(self, name: str, start_event: int = 0):
         """
