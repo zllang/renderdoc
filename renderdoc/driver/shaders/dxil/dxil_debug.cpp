@@ -5850,8 +5850,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     ret->sourceVars.push_back(inputMapping);
   }
 
-  const rdcarray<SigParameter> &outParams = dxbcContainer->GetReflection()->OutputSig;
-  uint32_t countOutputs = (uint32_t)outParams.size();
+  const rdcarray<SigParameter> &dxbcOutParams = dxbcContainer->GetReflection()->OutputSig;
+  const rdcarray<EntryPointInterface::Signature> &outputs = m_EntryPointInterface->outputs;
+  uint32_t countOutputs = (uint32_t)outputs.size();
 
   // Make fake ShaderVariable struct to hold all the outputs
   ShaderVariable &outStruct = state.m_Output.var;
@@ -5862,72 +5863,73 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   outStruct.members.resize(countOutputs);
   state.m_Output.id = m_Program->m_NextSSAId;
 
-  for(uint32_t sigIdx = 0; sigIdx < countOutputs; sigIdx++)
+  for(uint32_t i = 0; i < countOutputs; ++i)
   {
-    const SigParameter &sig = outParams[sigIdx];
+    const EntryPointInterface::Signature &sig = outputs[i];
 
+    ShaderVariable &v = outStruct.members[i];
+
+    // Get the name from the DXBC reflection
+    SigParameter sigParam;
+    if(FindSigParameter(dxbcOutParams, sig, sigParam))
+    {
+      v.name = sigParam.semanticIdxName;
+    }
+    else
+    {
+      v.name = sig.name;
+    }
+    v.rows = (uint8_t)sig.rows;
+    v.columns = (uint8_t)sig.cols;
+    v.type = VarTypeForComponentType(sig.type);
     // TODO: ShaderBuiltin::DepthOutput, ShaderBuiltin::DepthOutputLessEqual,
     // ShaderBuiltin::DepthOutputGreaterEqual, ShaderBuiltin::MSAACoverage,
     // ShaderBuiltin::StencilReference
-    ShaderVariable v;
-    v.name = sig.semanticIdxName;
-    v.rows = 1;
-    v.columns = (uint8_t)sig.compCount;
-    v.type = sig.varType;
 
-    ShaderVariable &dst = outStruct.members[sigIdx];
-
-    if(dst.name.empty())
-      dst = v;
-    else
-      dst.columns = RDCMAX(dst.columns, v.columns);
-
+    // Map the high level variables to the Output DXBC Signature
     SourceVariableMapping outputMapping;
     outputMapping.name = v.name;
     outputMapping.type = v.type;
-    outputMapping.rows = 1;
-    outputMapping.columns = sig.compCount;
-    outputMapping.signatureIndex = sigIdx;
-    outputMapping.variables.reserve(sig.compCount);
-    for(uint32_t c = 0; c < 4; c++)
+    outputMapping.rows = sig.rows;
+    outputMapping.columns = sig.cols;
+    outputMapping.variables.reserve(sig.cols);
+    outputMapping.signatureIndex = i;
+    for(uint32_t c = 0; c < sig.cols; ++c)
     {
-      if(sig.regChannelMask & (1 << c))
-      {
-        DebugVariableReference ref;
-        ref.type = DebugVariableType::Variable;
-        ref.name = outStruct.name + "." + v.name;
-        ref.component = c;
-        outputMapping.variables.push_back(ref);
-      }
+      DebugVariableReference ref;
+      ref.type = DebugVariableType::Variable;
+      ref.name = outStruct.name + "." + v.name;
+      ref.component = c;
+      outputMapping.variables.push_back(ref);
     }
     ret->sourceVars.push_back(outputMapping);
 
     // TODO: handle the output of system values
-    if(false)
+    if(0)
     {
       SourceVariableMapping sourcemap;
 
-      if(sig.systemValue == ShaderBuiltin::DepthOutput)
+      if(sigParam.systemValue == ShaderBuiltin::DepthOutput)
       {
         sourcemap.name = "SV_Depth";
         sourcemap.type = VarType::Float;
       }
-      else if(sig.systemValue == ShaderBuiltin::DepthOutputLessEqual)
+      else if(sigParam.systemValue == ShaderBuiltin::DepthOutputLessEqual)
       {
         sourcemap.name = "SV_DepthLessEqual";
         sourcemap.type = VarType::Float;
       }
-      else if(sig.systemValue == ShaderBuiltin::DepthOutputGreaterEqual)
+      else if(sigParam.systemValue == ShaderBuiltin::DepthOutputGreaterEqual)
       {
         sourcemap.name = "SV_DepthGreaterEqual";
         sourcemap.type = VarType::Float;
       }
-      else if(sig.systemValue == ShaderBuiltin::MSAACoverage)
+      else if(sigParam.systemValue == ShaderBuiltin::MSAACoverage)
       {
         sourcemap.name = "SV_Coverage";
         sourcemap.type = VarType::UInt;
       }
-      else if(sig.systemValue == ShaderBuiltin::StencilReference)
+      else if(sigParam.systemValue == ShaderBuiltin::StencilReference)
       {
         sourcemap.name = "SV_StencilRef";
         sourcemap.type = VarType::UInt;
@@ -5936,7 +5938,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       // all these variables are 1 scalar component
       sourcemap.rows = 1;
       sourcemap.columns = 1;
-      sourcemap.signatureIndex = sigIdx;
+      sourcemap.signatureIndex = sig.startRow;
       DebugVariableReference ref;
       ref.type = DebugVariableType::Variable;
       ref.name = v.name;
