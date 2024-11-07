@@ -2284,14 +2284,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::UMul:
           case DXOp::UDiv:
           {
-            RDCASSERTEQUAL(inst.args[0]->type->type, Type::TypeKind::Scalar);
-            RDCASSERTEQUAL(inst.args[0]->type->scalarType, Type::Int);
             RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
             RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
             ShaderVariable a;
             ShaderVariable b;
-            RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, a));
-            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, b));
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
             RDCASSERTEQUAL(a.type, b.type);
             const uint32_t c = 0;
 
