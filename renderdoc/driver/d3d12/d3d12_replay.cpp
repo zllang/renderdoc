@@ -822,19 +822,26 @@ void D3D12Replay::FillDescriptor(Descriptor &dst, const D3D12Descriptor *src)
 
         WrappedID3D12Resource *asRes = rm->GetCurrentAs<WrappedID3D12Resource>(asID);
 
-        // we *should* get an AS here
-        D3D12AccelerationStructure *as = NULL;
-        asRes->GetAccStructIfExist(dst.byteOffset, &as);
-
-        if(as)
+        if(asRes)
         {
-          dst.resource = rm->GetOriginalID(as->GetResourceID());
-          dst.byteOffset = 0;
-          dst.byteSize = as->Size();
+          // we *should* get an AS here
+          D3D12AccelerationStructure *as = NULL;
+          asRes->GetAccStructIfExist(dst.byteOffset, &as);
+
+          if(as)
+          {
+            dst.resource = rm->GetOriginalID(as->GetResourceID());
+            dst.byteOffset = 0;
+            dst.byteSize = as->Size();
+          }
+          else
+          {
+            dst.resource = rm->GetOriginalID(asID);
+          }
         }
         else
         {
-          dst.resource = rm->GetOriginalID(asID);
+          dst.resource = ResourceId();
         }
       }
       else if(srv.ViewDimension == D3D12_SRV_DIMENSION_TEXTURE1D)
