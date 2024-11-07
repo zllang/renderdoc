@@ -89,6 +89,9 @@
 #include "d3d12_replay.h"
 #include "d3d12_shader_cache.h"
 
+const uint32_t D3D12_PIXEL_HISTORY_MIN_EVENTS_TO_STORE = 128;
+const uint32_t D3D12_PIXEL_HISTORY_MIN_FRAGMENTS_TO_STORE = 256;
+
 struct D3D12CopyPixelParams
 {
   // The image being copied from
@@ -2096,9 +2099,17 @@ struct D3D12PixelHistoryPerFragmentCallback : D3D12PixelHistoryCallback
 
     rdcarray<D3D12Descriptor> origRts = state.rts;
 
+    uint32_t maxFrags =
+        (UINT)(m_CallbackInfo.dstBuffer->GetDesc().Width / sizeof(D3D12PerFragmentInfo));
     // Get primitive ID and shader output value for each fragment.
     for(uint32_t f = 0; f < numFragmentsInEvent; f++)
     {
+      if(fragsProcessed + numFragmentsInEvent > maxFrags)
+      {
+        RDCERR("Pixel History exceeded maximum number of fragments to process Max %d %d %d",
+               maxFrags, fragsProcessed, numFragmentsInEvent);
+        break;
+      }
       for(uint32_t i = 0; i < 2; i++)
       {
         uint32_t storeOffset = (fragsProcessed + f) * sizeof(D3D12PerFragmentInfo);
@@ -2187,6 +2198,13 @@ struct D3D12PixelHistoryPerFragmentCallback : D3D12PixelHistoryCallback
     // For every fragment except the last one, retrieve post-modification value.
     for(uint32_t f = 0; f < numFragmentsInEvent - 1; ++f)
     {
+      if(fragsProcessed + numFragmentsInEvent > maxFrags)
+      {
+        RDCERR("Pixel History exceeded maximum number of fragments to process Max %d %d %d",
+               maxFrags, fragsProcessed, numFragmentsInEvent);
+        break;
+      }
+
       D3D12MarkerRegion region(cmd,
                                StringFormat::Fmt("Getting postmod for fragment %u in %u", f, eid));
 
@@ -2715,7 +2733,15 @@ bool D3D12DebugManager::PixelHistorySetupResources(D3D12PixelHistoryResources &r
   bufDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
   bufDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-  bufDesc.Width = AlignUp((uint32_t)(numEvents * sizeof(D3D12EventInfo)), 4096U);
+  numEvents = RDCMAX(numEvents, D3D12_PIXEL_HISTORY_MIN_EVENTS_TO_STORE);
+  uint32_t bufferEventsSize = numEvents * sizeof(D3D12EventInfo);
+
+  uint32_t numFragments = D3D12_PIXEL_HISTORY_MIN_FRAGMENTS_TO_STORE;
+  uint32_t bufferFragmentsSize = numFragments * sizeof(D3D12PerFragmentInfo);
+
+  uint32_t bufferSize = RDCMAX(bufferEventsSize, bufferFragmentsSize);
+
+  bufDesc.Width = AlignUp(bufferSize, 4096U);
 
   hr = m_pDevice->CreateCommittedResource(&readbackHeapProps, D3D12_HEAP_FLAG_NONE, &bufDesc,
                                           D3D12_RESOURCE_STATE_COPY_DEST, NULL,
