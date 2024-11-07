@@ -24,6 +24,8 @@
 
 #pragma once
 
+#include <map>
+
 namespace DXBC
 {
 enum ResourceRetType;
@@ -67,7 +69,8 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
                                        const rdcarray<DXBC::InterpolationMode> &interpModes,
                                        rdcarray<PSInputElement> &initialValues,
                                        rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &inputVarNames,
-                                       rdcstr &psInputDefinition, int &structureStride);
+                                       rdcstr &psInputDefinition, int &structureStride,
+                                       std::map<ShaderBuiltin, rdcstr> &usedInputs);
 
 enum class GatherChannel : uint8_t
 {

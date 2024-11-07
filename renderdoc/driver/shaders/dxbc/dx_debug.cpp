@@ -33,7 +33,8 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
                                        const rdcarray<DXBC::InterpolationMode> &interpModes,
                                        rdcarray<PSInputElement> &initialValues,
                                        rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &inputVarNames,
-                                       rdcstr &psInputDefinition, int &structureStride)
+                                       rdcstr &psInputDefinition, int &structureStride,
+                                       std::map<ShaderBuiltin, rdcstr> &usedInputs)
 {
   // When debugging a pixel shader, we need to get the initial values of each pixel shader
   // input for the pixel that we are debugging, from whichever the previous shader stage was
@@ -54,6 +55,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
   if(stageInputSig.empty())
   {
     psInputDefinition += "float4 input_dummy : SV_Position;\n";
+    usedInputs[ShaderBuiltin::Position] = "input_dummy";
 
     initialValues.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
 
@@ -276,12 +278,15 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
       }
     }
 
-    psInputDefinition += ToStr((uint32_t)numCols) + " input_" + name;
+    rdcstr inputName = "input_" + name;
+    psInputDefinition += ToStr((uint32_t)numCols) + " " + inputName;
     if(arrayLength > 0)
       psInputDefinition += "[" + ToStr(arrayLength) + "]";
     psInputDefinition += " : " + name;
+    if(sig.systemValue != ShaderBuiltin::Undefined)
+      usedInputs[sig.systemValue] = inputName;
 
-    inputVarNames[i] = "input_" + name;
+    inputVarNames[i] = inputName;
     if(arrayLength > 0)
       inputVarNames[i] += StringFormat::Fmt("[%d]", RDCMAX(0, arrayIndex));
 

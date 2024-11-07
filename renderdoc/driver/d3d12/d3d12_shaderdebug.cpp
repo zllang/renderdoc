@@ -2298,9 +2298,10 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   else
     DXILDebug::GetInterpolationModeForInputParams(inputSig, dxbc->GetDXILByteCode(), interpModes);
 
+  std::map<ShaderBuiltin, rdcstr> usedInputs;    // only used for DXIL
   DXDebug::GatherPSInputDataForInitialValues(inputSig, prevDxbc->GetReflection()->OutputSig,
                                              interpModes, initialValues, floatInputs, inputVarNames,
-                                             extractHlsl, structureStride);
+                                             extractHlsl, structureStride, usedInputs);
 
   uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
 
@@ -2467,17 +2468,17 @@ struct PSInitialData
   // The semantics that RenderDoc requires in the shader
   bool inputHas_SV_Position = false;
   bool inputHas_SV_PrimitiveID = false;
-  bool inputHas_SV_SampleIndex = false;
-  bool inputHas_SV_Coverage = false;
-  bool inputHas_SV_IsFrontFace = false;
   // SV_Coverage, SV_IsFrontFace, SV_SampleIndex : are not in the input structure, see
   // GatherPSInputDataForInitialValues
+  bool inputHas_SV_Coverage = false;
+  bool inputHas_SV_IsFrontFace = false;
+  bool inputHas_SV_SampleIndex = false;
 
   // DXC compiler errors if a semantic input is declared in multiple places
   if(dxbc->GetDXILByteCode())
   {
-    inputHas_SV_Position = extractHlsl.contains(": SV_Position");
-    inputHas_SV_PrimitiveID = extractHlsl.contains(": SV_PrimitiveID");
+    inputHas_SV_Position = usedInputs.count(ShaderBuiltin::Position) > 0;
+    inputHas_SV_PrimitiveID = usedInputs.count(ShaderBuiltin::PrimitiveIndex) > 0;
   }
 
   extractHlsl += "void ExtractInputsPS(PSInput IN";
@@ -2496,9 +2497,9 @@ struct PSInitialData
 
   // Only used for DXIL shaders: copy any SV inputs we need from the input structure
   if(inputHas_SV_Position)
-    extractHlsl += "  float4 debug_pixelPos = IN.input_SV_Position;\n";
+    extractHlsl += "  float4 debug_pixelPos = IN." + usedInputs[ShaderBuiltin::Position] + ";\n";
   if(usePrimitiveID && inputHas_SV_PrimitiveID)
-    extractHlsl += "  uint prim = IN.input_SV_PrimitiveID;\n";
+    extractHlsl += "  uint prim = IN." + usedInputs[ShaderBuiltin::PrimitiveIndex] + ";\n";
 
   extractHlsl += "  uint idx = " + ToStr(overdrawLevels) + ";\n";
   extractHlsl += StringFormat::Fmt(

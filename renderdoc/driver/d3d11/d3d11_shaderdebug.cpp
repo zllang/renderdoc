@@ -1884,9 +1884,10 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   const rdcarray<SigParameter> &inputSig = dxbc->GetReflection()->InputSig;
   DXBCDebug::GetInterpolationModeForInputParams(inputSig, dxbc->GetDXBCByteCode(), interpModes);
 
+  std::map<ShaderBuiltin, rdcstr> usedInputs;    // not used for D3D11
   DXDebug::GatherPSInputDataForInitialValues(inputSig, prevdxbc->GetReflection()->OutputSig,
                                              interpModes, initialValues, floatInputs, inputVarNames,
-                                             extractHlsl, structureStride);
+                                             extractHlsl, structureStride, usedInputs);
 
   uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
 
