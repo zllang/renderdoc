@@ -3872,6 +3872,11 @@ bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, 
     }
     else if(c->isUndef())
     {
+      if(c->op == Operation::NoOp)
+      {
+        var.value.u64v[0] = 0;
+        return true;
+      }
       return false;
     }
     else if(c->isData())
