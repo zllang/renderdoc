@@ -2322,6 +2322,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             break;
           }
+          case DXOp::Discard:
+          {
+            ShaderVariable cond;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, cond));
+            if(cond.value.u32v[0] != 0)
+            {
+              m_Killed = true;
+              return true;
+            }
+            break;
+          }
           case DXOp::TempRegLoad:
           case DXOp::TempRegStore:
           case DXOp::MinPrecXRegLoad:
@@ -2341,7 +2352,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
           case DXOp::CalculateLOD:
-          case DXOp::Discard:
           case DXOp::DerivFineX:
           case DXOp::DerivFineY:
           case DXOp::EvalSnapped:
@@ -2524,7 +2534,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::NoOp: return false;
     case Operation::Unreachable:
     {
-      // TODO: DXOP::Discard might behave similarly
       m_Killed = true;
       RDCERR("Operation::Unreachable reached, terminating debugging!");
       return true;

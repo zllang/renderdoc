@@ -1802,7 +1802,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::AtomicBinOp:
               case DXOp::AtomicCompareExchange:
               case DXOp::CalculateLOD:
-              case DXOp::Discard:
               case DXOp::DerivFineX:
               case DXOp::DerivFineY:
               case DXOp::EvalSnapped:
