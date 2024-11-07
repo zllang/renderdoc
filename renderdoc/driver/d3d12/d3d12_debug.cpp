@@ -2154,6 +2154,10 @@ void D3D12DebugManager::GetBufferData(ID3D12Resource *buffer, uint64_t offset, u
 
   ret.resize((size_t)length);
 
+  WrappedID3D12Resource *wrapped = (WrappedID3D12Resource *)buffer;
+  if(wrapped->IsAccelerationStructureResource())
+    return;
+
   // directly CPU mappable (and possibly invalid to transition and copy from), so just memcpy
   if(heapProps.Type == D3D12_HEAP_TYPE_UPLOAD || heapProps.Type == D3D12_HEAP_TYPE_READBACK)
   {
