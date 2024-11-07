@@ -59,7 +59,7 @@ class Iter_Test(rdtest.TestCase):
             rdtest.log.print("No vertex shader bound at {}".format(action.eventId))
             return
 
-        if not (action.flags & rd.ActionFlags.Drawcall):
+        if not (action.flags & rd.ActionFlags.Drawcall) and action.drawIndex == 0:
             rdtest.log.print("{} is not a debuggable action".format(action.eventId))
             return
 
@@ -214,8 +214,18 @@ class Iter_Test(rdtest.TestCase):
             mod = history[i]
             action = self.find_action('', mod.eventId)
 
-            if action is None or not (action.flags & rd.ActionFlags.Drawcall):
+            if action is None:
                 continue
+
+            if not(action.flags & rd.ActionFlags.Drawcall):
+                if action.drawIndex == 0:
+                    continue
+                if not(action.flags & rd.ActionFlags.Clea):
+                    continue
+                if not(action.flags & rd.ActionFlags.Copy):
+                    continue
+                if not(action.flags & rd.ActionFlags.Resolve):
+                    continue
 
             rdtest.log.print("  hit %d at %d (%s)" % (i, mod.eventId, str(action.flags)))
 
@@ -230,6 +240,11 @@ class Iter_Test(rdtest.TestCase):
 
             if not mod.shaderOut.IsValid():
                 rdtest.log.print("This hit's shader out is not valid, looking for one that valid....")
+                lastmod = None
+                continue
+
+            if mod.primitiveID == 0xffffffff:
+                rdtest.log.print("This hit's primitive ID is invalid, looking for one that is valid....")
                 lastmod = None
                 continue
 
