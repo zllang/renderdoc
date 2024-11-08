@@ -1138,6 +1138,8 @@ public:
 // add a std::hash overload so rdcstr can be used in hashmaps
 #ifdef RENDERDOC_EXPORTS
 
+#include <functional>
+
 // from string_utils.h
 uint32_t strhash(const char *str);
 
