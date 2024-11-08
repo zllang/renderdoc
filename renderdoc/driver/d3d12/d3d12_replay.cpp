@@ -30,6 +30,7 @@
 #include "driver/ihv/amd/amd_counters.h"
 #include "driver/ihv/amd/amd_rgp.h"
 #include "driver/ihv/nv/nv_d3d12_counters.h"
+#include "driver/shaders/dxbc/dxbc_common.h"
 #include "maths/camera.h"
 #include "maths/formatpacking.h"
 #include "maths/matrix.h"
@@ -71,6 +72,8 @@ void D3D12Replay::Shutdown()
   for(size_t i = 0; i < m_ProxyResources.size(); i++)
     m_ProxyResources[i]->Release();
   m_ProxyResources.clear();
+
+  DXBC::ResetSearchDirsCache();
 
   SAFE_DELETE(m_RGP);
 

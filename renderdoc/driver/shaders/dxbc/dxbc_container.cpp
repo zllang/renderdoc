@@ -25,6 +25,7 @@
 
 #include "dxbc_container.h"
 #include <algorithm>
+#include <unordered_map>
 #include "api/app/renderdoc_app.h"
 #include "common/common.h"
 #include "core/settings.h"
@@ -40,8 +41,56 @@
 // this is extern so that it can be shared with vulkan
 RDOC_EXTERN_CONFIG(rdcarray<rdcstr>, DXBC_Debug_SearchDirPaths);
 
+namespace
+{
+
+// lookup from plain filename -> absolute path of first result in search paths
+std::unordered_map<rdcstr, rdcstr> cachedDebugFilesLookup;
+
+void CacheSearchDirDebugPaths(rdcstr dir)
+{
+  rdcarray<PathEntry> entries;
+  FileIO::GetFilesInDirectory(dir, entries);
+
+  for(const PathEntry &e : entries)
+  {
+    if(e.flags & PathProperty::Directory)
+    {
+      CacheSearchDirDebugPaths(dir + "/" + e.filename);
+    }
+    else
+    {
+      // in case of abiguity if the same filename is found in multiple places, we pick the first match.
+      // We have not reverse engineered how PIX chooses one, and of course it is not documented
+      if(cachedDebugFilesLookup[e.filename] == "")
+        cachedDebugFilesLookup[e.filename] = dir + "/" + e.filename;
+    }
+  }
+}
+
+void CacheSearchDirDebugPaths()
+{
+  if(!cachedDebugFilesLookup.empty())
+    return;
+
+  rdcarray<rdcstr> searchPaths = DXBC_Debug_SearchDirPaths();
+
+  for(const rdcstr &base : searchPaths)
+    CacheSearchDirDebugPaths(base);
+
+  RDCLOG("Cached %zu debug files in %zu search paths", cachedDebugFilesLookup.size(),
+         searchPaths.size());
+}
+
+};
+
 namespace DXBC
 {
+void ResetSearchDirsCache()
+{
+  cachedDebugFilesLookup.clear();
+}
+
 rdcstr BasicDemangle(const rdcstr &possiblyMangledName)
 {
   if(possiblyMangledName.size() > 2 && possiblyMangledName[0] == '\x1' &&
@@ -1271,7 +1320,8 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
 
       // keep searching until we've exhausted all possible path options, or we've found a file that
       // opens
-      while(originalShaderFile == NULL && !originalPath.empty())
+      rdcstr tempPath = originalPath;
+      while(originalShaderFile == NULL && !tempPath.empty())
       {
         // while we haven't found a file, keep trying through the search paths. For i==0
         // check the path on its own, in case it's an absolute path.
@@ -1279,16 +1329,22 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
         {
           if(i == 0)
           {
-            originalShaderFile = FileIO::fopen(originalPath, FileIO::ReadBinary);
-            foundPath = originalPath;
+            originalShaderFile = FileIO::fopen(tempPath, FileIO::ReadBinary);
+            foundPath = tempPath;
             continue;
           }
           else
           {
             const rdcstr &searchPath = searchPaths[i - 1];
-            foundPath = searchPath + "/" + originalPath;
+            foundPath = searchPath + "/" + tempPath;
             originalShaderFile = FileIO::fopen(foundPath, FileIO::ReadBinary);
           }
+        }
+
+        if(originalShaderFile != NULL)
+        {
+          RDCDEBUG("Found %s directly as %s (matched with %s)", originalPath.c_str(),
+                   foundPath.c_str(), tempPath.c_str());
         }
 
         if(originalShaderFile == NULL)
@@ -1298,19 +1354,41 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
           // append it to all search paths as-is, then strip off the top-level subdirectory to get
           // bar/blah.pdb and try that in all search directories, and keep going. So if we got here
           // and didn't open a file, try to strip off the the top directory and continue.
-          int32_t offs = originalPath.find_first_of("\\/");
+          int32_t offs = tempPath.find_first_of("\\/");
 
           // if we couldn't find a directory separator there's nothing to do, stop looking
           if(offs == -1)
             break;
 
           // otherwise strip up to there and keep going
-          originalPath.erase(0, offs + 1);
+          tempPath.erase(0, offs + 1);
+        }
+      }
+
+      // the "undocumented" behaviour for PIX is to recursively search in search paths subfolders
+      // for the file. Since it's unclear exactly how this interacts with search priorities and
+      // subfolders, we only do this if the path is a single filename with no subfolders, and we
+      // assume the filename is unique so pick the first patch. To reduce disk churn O(N^2) style we
+      // cache the recursive contents of the search folders. This will be cleared by the replay code
+      // on each replay.
+      if(originalShaderFile == NULL && !originalPath.contains('/') && !originalPath.contains('\\'))
+      {
+        CacheSearchDirDebugPaths();
+
+        auto it = cachedDebugFilesLookup.find(originalPath);
+        if(it != cachedDebugFilesLookup.end())
+        {
+          originalShaderFile = FileIO::fopen(it->second, FileIO::ReadBinary);
+          foundPath = it->second;
+          RDCDEBUG("Found %s recursively as %s", originalPath.c_str(), foundPath.c_str());
         }
       }
 
       if(originalShaderFile == NULL)
+      {
+        RDCDEBUG("Couldn't find pdb for %s", originalPath.c_str());
         return;
+      }
 
       FileIO::fseek64(originalShaderFile, 0L, SEEK_END);
       uint64_t originalShaderSize = FileIO::ftell64(originalShaderFile);

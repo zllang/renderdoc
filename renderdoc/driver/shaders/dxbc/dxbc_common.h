@@ -508,4 +508,6 @@ public:
 
 rdcstr BasicDemangle(const rdcstr &possiblyMangledName);
 
+void ResetSearchDirsCache();
+
 };
