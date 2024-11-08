@@ -1134,3 +1134,19 @@ public:
   operator QVariant() const { return QVariant(QString::fromUtf8(c_str(), (int32_t)size())); }
 #endif
 };
+
+// add a std::hash overload so rdcstr can be used in hashmaps
+#ifdef RENDERDOC_EXPORTS
+
+// from string_utils.h
+uint32_t strhash(const char *str);
+
+namespace std
+{
+template <>
+struct hash<rdcstr>
+{
+  std::size_t operator()(const rdcstr &s) const { return strhash(s.c_str()); }
+};
+}
+#endif

@@ -48,6 +48,11 @@ uint32_t strhash(const char *str, uint32_t seed)
   return hash;
 }
 
+uint32_t strhash(const char *str)
+{
+  return strhash(str, 5381);
+}
+
 rdcstr strlower(const rdcstr &str)
 {
   rdcstr newstr(str);
