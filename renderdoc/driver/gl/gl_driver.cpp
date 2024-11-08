@@ -5360,6 +5360,7 @@ RDResult WrappedOpenGL::ContextReplayLog(CaptureState readType, uint32_t startEv
     {
       GL.glEndTransformFeedback();
       m_ActiveFeedback = false;
+      m_WasActiveFeedback = true;
     }
   }
 
