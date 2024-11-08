@@ -1017,6 +1017,57 @@ static ShaderValue TypedUAVLoad(DXILDebug::GlobalState::ViewFmt &fmt, const byte
   return result;
 }
 
+void ConvertTypeToViewFormat(const DXIL::Type *type, DXILDebug::GlobalState::ViewFmt &fmt)
+{
+  // variable should be a pointer to the underlying type
+  RDCASSERTEQUAL(type->type, Type::Pointer);
+  const Type *resType = type->inner;
+
+  // arrayed resources we want to remove the outer array-of-bindings here
+  if(resType->type == Type::Array && resType->inner->type == Type::Struct)
+    resType = resType->inner;
+
+  // textures are a struct containing the inner type and a mips type
+  if(resType->type == Type::Struct && !resType->members.empty())
+    resType = resType->members[0];
+
+  // find the inner type of any arrays
+  while(resType->type == Type::Array)
+    resType = resType->inner;
+
+  uint32_t compCount = 1;
+  // get the inner type for a vector
+  if(resType->type == Type::Vector)
+  {
+    compCount = resType->elemCount;
+    resType = resType->inner;
+  }
+
+  fmt.fmt = CompType::Typeless;
+  if(resType->type == Type::Scalar)
+  {
+    fmt.numComps = compCount;
+    fmt.byteWidth = resType->bitWidth / 8;
+    fmt.stride = fmt.byteWidth * fmt.numComps;
+    if(resType->scalarType == Type::ScalarKind::Int)
+    {
+      if(resType->bitWidth == 32)
+        fmt.fmt = CompType::SInt;
+    }
+    else if(resType->scalarType == Type::ScalarKind::Float)
+    {
+      if(resType->bitWidth == 32)
+        fmt.fmt = CompType::Float;
+    }
+  }
+  else if(resType->type == Type::Struct)
+  {
+    fmt.numComps = 0;
+    fmt.byteWidth = 0;
+    fmt.stride = 0;
+  }
+}
+
 static void FillViewFmt(VarType type, DXILDebug::GlobalState::ViewFmt &fmt)
 {
   switch(type)
@@ -1438,7 +1489,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // GetDimensions(handle,mipLevel)
             Id handleId = GetArgumentId(1);
             ShaderBindIndex bindIndex;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
+            bool annotatedHandle;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
             if(!resRef)
               break;
 
@@ -1473,7 +1525,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // Texture2DMSGetSamplePosition(srv,index)
             Id handleId = GetArgumentId(1);
             ShaderBindIndex bindIndex;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
+            bool annotatedHandle;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
             if(!resRef)
               break;
 
@@ -1543,7 +1596,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             Id handleId = GetArgumentId(1);
             ShaderBindIndex bindIndex;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
+            bool annotatedHandle;
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
             if(!resRef)
               break;
 
@@ -1565,9 +1619,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
             // RawBufferLoad(srv,index,elementOffset,mask,alignment)
             // RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
-            Id handleId = GetArgumentId(1);
+            const Id handleId = GetArgumentId(1);
+            bool annotatedHandle;
             ShaderBindIndex bindIndex;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex);
+            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
             if(!resRef)
               break;
 
@@ -1681,6 +1736,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 break;
               }
               default: RDCERR("Unexpected ResourceClass %s", ToStr(resClass).c_str()); break;
+            }
+            if(annotatedHandle)
+            {
+              RDCASSERT(raw);
+              auto it = m_AnnotatedProperties.find(resultId);
+              RDCASSERT(it != m_AnnotatedProperties.end());
+              const AnnotationProperties &props = m_AnnotatedProperties.at(resultId);
+              fmt.stride = props.structStride;
+              fmt.numComps = props.compCount;
+              fmt.byteWidth = GetElementByteSize(props.compType);
             }
 
             // Unbound resource
@@ -1878,7 +1943,40 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                   DescriptorCategory category = isSRV ? DescriptorCategory::ReadOnlyResource
                                                       : DescriptorCategory::ReadWriteResource;
                   result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
+                  // Default to unannotated handle
+                  result.value.u32v[3] = 0;
                   baseResource = result.name = baseResource;
+                  // Parse the annotate handle properties
+                  // resClass, compType, compCount, structStride
+                  if(dxOpCode == DXOp::AnnotateHandle)
+                  {
+                    // Set as an unannotated handle
+                    result.value.u32v[3] = 1;
+                    ShaderVariable props;
+                    RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, props));
+                    uint32_t packedProps[2] = {};
+                    packedProps[0] = props.members[0].value.u32v[0];
+                    packedProps[1] = props.members[1].value.u32v[0];
+                    bool uav = (packedProps[0] & (1 << 12)) != 0;
+                    ResourceKind resKind = (ResourceKind)(packedProps[0] & 0xFF);
+                    ResourceClass resClass;
+                    if(resKind == ResourceKind::Sampler)
+                      resClass = ResourceClass::Sampler;
+                    else if(resKind == ResourceKind::CBuffer)
+                      resClass = ResourceClass::CBuffer;
+                    else if(uav)
+                      resClass = ResourceClass::UAV;
+                    else
+                      resClass = ResourceClass::SRV;
+
+                    ComponentType dxilCompType = ComponentType(packedProps[1] & 0xFF);
+                    VarType compType = VarTypeForComponentType(dxilCompType);
+                    uint32_t compCount = (uint32_t)((packedProps[1] & 0xFF00) >> 8);
+                    uint32_t structStride = packedProps[1];
+                    // Store the annotate properties for the result
+                    RDCASSERTEQUAL(m_AnnotatedProperties.count(resultId), 0);
+                    m_AnnotatedProperties[resultId] = {resClass, compType, compCount, structStride};
+                  }
                 }
                 else
                 {
@@ -4157,7 +4255,9 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     // Sampler is in arg 2
     Id samplerId = GetArgumentId(2);
     ShaderBindIndex samplerBindIndex;
-    const DXIL::ResourceReference *samplerRef = GetResource(samplerId, samplerBindIndex);
+    bool annotatedHandle;
+    const DXIL::ResourceReference *samplerRef =
+        GetResource(samplerId, samplerBindIndex, annotatedHandle);
     if(!samplerRef)
       return;
 
@@ -4350,7 +4450,8 @@ DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
   return GetSSAId(arg);
 }
 
-const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindIndex &bindIndex)
+const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindIndex &bindIndex,
+                                                        bool &annotatedHandle)
 {
   RDCASSERT(m_Live.contains(handleId));
   auto it = m_LiveVariables.find(handleId);
@@ -4362,6 +4463,8 @@ const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindI
     {
       rdcstr alias = m_Program.GetHandleAlias(resRef->handleID);
       bindIndex = var.GetBindIndex();
+      annotatedHandle = var.value.u32v[3] != 0;
+      RDCASSERT(!annotatedHandle || (m_AnnotatedProperties.count(handleId) == 1));
       MarkResourceAccess(alias, bindIndex);
       return resRef;
     }

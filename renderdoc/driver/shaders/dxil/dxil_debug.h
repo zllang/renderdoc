@@ -151,7 +151,8 @@ struct ThreadState
                  ShaderEvents flags);
   rdcstr GetArgumentName(uint32_t i) const;
   Id GetArgumentId(uint32_t i) const;
-  const DXIL::ResourceReference *GetResource(Id handleId, ShaderBindIndex &bindIndex);
+  const DXIL::ResourceReference *GetResource(Id handleId, ShaderBindIndex &bindIndex,
+                                             bool &annotatedHandle);
   bool GetShaderVariable(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                          ShaderVariable &var, bool flushDenormInput = true) const;
   bool GetVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
@@ -188,6 +189,14 @@ struct ThreadState
     size_t size;
   };
 
+  struct AnnotationProperties
+  {
+    DXIL::ResourceClass resClass;
+    VarType compType;
+    uint32_t compCount;
+    uint32_t structStride;
+  };
+
   struct
   {
     uint32_t coverage;
@@ -213,6 +222,8 @@ struct ThreadState
   rdcarray<Id> m_Live;
   // Dormant variables at the current scope
   rdcarray<Id> m_Dormant;
+  // Annotated handle properties
+  std::map<Id, AnnotationProperties> m_AnnotatedProperties;
 
   const FunctionInfo *m_FunctionInfo = NULL;
   DXBC::ShaderType m_ShaderType;
