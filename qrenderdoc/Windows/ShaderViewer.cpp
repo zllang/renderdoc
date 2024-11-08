@@ -6533,7 +6533,8 @@ void ShaderViewer::performReplace()
 
   FindReplace::SearchContext context = m_FindReplace->context();
 
-  QString findHash = QFormatStr("%1%2%3").arg(find).arg(flags).arg((int)context);
+  bool down = m_FindReplace->direction() == FindReplace::Down;
+  QString findHash = QFormatStr("%1%2%3%4").arg(find).arg(flags).arg((int)context).arg(down);
 
   // if we didn't have a valid previous find, just do a find and bail
   if(findHash != m_FindState.hash)
