@@ -1436,6 +1436,7 @@ private:
 
 struct EntryPointInterface
 {
+  explicit EntryPointInterface() = default;
   EntryPointInterface(const Metadata *entryPoint);
 
   struct Signature

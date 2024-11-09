@@ -2838,33 +2838,34 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
 
     if(!func.external)
     {
-      EntryPointInterface *entryPoint = NULL;
+      bool foundEntryPoint = false;
+      EntryPointInterface entryPoint;
       for(size_t e = 0; e < m_EntryPointInterfaces.size(); ++e)
       {
         if(func.name == m_EntryPointInterfaces[e].name)
         {
-          entryPoint = &m_EntryPointInterfaces[e];
+          entryPoint = m_EntryPointInterfaces[e];
+          foundEntryPoint = true;
           break;
         }
       }
 
       // Display inputs/outputs and resource
-      if(entryPoint)
+      if(foundEntryPoint)
       {
         bool needBlankLine = false;
-
-        if(!entryPoint->inputs.empty())
+        if(!entryPoint.inputs.empty())
         {
           m_Disassembly += "Inputs";
           DisassemblyAddNewLine();
-          for(size_t j = 0; j < entryPoint->inputs.size(); ++j)
+          for(size_t j = 0; j < entryPoint.inputs.size(); ++j)
           {
             if(needBlankLine)
               DisassemblyAddNewLine();
-            EntryPointInterface::Signature sig = entryPoint->inputs[j];
 
             m_Disassembly += "  ";
 
+            EntryPointInterface::Signature &sig = entryPoint.inputs[j];
             ComponentType compType = sig.type;
 
             m_Disassembly += ProcessNormCompType(compType);
@@ -2875,7 +2876,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             if(sig.cols > 1)
               m_Disassembly += ToStr(sig.cols);
 
-            if(reflection && sig.rows == 1)
+            if(reflection)
             {
               SigParameter sigParam;
               if(FindSigParameter(reflection->InputSig, sig, sigParam))
@@ -2914,7 +2915,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           DisassemblyAddNewLine();
         }
 
-        if(!entryPoint->outputs.empty())
+        if(!entryPoint.outputs.empty())
         {
           if(needBlankLine)
           {
@@ -2924,11 +2925,11 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
 
           m_Disassembly += "Outputs";
           DisassemblyAddNewLine();
-          for(size_t j = 0; j < entryPoint->outputs.size(); ++j)
+          for(size_t j = 0; j < entryPoint.outputs.size(); ++j)
           {
             if(needBlankLine)
               DisassemblyAddNewLine();
-            EntryPointInterface::Signature &sig = entryPoint->outputs[j];
+            EntryPointInterface::Signature &sig = entryPoint.outputs[j];
 
             m_Disassembly += "  ";
 
@@ -2942,11 +2943,13 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             if(sig.cols > 1)
               m_Disassembly += ToStr(sig.cols);
 
-            if(reflection && sig.rows == 1 && j < reflection->OutputSig.size())
+            if(reflection)
             {
-              const SigParameter &sigParam = reflection->OutputSig[j];
-              if(sigParam.semanticName == sig.name)
+              SigParameter sigParam;
+              if(FindSigParameter(reflection->OutputSig, sig, sigParam))
+              {
                 sig.name = sigParam.semanticIdxName;
+              }
             }
             m_Disassembly += " " + sig.name;
             if(sig.rows > 1)
@@ -2985,13 +2988,13 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           DisassemblyAddNewLine();
         }
 
-        if(!entryPoint->srvs.empty())
+        if(!entryPoint.srvs.empty())
         {
-          for(size_t j = 0; j < entryPoint->srvs.size(); ++j)
+          for(size_t j = 0; j < entryPoint.srvs.size(); ++j)
           {
             if(needBlankLine)
               DisassemblyAddNewLine();
-            const DXIL::EntryPointInterface::ResourceBase &resource = entryPoint->srvs[j];
+            const DXIL::EntryPointInterface::ResourceBase &resource = entryPoint.srvs[j];
             const DXIL::EntryPointInterface::SRV &srv = resource.srvData;
             m_Disassembly += GetResourceShapeName(srv.shape, false);
             if(srv.shape != DXIL::ResourceKind::RTAccelerationStructure)
@@ -3012,13 +3015,13 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           DisassemblyAddNewLine();
         }
 
-        if(!entryPoint->uavs.empty())
+        if(!entryPoint.uavs.empty())
         {
-          for(size_t j = 0; j < entryPoint->uavs.size(); ++j)
+          for(size_t j = 0; j < entryPoint.uavs.size(); ++j)
           {
             if(needBlankLine)
               DisassemblyAddNewLine();
-            const DXIL::EntryPointInterface::ResourceBase &resource = entryPoint->uavs[j];
+            const DXIL::EntryPointInterface::ResourceBase &resource = entryPoint.uavs[j];
             const DXIL::EntryPointInterface::UAV &uav = resource.uavData;
             m_Disassembly += GetResourceShapeName(uav.shape, true);
             m_Disassembly += "<" + GetResourceTypeName(resource.type) + ">";
@@ -3038,11 +3041,11 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           DisassemblyAddNewLine();
         }
 
-        if(!entryPoint->cbuffers.empty())
+        if(!entryPoint.cbuffers.empty())
         {
-          for(size_t j = 0; j < entryPoint->cbuffers.size(); ++j)
+          for(size_t j = 0; j < entryPoint.cbuffers.size(); ++j)
           {
-            DXIL::EntryPointInterface::ResourceBase &resource = entryPoint->cbuffers[j];
+            DXIL::EntryPointInterface::ResourceBase &resource = entryPoint.cbuffers[j];
             DXIL::EntryPointInterface::CBuffer &cbuffer = resource.cbufferData;
             if(reflection)
             {
@@ -3102,13 +3105,13 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           needBlankLine = true;
         }
 
-        if(!entryPoint->samplers.empty())
+        if(!entryPoint.samplers.empty())
         {
-          for(size_t j = 0; j < entryPoint->samplers.size(); ++j)
+          for(size_t j = 0; j < entryPoint.samplers.size(); ++j)
           {
             if(needBlankLine)
               DisassemblyAddNewLine();
-            const DXIL::EntryPointInterface::ResourceBase &resource = entryPoint->samplers[j];
+            const DXIL::EntryPointInterface::ResourceBase &resource = entryPoint.samplers[j];
             m_Disassembly += GetSamplerTypeName(resource.type);
             m_Disassembly += " " + resource.name;
             if(resource.regCount > 1)
@@ -3217,9 +3220,9 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   uint32_t inputIdx;
                   uint32_t rowIdx;
                   bool hasRowIdx = getival<uint32_t>(inst.args[2], rowIdx);
-                  if(entryPoint && getival<uint32_t>(inst.args[1], inputIdx))
+                  if(foundEntryPoint && getival<uint32_t>(inst.args[1], inputIdx))
                   {
-                    EntryPointInterface::Signature &sig = entryPoint->inputs[inputIdx];
+                    const EntryPointInterface::Signature &sig = entryPoint.inputs[inputIdx];
                     name = sig.name;
                     if(hasRowIdx)
                     {
@@ -3255,9 +3258,9 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   uint32_t outputIdx;
                   uint32_t rowIdx;
                   bool hasRowIdx = getival<uint32_t>(inst.args[2], rowIdx);
-                  if(entryPoint && getival<uint32_t>(inst.args[1], outputIdx))
+                  if(foundEntryPoint && getival<uint32_t>(inst.args[1], outputIdx))
                   {
-                    EntryPointInterface::Signature &sig = entryPoint->outputs[outputIdx];
+                    const EntryPointInterface::Signature &sig = entryPoint.outputs[outputIdx];
                     name = sig.name;
                     if(hasRowIdx)
                     {
@@ -3540,7 +3543,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   rdcstr handleStr = GetArgId(inst, 1);
                   rdcstr resName = GetHandleAlias(handleStr);
                   bool useFallback = true;
-                  if(entryPoint && resRef)
+                  if(foundEntryPoint && resRef)
                   {
                     uint32_t regIndex;
                     if(getival<uint32_t>(inst.args[2], regIndex))
@@ -3554,7 +3557,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                         // uint32_t alignment = getival<uint32_t>(inst.args[3]);
                       }
                       const DXIL::EntryPointInterface::ResourceBase &resource =
-                          entryPoint->cbuffers[resRef->resourceIndex];
+                          entryPoint.cbuffers[resRef->resourceIndex];
                       const DXIL::EntryPointInterface::CBuffer &cbuffer = resource.cbufferData;
                       if(cbuffer.cbufferRefl && cbuffer.cbufferRefl->hasReflectionData)
                       {
@@ -3690,12 +3693,12 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   const ResourceReference *resRef = GetResourceReference(handleId);
                   rdcstr handleStr = GetArgId(inst, 1);
                   uint32_t sampleCount = 0;
-                  if(entryPoint && resRef)
+                  if(foundEntryPoint && resRef)
                   {
                     uint32_t resourceIndex = resRef->resourceIndex;
                     const EntryPointInterface::SRV *texture =
-                        resourceIndex < entryPoint->srvs.size()
-                            ? &entryPoint->srvs[resourceIndex].srvData
+                        resourceIndex < entryPoint.srvs.size()
+                            ? &entryPoint.srvs[resourceIndex].srvData
                             : NULL;
                     if(texture)
                       sampleCount = texture->sampleCount;
