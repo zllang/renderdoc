@@ -194,6 +194,7 @@ struct ThreadState
     DXIL::ResourceClass resClass;
     VarType compType;
     uint32_t compCount;
+    uint32_t byteWidth;
     uint32_t structStride;
   };
 

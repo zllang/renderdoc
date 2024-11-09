@@ -1745,7 +1745,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               const AnnotationProperties &props = m_AnnotatedProperties.at(resultId);
               fmt.stride = props.structStride;
               fmt.numComps = props.compCount;
-              fmt.byteWidth = GetElementByteSize(props.compType);
+              fmt.byteWidth = props.byteWidth;
             }
 
             // Unbound resource
@@ -1972,10 +1972,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                     ComponentType dxilCompType = ComponentType(packedProps[1] & 0xFF);
                     VarType compType = VarTypeForComponentType(dxilCompType);
                     uint32_t compCount = (uint32_t)((packedProps[1] & 0xFF00) >> 8);
+                    uint32_t byteWidth = GetElementByteSize(compType);
                     uint32_t structStride = packedProps[1];
                     // Store the annotate properties for the result
                     RDCASSERTEQUAL(m_AnnotatedProperties.count(resultId), 0);
-                    m_AnnotatedProperties[resultId] = {resClass, compType, compCount, structStride};
+                    m_AnnotatedProperties[resultId] = {resClass, compType, compCount, byteWidth,
+                                                       structStride};
                   }
                 }
                 else
