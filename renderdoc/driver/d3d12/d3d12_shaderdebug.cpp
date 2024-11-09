@@ -2202,6 +2202,7 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
       }
     }
     ret->inputs = {activeState.m_Input};
+    ret->constantBlocks = globalState.constantBlocks;
     delete[] instData;
   }
 
