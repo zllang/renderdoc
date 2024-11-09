@@ -2462,10 +2462,10 @@ void Program::MakeDXCDisassemblyString()
               bool uav = (packedProps[0] & (1 << 12)) != 0;
               bool rov = (packedProps[0] & (1 << 13)) != 0;
               bool globallyCoherent = (packedProps[0] & (1 << 14)) != 0;
-              bool sampelCmpOrCounter = (packedProps[0] & (1 << 15)) != 0;
+              bool sampleCmpOrCounter = (packedProps[0] & (1 << 15)) != 0;
               ResourceKind resKind = (ResourceKind)(packedProps[0] & 0xFF);
               ResourceClass resClass;
-              if(sampelCmpOrCounter && resKind == ResourceKind::Sampler)
+              if(sampleCmpOrCounter && resKind == ResourceKind::Sampler)
                 resKind = ResourceKind::SamplerComparison;
               if(resKind == ResourceKind::Sampler || resKind == ResourceKind::SamplerComparison)
                 resClass = ResourceClass::Sampler;
@@ -2533,7 +2533,7 @@ void Program::MakeDXCDisassemblyString()
                     m_Disassembly += "globallycoherent ";
                   m_Disassembly += srv ? "StructuredBuffer" : "RWStructuredBuffer";
                   m_Disassembly += StringFormat::Fmt("<stride=%u", structStride);
-                  if(sampelCmpOrCounter)
+                  if(sampleCmpOrCounter)
                     m_Disassembly += ", counter";
                   m_Disassembly += ">";
                   break;
@@ -3370,10 +3370,10 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                       bool uav = (packedProps[0] & (1 << 12)) != 0;
                       bool rov = (packedProps[0] & (1 << 13)) != 0;
                       bool globallyCoherent = (packedProps[0] & (1 << 14)) != 0;
-                      bool sampelCmpOrCounter = (packedProps[0] & (1 << 15)) != 0;
+                      bool sampleCmpOrCounter = (packedProps[0] & (1 << 15)) != 0;
                       ResourceKind resKind = (ResourceKind)(packedProps[0] & 0xFF);
                       ResourceClass resClass;
-                      if(sampelCmpOrCounter && resKind == ResourceKind::Sampler)
+                      if(sampleCmpOrCounter && resKind == ResourceKind::Sampler)
                         resKind = ResourceKind::SamplerComparison;
                       if(resKind == ResourceKind::Sampler ||
                          resKind == ResourceKind::SamplerComparison)
@@ -3446,7 +3446,7 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                             typeStr += "globallycoherent ";
                           typeStr += srv ? "StructuredBuffer" : "RWStructuredBuffer";
                           typeStr += StringFormat::Fmt("<stride=%u", structStride);
-                          if(sampelCmpOrCounter)
+                          if(sampleCmpOrCounter)
                             typeStr += ", counter";
                           typeStr += ">";
                           break;
