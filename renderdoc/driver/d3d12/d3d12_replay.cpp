@@ -4687,7 +4687,7 @@ RDResult D3D12_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
 
   bool shouldEnableDebugLayer = opts.apiValidation;
 
-  if(shouldEnableDebugLayer && !D3D12Core.empty() && D3D12SDKLayers.empty())
+  if(shouldEnableDebugLayer && !D3D12Core.empty() && D3D12SDKLayers.empty() && !config)
   {
     RDCWARN(
         "Not enabling D3D debug layers because we captured a D3D12Core.dll but not a matching "
@@ -4702,8 +4702,9 @@ RDResult D3D12_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
     if(!debugLayerEnabled && !isProxy)
     {
       RDCLOG(
-          "Enabling the D3D debug layers failed, "
-          "ensure you have the windows SDK or windows feature needed.");
+          "Enabling the D3D debug layers failed, ensure you have the windows SDK or windows "
+          "feature needed or if using a locally distributed D3D12 dll ensure you have "
+          "D3D12SDKLayers.dll available next to it.");
     }
   }
 
