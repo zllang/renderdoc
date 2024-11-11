@@ -743,11 +743,13 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
         {
           DXGI_ADAPTER_DESC desc = {};
           pDXGIAdapter->GetDesc(&desc);
+          LARGE_INTEGER version = {};
+          pDXGIAdapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &version);
 
           m_InitParams.AdapterDesc = desc;
 
           GPUVendor vendor = GPUVendorFromPCIVendor(desc.VendorId);
-          rdcstr descString = GetDriverVersion(desc);
+          rdcstr descString = GetDriverVersion(desc, version);
 
           RDCLOG("New D3D12 device created: %s / %s", ToStr(vendor).c_str(), descString.c_str());
 
