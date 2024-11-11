@@ -2342,10 +2342,13 @@ bool D3D12GpuBufferAllocator::D3D12GpuBufferPool::Alloc(WrappedID3D12Device *wra
            wrappedDevice, m_bufferPoolHeapType, size, &newBufferResource))
     {
       m_bufferResourceList.push_back(newBufferResource);
-      *gpuBuffer = new D3D12GpuBuffer(
-          allocator, m_bufferPoolHeapType, D3D12GpuBufferHeapMemoryFlag::Dedicated, size,
-          D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
-          newBufferResource->Resource()->GetGPUVirtualAddress(), newBufferResource->Resource());
+      D3D12_GPU_VIRTUAL_ADDRESS gpuAddress = 0;
+      if(newBufferResource->SubAlloc(size, alignment, gpuAddress))
+      {
+        *gpuBuffer = new D3D12GpuBuffer(
+            allocator, m_bufferPoolHeapType, D3D12GpuBufferHeapMemoryFlag::Dedicated, size,
+            D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT, gpuAddress, newBufferResource->Resource());
+      }
       return true;
     }
   }
