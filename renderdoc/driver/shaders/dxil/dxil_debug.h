@@ -158,7 +158,7 @@ struct ThreadState
   bool GetVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
                    ShaderVariable &var) const;
   void AllocateMemoryForType(const DXIL::Type *type, Id allocId, ShaderVariable &var);
-  void UpdateBackingMemoryFromVariable(void *ptr, size_t allocSize, const ShaderVariable &var);
+  void UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize, const ShaderVariable &var);
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
 
   void PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, DXIL::Operation opCode,

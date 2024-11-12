@@ -687,6 +687,146 @@ static void ConvertDXILTypeToShaderVariable(const Type *type, ShaderVariable &va
   }
 }
 
+static bool ConvertDXILConstantToShaderValue(const DXIL::Constant *c, const size_t index,
+                                             ShaderValue &value)
+{
+  if(c->isShaderVal())
+  {
+    value = c->getShaderVal();
+    return true;
+  }
+  else if(c->isLiteral())
+  {
+    if(c->type->bitWidth == 64)
+      value.u64v[index] = c->getU64();
+    else
+      value.u32v[index] = c->getU32();
+    return true;
+  }
+  else if(c->isNULL())
+  {
+    if(c->type->bitWidth == 64)
+      value.u64v[index] = 0;
+    else
+      value.u32v[index] = 0;
+    return true;
+  }
+  else if(c->isUndef())
+  {
+    if(c->op == Operation::NoOp)
+    {
+      if(c->type->bitWidth == 64)
+        value.u64v[index] = 0;
+      else
+        value.u32v[index] = 0;
+      return true;
+    }
+    return false;
+  }
+  else if(c->isData())
+  {
+    RDCERR("Constant isData DXIL Value not supported");
+  }
+  else if(c->isCast())
+  {
+    RDCERR("Constant isCast DXIL Value not supported");
+  }
+  else if(c->isCompound())
+  {
+    RDCERR("Constant isCompound DXIL Value not supported");
+  }
+  else
+  {
+    RDCERR("Constant DXIL Value with no value");
+  }
+  return false;
+}
+
+static bool ConvertDXILValueToShaderValue(const DXIL::Value *v, const VarType varType,
+                                          const size_t index, ShaderValue &value)
+{
+  if(const Constant *c = cast<Constant>(v))
+  {
+    return ConvertDXILConstantToShaderValue(c, index, value);
+  }
+  else if(const Literal *lit = cast<Literal>(v))
+  {
+    switch(varType)
+    {
+      case VarType::ULong: value.u64v[index] = lit->literal; break;
+      case VarType::SLong: value.s64v[index] = (int64_t)lit->literal; break;
+      case VarType::UInt: value.u32v[index] = (uint32_t)lit->literal; break;
+      case VarType::SInt: value.s32v[index] = (int32_t)lit->literal; break;
+      case VarType::UShort: value.u16v[index] = (uint16_t)lit->literal; break;
+      case VarType::SShort: value.s16v[index] = (int16_t)lit->literal; break;
+      case VarType::UByte: value.u8v[index] = (uint8_t)lit->literal; break;
+      case VarType::SByte: value.s8v[index] = (int8_t)lit->literal; break;
+      case VarType::Float: value.u32v[index] = (uint32_t)lit->literal; break;
+      case VarType::Double: value.u64v[index] = lit->literal; break;
+      case VarType::Bool: value.u32v[index] = lit->literal ? 1 : 0; break;
+      case VarType::Half: value.u16v[index] = (uint16_t)lit->literal; break;
+      case VarType::Enum: value.u32v[index] = (uint32_t)lit->literal; break;
+      case VarType::GPUPointer:
+      case VarType::ConstantBlock:
+      case VarType::ReadOnlyResource:
+      case VarType::ReadWriteResource:
+      case VarType::Sampler:
+      case VarType::Struct:
+      case VarType::Unknown: RDCERR("Unhandled VarType %s", ToStr(varType).c_str()); return false;
+    }
+    return true;
+  }
+  RDCERR("Unexpected DXIL Value type %s", ToStr(v->kind()).c_str());
+  return false;
+}
+
+static bool ConvertDXILConstantToShaderVariable(const Constant *constant, ShaderVariable &var)
+{
+  // Vector: rows == 1, columns >= 1 : var.members is empty
+  // Scalar: rows = 1, columns = 1 : var.members is empty
+  if(var.members.empty())
+  {
+    RDCASSERTEQUAL(var.rows, 1);
+    RDCASSERT(var.columns > 1);
+    if(var.columns > 1)
+    {
+      if(constant->isCompound())
+      {
+        const rdcarray<DXIL::Value *> &members = constant->getMembers();
+        for(size_t i = 0; i < members.size(); ++i)
+          RDCASSERT(ConvertDXILValueToShaderValue(members[i], var.type, i, var.value));
+      }
+      return true;
+    }
+    else if(var.columns == 1)
+    {
+      const DXIL::Value *value = constant;
+      if(constant->isCompound())
+      {
+        const rdcarray<DXIL::Value *> &members = constant->getMembers();
+        value = members[0];
+      }
+      RDCASSERT(ConvertDXILValueToShaderValue(value, var.type, 0, var.value));
+      return true;
+    }
+    return false;
+  }
+  // Struct: rows = 0, columns = 0 : var.members is structure members
+  // Array: rows >= 1, columns == 1 : var.members is array elements
+  const rdcarray<DXIL::Value *> &members = constant->getMembers();
+  RDCASSERT(members.size() == var.members.size());
+  for(size_t i = 0; i < var.members.size(); ++i)
+  {
+    const Constant *c = cast<Constant>(members[i]);
+    if(c)
+      RDCASSERT(ConvertDXILConstantToShaderVariable(c, var.members[i]));
+    else
+      RDCASSERT(
+          ConvertDXILValueToShaderValue(members[i], var.members[i].type, 0, var.members[i].value));
+  }
+  return true;
+}
+
 size_t ComputeDXILTypeByteSize(const Type *type)
 {
   // TODO: byte alignment
@@ -2761,7 +2901,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
       auto itAlloc = m_MemoryAllocs.find(baseMemoryId);
       RDCASSERT(itAlloc != m_MemoryAllocs.end());
-      MemoryAlloc &alloc = itAlloc->second;
+      const MemoryAlloc &alloc = itAlloc->second;
       allocSize = alloc.size;
       allocMemoryBackingPtr = alloc.backingMemory;
 
@@ -2773,6 +2913,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERTEQUAL(resultId, DXILDebug::INVALID_ID);
 
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, val);
+      RDCASSERTEQUAL(allocSize, 0);
 
       ShaderVariableChange change;
       change.before = m_LiveVariables[baseMemoryId];
@@ -3689,7 +3830,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
         auto itAlloc = m_MemoryAllocs.find(baseMemoryId);
         RDCASSERT(itAlloc != m_MemoryAllocs.end());
-        MemoryAlloc &alloc = itAlloc->second;
+        const MemoryAlloc &alloc = itAlloc->second;
         allocSize = alloc.size;
         allocMemoryBackingPtr = alloc.backingMemory;
       }
@@ -3799,6 +3940,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
       // Save the result back
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, res);
+      RDCASSERTEQUAL(allocSize, 0);
 
       ShaderVariableChange change;
       change.before = m_LiveVariables[baseMemoryId];
@@ -4133,14 +4275,31 @@ void ThreadState::AllocateMemoryForType(const DXIL::Type *type, Id allocId, Shad
   m_MemoryAllocPointers[allocId] = {allocId, backingMem, byteSize};
 }
 
-void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, size_t allocSize,
+void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize,
                                                   const ShaderVariable &var)
 {
   // Memory copy from value to backing memory
-  size_t size = GetElementByteSize(var.type);
-  RDCASSERT(size <= allocSize);
-  RDCASSERT(size < sizeof(var.value.f32v));
-  memcpy(ptr, &var.value.f32v[0], size);
+  if(var.members.size() == 0)
+  {
+    RDCASSERTEQUAL(var.rows, 1);
+    const size_t elementSize = GetElementByteSize(var.type);
+    RDCASSERT(elementSize <= allocSize);
+    RDCASSERT(elementSize < sizeof(var.value.f32v));
+    const size_t varMemSize = var.columns * elementSize;
+    memcpy(ptr, &var.value.f32v[0], varMemSize);
+    allocSize -= varMemSize;
+  }
+  else
+  {
+    uint8_t *dst = (uint8_t *)ptr;
+    for(uint32_t i = 0; i < var.members.size(); ++i)
+    {
+      const size_t elementSize = GetElementByteSize(var.members[i].type);
+      const size_t varMemSize = var.members[i].columns * elementSize;
+      UpdateBackingMemoryFromVariable(dst, allocSize, var.members[i]);
+      dst += varMemSize;
+    }
+  }
 }
 
 void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr)
@@ -5760,7 +5919,22 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     globalVar.var.name = n;
     globalVar.id = gv->ssaId;
     state.AllocateMemoryForType(gv->type, globalVar.id, globalVar.var);
-
+    if(gv->flags & GlobalFlags::IsConst)
+    {
+      if(gv->initialiser)
+      {
+        const Constant *initialData = gv->initialiser;
+        RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
+        // Write ShaderVariable data back to memory
+        auto itAlloc = state.m_MemoryAllocs.find(globalVar.id);
+        RDCASSERT(itAlloc != state.m_MemoryAllocs.end());
+        const ThreadState::MemoryAlloc &alloc = itAlloc->second;
+        void *allocMemoryBackingPtr = alloc.backingMemory;
+        size_t allocSize = alloc.size;
+        state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
+        RDCASSERTEQUAL(allocSize, 0);
+      }
+    }
     m_GlobalState.globals.push_back(globalVar);
   }
 
