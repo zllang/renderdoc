@@ -1737,6 +1737,8 @@ bool IsLLVMDebugCall(const Instruction &inst);
 
 bool isUndef(const Value *v);
 
+void SanitiseName(rdcstr &name);
+
 };    // namespace DXIL
 
 DECLARE_REFLECTION_ENUM(DXIL::Attribute);

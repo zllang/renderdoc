@@ -5755,7 +5755,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       continue;
 
     GlobalVariable globalVar;
-    globalVar.var.name = DXBC::BasicDemangle(gv->name);
+    rdcstr n = DXBC::BasicDemangle(gv->name);
+    DXIL::SanitiseName(n);
+    globalVar.var.name = n;
     globalVar.id = gv->ssaId;
     state.AllocateMemoryForType(gv->type, globalVar.id, globalVar.var);
 

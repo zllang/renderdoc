@@ -163,6 +163,16 @@ bool DXIL::FindSigParameter(const rdcarray<SigParameter> &inputSig,
   return false;
 }
 
+// Replace '.' -> '_'
+void DXIL::SanitiseName(rdcstr &name)
+{
+  for(size_t c = 0; c < name.size(); ++c)
+  {
+    if(name[c] == '.')
+      name[c] = '_';
+  }
+}
+
 static const char *shaderNames[] = {
     "Pixel",      "Vertex",  "Geometry",      "Hull",         "Domain",
     "Compute",    "Library", "RayGeneration", "Intersection", "AnyHit",
@@ -1576,7 +1586,10 @@ rdcstr Program::DisassembleGlobalVars(int &instructionLine) const
 
     rdcstr n = g.name;
     if(!m_DXCStyle)
+    {
       n = DXBC::BasicDemangle(g.name);
+      DXIL::SanitiseName(n);
+    }
     ret += StringFormat::Fmt("@%s = ", escapeStringIfNeeded(n).c_str());
     switch(g.flags & GlobalFlags::LinkageMask)
     {
