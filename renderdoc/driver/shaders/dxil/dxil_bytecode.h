@@ -613,6 +613,17 @@ enum class AtomicBinOpCode : uint32_t
   Invalid    // Must be last.
 };
 
+enum class BarrierMode : uint32_t
+{
+  Invalid = 0,
+  SyncThreadGroup = 0x00000001,
+  UAVFenceGlobal = 0x00000002,
+  UAVFenceThreadGroup = 0x00000004,
+  TGSMFence = 0x00000008,
+};
+
+BITMASK_OPERATORS(BarrierMode);
+
 inline Operation DecodeBinOp(const Type *type, uint64_t opcode)
 {
   bool isFloatOp = (type->scalarType == Type::Float);
@@ -1751,3 +1762,4 @@ DECLARE_STRINGISE_TYPE(DXIL::Type::ScalarKind);
 DECLARE_STRINGISE_TYPE(DXIL::LLVMDbgOp);
 DECLARE_STRINGISE_TYPE(DXIL::DIBase::Type);
 DECLARE_STRINGISE_TYPE(DXIL::ValueKind);
+DECLARE_STRINGISE_TYPE(DXIL::BarrierMode);

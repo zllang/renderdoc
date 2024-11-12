@@ -745,3 +745,17 @@ rdcstr DoStringise(const DXIL::ValueKind &el)
   }
   END_ENUM_STRINGISE();
 };
+
+template <>
+rdcstr DoStringise(const DXIL::BarrierMode &el)
+{
+  BEGIN_BITFIELD_STRINGISE(DXIL::BarrierMode);
+  {
+    STRINGISE_BITFIELD_CLASS_BIT(Invalid);
+    STRINGISE_BITFIELD_CLASS_BIT(SyncThreadGroup);
+    STRINGISE_BITFIELD_CLASS_BIT(UAVFenceGlobal);
+    STRINGISE_BITFIELD_CLASS_BIT(UAVFenceThreadGroup);
+    STRINGISE_BITFIELD_CLASS_BIT(TGSMFence);
+  }
+  END_BITFIELD_STRINGISE();
+};

@@ -4052,6 +4052,20 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   lineStr += ")";
                   break;
                 }
+                case DXOp::Barrier:
+                {
+                  // Barrier(barrierMode)
+                  BarrierMode barrierMode;
+                  if(getival<BarrierMode>(inst.args[1], barrierMode))
+                  {
+                    lineStr += "Barrier(" + ToStr(barrierMode) + ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::NumOpCodes: showDxFuncName = false; break;
                 default: showDxFuncName = true; break;
               }
