@@ -1521,15 +1521,32 @@ void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *st
   m_State = NULL;
 }
 
+bool IsNopInstruction(const Instruction &inst)
+{
+  if(inst.op == Operation::Call)
+  {
+    const Function *callFunc = inst.getFuncCall();
+    if(callFunc->family == FunctionFamily::LLVMDbg)
+      return true;
+  }
+
+  if(IsDXCNop(inst))
+    return true;
+
+  if(inst.op == Operation::NoOp)
+    return true;
+
+  return false;
+}
+
 bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                                      const rdcarray<ThreadState> &workgroups)
 {
   m_CurrentInstruction = m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
-  const Instruction &inst = *m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
+  const Instruction &inst = *m_CurrentInstruction;
   m_FunctionInstructionIdx++;
 
-  if(IsDXCNop(inst))
-    return false;
+  RDCASSERT(!IsNopInstruction(inst));
 
   Operation opCode = inst.op;
   DXOp dxOpCode = DXOp::NumOpCodes;
@@ -2761,6 +2778,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
       else if(callFunc->family == FunctionFamily::LLVMDbg)
       {
+        RDCERR("LLVMDbg Instructions should not be executed %s", callFunc->name.c_str());
         return false;
       }
       else
@@ -2771,7 +2789,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       break;
     }
     case Operation::Ret: m_Ended = true; break;
-    case Operation::NoOp: return false;
+    case Operation::NoOp: RDCERR("NoOp instructions should not be executed"); return false;
     case Operation::Unreachable:
     {
       m_Killed = true;
@@ -2913,7 +2931,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERTEQUAL(resultId, DXILDebug::INVALID_ID);
 
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, val);
-      RDCASSERTEQUAL(allocSize, 0);
 
       ShaderVariableChange change;
       change.before = m_LiveVariables[baseMemoryId];
@@ -3940,7 +3957,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
       // Save the result back
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, res);
-      RDCASSERTEQUAL(allocSize, 0);
 
       ShaderVariableChange change;
       change.before = m_LiveVariables[baseMemoryId];
@@ -4054,24 +4070,39 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   return true;
 }
 
+void ThreadState::StepOverNopInstructions()
+{
+  do
+  {
+    m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
+    const Instruction *inst = m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
+    if(!IsNopInstruction(*inst))
+    {
+      m_ActiveGlobalInstructionIdx = m_GlobalInstructionIdx;
+      return;
+    }
+
+    m_FunctionInstructionIdx++;
+  } while(true);
+}
+
 void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
                            const rdcarray<ThreadState> &workgroups)
 {
   m_State = state;
 
-  do
+  RDCASSERTEQUAL(m_GlobalInstructionIdx,
+                 m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx);
+  RDCASSERTEQUAL(m_ActiveGlobalInstructionIdx, m_GlobalInstructionIdx);
+  if(m_State)
   {
-    m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
-    if(m_State)
-    {
-      if(!m_Ended)
-        m_State->nextInstruction = m_GlobalInstructionIdx + 1;
+    if(!m_Ended)
+      m_State->nextInstruction = m_GlobalInstructionIdx + 1;
 
-      m_State->flags = ShaderEvents::NoEvent;
-      m_State->changes.clear();
-    }
-
-  } while(!ExecuteInstruction(apiWrapper, workgroups));
+    m_State->flags = ShaderEvents::NoEvent;
+    m_State->changes.clear();
+  }
+  ExecuteInstruction(apiWrapper, workgroups);
 
   if(m_State && m_Ended)
     --m_State->nextInstruction;
@@ -6365,6 +6396,16 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
 
     // calculate the current mask of which threads are active
     CalcActiveMask(activeMask);
+
+    // step all active members of the workgroup over Nop instructions and set the active instruction
+    for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
+    {
+      if(activeMask[lane])
+      {
+        ThreadState &thread = m_Workgroups[lane];
+        thread.StepOverNopInstructions();
+      }
+    }
 
     // step all active members of the workgroup
     for(size_t lane = 0; lane < m_Workgroups.size(); lane++)

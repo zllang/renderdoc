@@ -142,6 +142,7 @@ struct ThreadState
   void EnterEntryPoint(const DXIL::Function *function, ShaderDebugState *state);
   void StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
                 const rdcarray<ThreadState> &workgroups);
+  void StepOverNopInstructions();
 
   bool Finished() const;
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroups);
@@ -242,6 +243,8 @@ struct ThreadState
   uint32_t m_PreviousBlock = ~0U;
   // A global logical instruction index (bit like a PC) not the instruction index within a function
   uint32_t m_GlobalInstructionIdx = ~0U;
+  // The PC of the active instruction that was or will be executed on the current simulation step
+  uint32_t m_ActiveGlobalInstructionIdx = ~0U;
 
   rdcarray<ShaderBindIndex> m_accessedSRVs;
   rdcarray<ShaderBindIndex> m_accessedUAVs;
