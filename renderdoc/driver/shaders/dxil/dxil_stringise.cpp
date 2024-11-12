@@ -727,3 +727,21 @@ rdcstr DoStringise(const DXIL::DW_OP &el)
   }
   END_ENUM_STRINGISE();
 };
+
+template <>
+rdcstr DoStringise(const DXIL::ValueKind &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::ValueKind);
+  {
+    STRINGISE_ENUM_CLASS(ForwardReferencePlaceholder);
+    STRINGISE_ENUM_CLASS(Literal);
+    STRINGISE_ENUM_CLASS(Alias);
+    STRINGISE_ENUM_CLASS(Constant);
+    STRINGISE_ENUM_CLASS(GlobalVar);
+    STRINGISE_ENUM_CLASS(Metadata);
+    STRINGISE_ENUM_CLASS(Instruction);
+    STRINGISE_ENUM_CLASS(Function);
+    STRINGISE_ENUM_CLASS(BasicBlock);
+  }
+  END_ENUM_STRINGISE();
+};
