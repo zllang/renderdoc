@@ -176,6 +176,7 @@ struct ThreadState
   void ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray<Id> &newLive);
 
   void InitialiseHelper(const ThreadState &activeState);
+  bool ThreadsAreConverged(const rdcarray<ThreadState> &workgroups) const;
 
   struct MemoryAlloc
   {

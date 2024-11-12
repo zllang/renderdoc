@@ -2473,6 +2473,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             else
             {
+              RDCASSERT(ThreadsAreConverged(workgroups));
               Id id = GetArgumentId(1);
               if(dxOpCode == DXOp::DerivCoarseX)
                 result.value = DDX(false, opCode, dxOpCode, workgroups, id);
@@ -2577,6 +2578,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           }
           case DXOp::Barrier:
           {
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            BarrierMode barrierMode = (BarrierMode)arg.value.u32v[0];
+            // For thread barriers the threads must be converged
+            if(barrierMode & BarrierMode::SyncThreadGroup)
+              RDCASSERT(ThreadsAreConverged(workgroups));
             break;
           }
           case DXOp::Discard:
@@ -4579,6 +4586,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     }
     else
     {
+      RDCASSERT(ThreadsAreConverged(workgroups));
       // texture samples use coarse derivatives
       ShaderValue delta;
       for(uint32_t i = 0; i < 4; i++)
@@ -4684,6 +4692,7 @@ void ThreadState::Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderVa
 ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
                              const rdcarray<ThreadState> &quad, const Id &id) const
 {
+  RDCASSERT(ThreadsAreConverged(quad));
   uint32_t index = ~0U;
   int quadIndex = m_WorkgroupIndex;
 
@@ -4714,6 +4723,7 @@ ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
 ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
                              const rdcarray<ThreadState> &quad, const Id &id) const
 {
+  RDCASSERT(ThreadsAreConverged(quad));
   uint32_t index = ~0U;
   int quadIndex = m_WorkgroupIndex;
 
@@ -4739,6 +4749,23 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
   RDCASSERT(quad[index].GetVariable(id, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
+}
+
+bool ThreadState::ThreadsAreConverged(const rdcarray<ThreadState> &workgroups) const
+{
+  const uint32_t block0 = workgroups[0].m_Block;
+  const uint32_t instr0 = workgroups[0].m_ActiveGlobalInstructionIdx;
+  for(size_t i = 1; i < workgroups.size(); i++)
+  {
+    // Check all threads are in the basic block
+    if(workgroups[i].m_Block != block0)
+      return false;
+    // Check executing the same instruction
+    if(workgroups[i].m_ActiveGlobalInstructionIdx != instr0)
+      return false;
+  }
+  // TODO: Implement pixel shader convergence and check the basic block is a convergence block
+  return true;
 }
 
 // static helper function
