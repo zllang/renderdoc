@@ -292,50 +292,47 @@ struct GlobalState
   {
     int byteWidth = 0;
     int numComps = 0;
-    CompType fmt = CompType::Typeless;
+    CompType compType = CompType::Typeless;
     int stride = 0;
+  };
 
-    int Stride() const
+  struct ResourceInfo
+  {
+    ResourceInfo() : firstElement(0), numElements(0), isByteBuffer(false), isRootDescriptor(false)
     {
-      if(stride != 0)
-        return stride;
-
-      if(byteWidth == 10 || byteWidth == 11)
-        return 4;    // 10 10 10 2 or 11 11 10
-
-      return byteWidth * numComps;
     }
+
+    uint32_t firstElement;
+    uint32_t numElements;
+
+    bool isByteBuffer;
+    bool isRootDescriptor;
+    // Buffer stride is stored in format.stride
+    ViewFmt format;
   };
 
   struct UAVData
   {
-    UAVData()
-        : firstElement(0), numElements(0), tex(false), rowPitch(0), depthPitch(0), hiddenCounter(0)
-    {
-    }
+    UAVData() : tex(false), rowPitch(0), depthPitch(0), hiddenCounter(0) {}
+
+    ResourceInfo resInfo;
 
     bytebuf data;
-    uint32_t firstElement;
-    uint32_t numElements;
-
     bool tex;
     uint32_t rowPitch, depthPitch;
 
-    ViewFmt format;
-
     uint32_t hiddenCounter;
   };
+
   std::map<BindingSlot, UAVData> uavs;
   typedef std::map<BindingSlot, UAVData>::const_iterator UAVIterator;
 
   struct SRVData
   {
-    SRVData() : firstElement(0), numElements(0) {}
-    bytebuf data;
-    uint32_t firstElement;
-    uint32_t numElements;
+    SRVData() {}
 
-    ViewFmt format;
+    ResourceInfo resInfo;
+    bytebuf data;
   };
 
   std::map<BindingSlot, SRVData> srvs;
@@ -467,7 +464,6 @@ public:
   static rdcstr GetResourceReferenceName(const DXIL::Program *program, DXIL::ResourceClass resClass,
                                          const BindingSlot &slot);
   const DXIL::Program &GetProgram() const { return *m_Program; }
-  const DXBC::DXBCContainer *const GetDXBCContainer() { return m_DXBC; }
   uint32_t GetEventId() { return m_EventId; }
   const FunctionInfo *GetFunctionInfo(const DXIL::Function *function) const;
   const rdcarray<DXIL::EntryPointInterface::Signature> &GetDXILEntryPointInputs(void) const
@@ -503,7 +499,6 @@ private:
     std::map<const DXIL::Metadata *, TypeData> types;
   } m_DebugInfo;
 
-  const DXBC::DXBCContainer *m_DXBC = NULL;
   const DXIL::Program *m_Program = NULL;
   const DXIL::Function *m_EntryPointFunction = NULL;
   const DXIL::EntryPointInterface *m_EntryPointInterface = NULL;

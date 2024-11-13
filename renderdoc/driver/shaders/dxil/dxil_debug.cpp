@@ -875,14 +875,14 @@ static void TypedUAVStore(DXILDebug::GlobalState::ViewFmt &fmt, byte *d, const S
   {
     uint32_t u = 0;
 
-    if(fmt.fmt == CompType::UInt)
+    if(fmt.compType == CompType::UInt)
     {
       u |= (value.u32v[0] & 0x3ff) << 0;
       u |= (value.u32v[1] & 0x3ff) << 10;
       u |= (value.u32v[2] & 0x3ff) << 20;
       u |= (value.u32v[3] & 0x3) << 30;
     }
-    else if(fmt.fmt == CompType::UNorm)
+    else if(fmt.compType == CompType::UNorm)
     {
       u = ConvertToR10G10B10A2(Vec4f(value.f32v[0], value.f32v[1], value.f32v[2], value.f32v[3]));
     }
@@ -906,28 +906,28 @@ static void TypedUAVStore(DXILDebug::GlobalState::ViewFmt &fmt, byte *d, const S
   }
   else if(fmt.byteWidth == 2)
   {
-    if(fmt.fmt == CompType::Float)
+    if(fmt.compType == CompType::Float)
     {
       uint16_t *u = (uint16_t *)d;
 
       for(int c = 0; c < fmt.numComps; c++)
         u[c] = ConvertToHalf(value.f32v[c]);
     }
-    else if(fmt.fmt == CompType::UInt)
+    else if(fmt.compType == CompType::UInt)
     {
       uint16_t *u = (uint16_t *)d;
 
       for(int c = 0; c < fmt.numComps; c++)
         u[c] = value.u32v[c] & 0xffff;
     }
-    else if(fmt.fmt == CompType::SInt)
+    else if(fmt.compType == CompType::SInt)
     {
       int16_t *i = (int16_t *)d;
 
       for(int c = 0; c < fmt.numComps; c++)
         i[c] = (int16_t)RDCCLAMP(value.s32v[c], (int32_t)INT16_MIN, (int32_t)INT16_MAX);
     }
-    else if(fmt.fmt == CompType::UNorm || fmt.fmt == CompType::UNormSRGB)
+    else if(fmt.compType == CompType::UNorm || fmt.compType == CompType::UNormSRGB)
     {
       uint16_t *u = (uint16_t *)d;
 
@@ -937,7 +937,7 @@ static void TypedUAVStore(DXILDebug::GlobalState::ViewFmt &fmt, byte *d, const S
         u[c] = uint16_t(f);
       }
     }
-    else if(fmt.fmt == CompType::SNorm)
+    else if(fmt.compType == CompType::SNorm)
     {
       int16_t *i = (int16_t *)d;
 
@@ -958,21 +958,21 @@ static void TypedUAVStore(DXILDebug::GlobalState::ViewFmt &fmt, byte *d, const S
   }
   else if(fmt.byteWidth == 1)
   {
-    if(fmt.fmt == CompType::UInt)
+    if(fmt.compType == CompType::UInt)
     {
       uint8_t *u = (uint8_t *)d;
 
       for(int c = 0; c < fmt.numComps; c++)
         u[c] = value.u32v[c] & 0xff;
     }
-    else if(fmt.fmt == CompType::SInt)
+    else if(fmt.compType == CompType::SInt)
     {
       int8_t *i = (int8_t *)d;
 
       for(int c = 0; c < fmt.numComps; c++)
         i[c] = (int8_t)RDCCLAMP(value.s32v[c], (int32_t)INT8_MIN, (int32_t)INT8_MAX);
     }
-    else if(fmt.fmt == CompType::UNorm || fmt.fmt == CompType::UNormSRGB)
+    else if(fmt.compType == CompType::UNorm || fmt.compType == CompType::UNormSRGB)
     {
       uint8_t *u = (uint8_t *)d;
 
@@ -982,7 +982,7 @@ static void TypedUAVStore(DXILDebug::GlobalState::ViewFmt &fmt, byte *d, const S
         u[c] = uint8_t(f);
       }
     }
-    else if(fmt.fmt == CompType::SNorm)
+    else if(fmt.compType == CompType::SNorm)
     {
       int8_t *i = (int8_t *)d;
 
@@ -1016,14 +1016,14 @@ static ShaderValue TypedUAVLoad(DXILDebug::GlobalState::ViewFmt &fmt, const byte
     uint32_t u;
     memcpy(&u, d, sizeof(uint32_t));
 
-    if(fmt.fmt == CompType::UInt)
+    if(fmt.compType == CompType::UInt)
     {
       result.u32v[0] = (u >> 0) & 0x3ff;
       result.u32v[1] = (u >> 10) & 0x3ff;
       result.u32v[2] = (u >> 20) & 0x3ff;
       result.u32v[3] = (u >> 30) & 0x003;
     }
-    else if(fmt.fmt == CompType::UNorm)
+    else if(fmt.compType == CompType::UNorm)
     {
       Vec4f res = ConvertFromR10G10B10A2(u);
       result.f32v[0] = res.x;
@@ -1058,35 +1058,35 @@ static ShaderValue TypedUAVLoad(DXILDebug::GlobalState::ViewFmt &fmt, const byte
     }
     else if(fmt.byteWidth == 2)
     {
-      if(fmt.fmt == CompType::Float)
+      if(fmt.compType == CompType::Float)
       {
         const uint16_t *u = (const uint16_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.f32v[c] = ConvertFromHalf(u[c]);
       }
-      else if(fmt.fmt == CompType::UInt)
+      else if(fmt.compType == CompType::UInt)
       {
         const uint16_t *u = (const uint16_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.u32v[c] = u[c];
       }
-      else if(fmt.fmt == CompType::SInt)
+      else if(fmt.compType == CompType::SInt)
       {
         const int16_t *in = (const int16_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.s32v[c] = in[c];
       }
-      else if(fmt.fmt == CompType::UNorm || fmt.fmt == CompType::UNormSRGB)
+      else if(fmt.compType == CompType::UNorm || fmt.compType == CompType::UNormSRGB)
       {
         const uint16_t *u = (const uint16_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.f32v[c] = float(u[c]) / float(0xffff);
       }
-      else if(fmt.fmt == CompType::SNorm)
+      else if(fmt.compType == CompType::SNorm)
       {
         const int16_t *in = (const int16_t *)d;
 
@@ -1106,28 +1106,28 @@ static ShaderValue TypedUAVLoad(DXILDebug::GlobalState::ViewFmt &fmt, const byte
     }
     else if(fmt.byteWidth == 1)
     {
-      if(fmt.fmt == CompType::UInt)
+      if(fmt.compType == CompType::UInt)
       {
         const uint8_t *u = (const uint8_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.u32v[c] = u[c];
       }
-      else if(fmt.fmt == CompType::SInt)
+      else if(fmt.compType == CompType::SInt)
       {
         const int8_t *in = (const int8_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.s32v[c] = in[c];
       }
-      else if(fmt.fmt == CompType::UNorm || fmt.fmt == CompType::UNormSRGB)
+      else if(fmt.compType == CompType::UNorm || fmt.compType == CompType::UNormSRGB)
       {
         const uint8_t *u = (const uint8_t *)d;
 
         for(int c = 0; c < fmt.numComps; c++)
           result.f32v[c] = float(u[c]) / float(0xff);
       }
-      else if(fmt.fmt == CompType::SNorm)
+      else if(fmt.compType == CompType::SNorm)
       {
         const int8_t *in = (const int8_t *)d;
 
@@ -1149,8 +1149,8 @@ static ShaderValue TypedUAVLoad(DXILDebug::GlobalState::ViewFmt &fmt, const byte
     // fill in alpha with 1.0 or 1 as appropriate
     if(fmt.numComps < 4)
     {
-      if(fmt.fmt == CompType::UNorm || fmt.fmt == CompType::UNormSRGB ||
-         fmt.fmt == CompType::SNorm || fmt.fmt == CompType::Float)
+      if(fmt.compType == CompType::UNorm || fmt.compType == CompType::UNormSRGB ||
+         fmt.compType == CompType::SNorm || fmt.compType == CompType::Float)
         result.f32v[3] = 1.0f;
       else
         result.u32v[3] = 1;
@@ -1186,7 +1186,7 @@ void ConvertTypeToViewFormat(const DXIL::Type *type, DXILDebug::GlobalState::Vie
     resType = resType->inner;
   }
 
-  fmt.fmt = CompType::Typeless;
+  fmt.compType = CompType::Typeless;
   if(resType->type == Type::Scalar)
   {
     fmt.numComps = compCount;
@@ -1195,12 +1195,12 @@ void ConvertTypeToViewFormat(const DXIL::Type *type, DXILDebug::GlobalState::Vie
     if(resType->scalarType == Type::ScalarKind::Int)
     {
       if(resType->bitWidth == 32)
-        fmt.fmt = CompType::SInt;
+        fmt.compType = CompType::SInt;
     }
     else if(resType->scalarType == Type::ScalarKind::Float)
     {
       if(resType->bitWidth == 32)
-        fmt.fmt = CompType::Float;
+        fmt.compType = CompType::Float;
     }
   }
   else if(resType->type == Type::Struct)
@@ -1211,53 +1211,53 @@ void ConvertTypeToViewFormat(const DXIL::Type *type, DXILDebug::GlobalState::Vie
   }
 }
 
-static void FillViewFmt(VarType type, DXILDebug::GlobalState::ViewFmt &fmt)
+static void FillViewFmtFromVarType(VarType type, DXILDebug::GlobalState::ViewFmt &fmt)
 {
   switch(type)
   {
     case VarType::Float:
       fmt.byteWidth = 4;
-      fmt.fmt = CompType::Float;
+      fmt.compType = CompType::Float;
       break;
     case VarType::Double:
       fmt.byteWidth = 8;
-      fmt.fmt = CompType::Float;
+      fmt.compType = CompType::Float;
       break;
     case VarType::Half:
       fmt.byteWidth = 2;
-      fmt.fmt = CompType::Float;
+      fmt.compType = CompType::Float;
       break;
     case VarType::SInt:
       fmt.byteWidth = 4;
-      fmt.fmt = CompType::SInt;
+      fmt.compType = CompType::SInt;
       break;
     case VarType::UInt:
       fmt.byteWidth = 4;
-      fmt.fmt = CompType::UInt;
+      fmt.compType = CompType::UInt;
       break;
     case VarType::SShort:
       fmt.byteWidth = 2;
-      fmt.fmt = CompType::SInt;
+      fmt.compType = CompType::SInt;
       break;
     case VarType::UShort:
       fmt.byteWidth = 2;
-      fmt.fmt = CompType::UInt;
+      fmt.compType = CompType::UInt;
       break;
     case VarType::SLong:
       fmt.byteWidth = 8;
-      fmt.fmt = CompType::SInt;
+      fmt.compType = CompType::SInt;
       break;
     case VarType::ULong:
       fmt.byteWidth = 2;
-      fmt.fmt = CompType::UInt;
+      fmt.compType = CompType::UInt;
       break;
     case VarType::SByte:
       fmt.byteWidth = 1;
-      fmt.fmt = CompType::SInt;
+      fmt.compType = CompType::SInt;
       break;
     case VarType::UByte:
       fmt.byteWidth = 1;
-      fmt.fmt = CompType::UInt;
+      fmt.compType = CompType::UInt;
       break;
     default: RDCERR("Unhandled Result Type %s", ToStr(type).c_str()); break;
   }
@@ -1831,7 +1831,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             const bool raw = (dxOpCode == DXOp::RawBufferLoad) || (dxOpCode == DXOp::RawBufferStore);
             const bool buffer = (dxOpCode == DXOp::BufferLoad) || (dxOpCode == DXOp::BufferStore) ||
                                 (dxOpCode == DXOp::TextureLoad) || (dxOpCode == DXOp::TextureStore);
-            bool byteAddress = raw;
 
             const bool load = (dxOpCode == DXOp::TextureLoad) || (dxOpCode == DXOp::BufferLoad) ||
                               (dxOpCode == DXOp::RawBufferLoad);
@@ -1864,21 +1863,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
 
             uint32_t structOffset = 0;
-            uint32_t stride = 0;
-
-            if(buffer)
-            {
-              // Default for BufferLoad, BufferStore
-              // ByteAddressBuffer will have a stride of one
-              stride = 4;
-            }
-            else if(raw)
-            {
-              stride = 1;
-            }
-
-            RDCASSERT(stride != 0);
-
             const byte *data = NULL;
             size_t dataSize = 0;
             bool texData = false;
@@ -1890,6 +1874,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             BindingSlot resourceBinding(resRef->resourceBase.regBase, resRef->resourceBase.space);
             RDCASSERT((resClass == ResourceClass::SRV || resClass == ResourceClass::UAV), resClass);
+            GlobalState::ResourceInfo resInfo;
             switch(resClass)
             {
               case ResourceClass::UAV:
@@ -1901,15 +1886,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                   uavIter = m_GlobalState.uavs.find(resourceBinding);
                 }
                 const GlobalState::UAVData &uav = uavIter->second;
+                resInfo = uav.resInfo;
                 data = uav.data.data();
                 dataSize = uav.data.size();
                 texData = uav.tex;
                 rowPitch = uav.rowPitch;
                 depthPitch = uav.depthPitch;
-                firstElem = uav.firstElement;
-                numElems = uav.numElements;
-                fmt = uav.format;
-                stride = fmt.Stride();
                 break;
               }
               case ResourceClass::SRV:
@@ -1921,17 +1903,13 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                   srvIter = m_GlobalState.srvs.find(resourceBinding);
                 }
                 const GlobalState::SRVData &srv = srvIter->second;
+                resInfo = srv.resInfo;
                 data = srv.data.data();
                 dataSize = srv.data.size();
-                firstElem = srv.firstElement;
-                numElems = srv.numElements;
-                fmt = srv.format;
-                stride = fmt.Stride();
                 break;
               }
               default: RDCERR("Unexpected ResourceClass %s", ToStr(resClass).c_str()); break;
             }
-
             // Unbound resource
             if(data == NULL)
             {
@@ -1945,32 +1923,23 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               break;
             }
 
-            // Update the format if it is Typeless
-            // See FetchUAV() comment about root buffers being typeless
-            if(fmt.fmt == CompType::Typeless)
+            firstElem = resInfo.firstElement;
+            numElems = resInfo.numElements;
+            fmt = resInfo.format;
+
+            bool byteAddress = resInfo.isByteBuffer;
+
+            // If the format is unknown, guess it using the result type
+            // See FetchSRV(), FetchUAV() comment about root buffers being typeless
+            // The stride should have been computed from the shader metadata
+            if(fmt.compType == CompType::Typeless)
             {
-              FillViewFmt(result.type, fmt);
+              FillViewFmtFromVarType(result.type, fmt);
               fmt.numComps = result.columns;
-              if(fmt.stride == 0)
-              {
-                fmt.stride = 1;
-                stride = 1;
-              }
-              else
-              {
-                byteAddress = false;
-                stride = fmt.stride;
-              }
-            }
-            else
-            {
-              if(fmt.stride == 0)
-                fmt.stride = fmt.Stride();
-              stride = fmt.stride;
             }
 
-            if(stride == 1)
-              byteAddress = true;
+            if(byteAddress)
+              fmt.stride = 1;
 
             if(annotatedHandle)
             {
@@ -1983,12 +1952,13 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 fmt.stride = props.structStride;
                 byteAddress = false;
               }
-              stride = fmt.stride;
-              RDCASSERTNOTEQUAL(stride, 0);
             }
 
+            uint32_t stride = fmt.stride;
+            RDCASSERT(!((stride == 1) ^ byteAddress));
+
             RDCASSERTNOTEQUAL(stride, 0);
-            RDCASSERTNOTEQUAL(fmt.fmt, CompType::Typeless);
+            RDCASSERTNOTEQUAL(fmt.compType, CompType::Typeless);
 
             uint32_t texCoords[3] = {0, 0, 0};
             uint32_t elemIdx = 0;
@@ -2031,7 +2001,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             if(texData)
             {
-              dataOffset += texCoords[0] * fmt.Stride();
+              dataOffset += texCoords[0] * stride;
               dataOffset += texCoords[1] * rowPitch;
               dataOffset += texCoords[2] * depthPitch;
             }
@@ -2286,7 +2256,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 GlobalState::ViewFmt cbufferFmt;
                 cbufferFmt.byteWidth = byteWidth;
                 cbufferFmt.numComps = numComps;
-                cbufferFmt.fmt = CompType::Float;
+                cbufferFmt.compType = CompType::Float;
                 cbufferFmt.stride = 16;
 
                 result.value = TypedUAVLoad(cbufferFmt, data);
@@ -6044,8 +6014,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
 {
   ShaderStage shaderStage = reflection.stage;
 
-  m_DXBC = dxbcContainer;
-  m_Program = m_DXBC->GetDXILByteCode();
+  m_Program = dxbcContainer->GetDXILByteCode();
   m_EventId = eventId;
   m_ActiveLaneIndex = activeLaneIndex;
   m_Steps = 0;

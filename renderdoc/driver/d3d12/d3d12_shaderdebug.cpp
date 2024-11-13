@@ -3393,7 +3393,7 @@ rdcarray<ShaderDebugState> D3D12Replay::ContinueDebug(ShaderDebugger *debugger)
   if(((DXBCContainerDebugger *)debugger)->isDXIL)
   {
     DXILDebug::Debugger *dxilDebugger = (DXILDebug::Debugger *)debugger;
-    DXILDebug::D3D12APIWrapper apiWrapper(m_pDevice, dxilDebugger->GetDXBCContainer(),
+    DXILDebug::D3D12APIWrapper apiWrapper(m_pDevice, dxilDebugger->GetProgram(),
                                           dxilDebugger->GetGlobalState(), dxilDebugger->GetEventId());
     D3D12MarkerRegion region(m_pDevice->GetQueue()->GetReal(), "ContinueDebug Simulation Loop");
     return dxilDebugger->ContinueDebug(&apiWrapper);

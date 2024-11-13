@@ -41,7 +41,7 @@ void FetchConstantBufferData(WrappedID3D12Device *device, const DXIL::Program *p
 class D3D12APIWrapper : public DebugAPIWrapper
 {
 public:
-  D3D12APIWrapper(WrappedID3D12Device *device, const DXBC::DXBCContainer *dxbcContainer,
+  D3D12APIWrapper(WrappedID3D12Device *device, const DXIL::Program &dxilProgram,
                   GlobalState &globalState, uint32_t eventId);
   ~D3D12APIWrapper();
 
@@ -67,7 +67,7 @@ private:
   bool IsUAVBound(const BindingSlot &slot);
 
   WrappedID3D12Device *m_Device;
-  const DXBC::DXBCContainer *m_DXBC;
+  const DXIL::EntryPointInterface *m_EntryPointInterface;
   GlobalState &m_GlobalState;
   DXBC::ShaderType m_ShaderType;
   const uint32_t m_EventId;

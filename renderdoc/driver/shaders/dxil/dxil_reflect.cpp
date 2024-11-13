@@ -306,6 +306,8 @@ EntryPointInterface::ResourceBase::ResourceBase(ResourceClass resourceClass, con
     SRV &srv = srvData;
     srv.shape = getival<ResourceKind>(md->children[(size_t)ResField::SRVShape]);
     srv.sampleCount = getival<uint32_t>(md->children[(size_t)ResField::SRVSampleCount]);
+    srv.compType = ComponentType::Invalid;
+    srv.elementStride = ~0U;
     const Metadata *tags = md->children[(size_t)ResField::SRVTags];
     for(size_t t = 0; tags && t < tags->children.size(); t += 2)
     {
@@ -332,6 +334,11 @@ EntryPointInterface::ResourceBase::ResourceBase(ResourceClass resourceClass, con
     uav.hasCounter = (getival<uint32_t>(md->children[(size_t)ResField::UAVHiddenCounter]) == 1);
     uav.rasterizerOrderedView =
         (getival<uint32_t>(md->children[(size_t)ResField::UAVRasterOrder]) == 1);
+    uav.compType = ComponentType::Invalid;
+    uav.elementStride = ~0U;
+    uav.samplerFeedback = SamplerFeedbackType::LastEntry;
+    uav.atomic64Use = false;
+
     const Metadata *tags = md->children[(size_t)ResField::UAVTags];
     for(size_t t = 0; tags && t < tags->children.size(); t += 2)
     {
@@ -360,6 +367,7 @@ EntryPointInterface::ResourceBase::ResourceBase(ResourceClass resourceClass, con
     CBuffer &cbuffer = cbufferData;
     cbuffer.sizeInBytes = getival<uint32_t>(md->children[(size_t)ResField::CBufferByteSize]);
     const Metadata *tags = md->children[(size_t)ResField::CBufferTags];
+    cbuffer.isTBuffer = false;
     for(size_t t = 0; tags && t < tags->children.size(); t += 2)
     {
       RDCASSERT(tags->children[t]->isConstant);
