@@ -1833,7 +1833,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             if(buffer)
             {
-              // Fixed for BufferLoad, BufferStore
+              // Default for BufferLoad, BufferStore
+              // ByteAddressBuffer will have a stride of one
               stride = 4;
             }
             else if(raw)
@@ -1890,19 +1891,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 firstElem = srv.firstElement;
                 numElems = srv.numElements;
                 fmt = srv.format;
+                stride = fmt.Stride();
                 break;
               }
               default: RDCERR("Unexpected ResourceClass %s", ToStr(resClass).c_str()); break;
-            }
-            if(annotatedHandle)
-            {
-              RDCASSERT(raw);
-              auto it = m_AnnotatedProperties.find(resultId);
-              RDCASSERT(it != m_AnnotatedProperties.end());
-              const AnnotationProperties &props = m_AnnotatedProperties.at(resultId);
-              fmt.stride = props.structStride;
-              fmt.numComps = props.compCount;
-              fmt.byteWidth = props.byteWidth;
             }
 
             // Unbound resource
@@ -1917,6 +1909,51 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               }
               break;
             }
+
+            // Update the format if it is Typeless
+            // See FetchUAV() comment about root buffers being typeless
+            if(fmt.fmt == CompType::Typeless)
+            {
+              FillViewFmt(result.type, fmt);
+              fmt.numComps = result.columns;
+              if(fmt.stride == 0)
+              {
+                fmt.stride = 1;
+                stride = 1;
+              }
+              else
+              {
+                byteAddress = false;
+                stride = fmt.stride;
+              }
+            }
+            else
+            {
+              if(fmt.stride == 0)
+                fmt.stride = fmt.Stride();
+              stride = fmt.stride;
+            }
+
+            if(stride == 1)
+              byteAddress = true;
+
+            if(annotatedHandle)
+            {
+              auto it = m_AnnotatedProperties.find(handleId);
+              RDCASSERT(it != m_AnnotatedProperties.end());
+              const AnnotationProperties &props = m_AnnotatedProperties.at(handleId);
+              if((props.resKind == ResourceKind::StructuredBuffer) ||
+                 (props.resKind == ResourceKind::StructuredBufferWithCounter))
+              {
+                fmt.stride = props.structStride;
+                byteAddress = false;
+              }
+              stride = fmt.stride;
+              RDCASSERTNOTEQUAL(stride, 0);
+            }
+
+            RDCASSERTNOTEQUAL(stride, 0);
+            RDCASSERTNOTEQUAL(fmt.fmt, CompType::Typeless);
 
             uint32_t texCoords[3] = {0, 0, 0};
             uint32_t elemIdx = 0;
@@ -1938,30 +1975,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 texCoords[2] = (int8_t)arg.value.s32v[0];
             }
 
-            // Update the format if it is Typeless
-            // See FetchUAV() comment about root buffers being typeless
-            if(fmt.fmt == CompType::Typeless)
-            {
-              FillViewFmt(result.type, fmt);
-              byteAddress = (fmt.stride == 0);
-              fmt.numComps = result.columns;
-            }
-            else
-            {
-              fmt.stride = fmt.Stride();
-            }
-            if(fmt.stride != 0)
-              stride = fmt.stride;
-            else
-              stride = 1;
-            RDCASSERTNOTEQUAL(fmt.fmt, CompType::Typeless);
-
             // buffer offsets are in bytes
             // firstElement/numElements is in format-sized units. Convert to byte offsets
             if(byteAddress)
             {
               // For byte address buffer
-              // element index is in bytes and a multiple of four, GPU behavious seems to be to round down
+              // element index is in bytes and a multiple of four, GPU behaviour seems to be to round down
               elemIdx = elemIdx & ~0x3;
               firstElem *= RDCMIN(4, fmt.byteWidth);
               numElems *= RDCMIN(4, fmt.byteWidth);
@@ -2100,47 +2119,72 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                   DescriptorCategory category = isSRV ? DescriptorCategory::ReadOnlyResource
                                                       : DescriptorCategory::ReadWriteResource;
                   result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
-                  // Default to unannotated handle
-                  result.value.u32v[3] = 0;
-                  baseResource = result.name = baseResource;
-                  // Parse the annotate handle properties
-                  // resClass, compType, compCount, structStride
-                  if(dxOpCode == DXOp::AnnotateHandle)
-                  {
-                    // Set as an unannotated handle
-                    result.value.u32v[3] = 1;
-                    ShaderVariable props;
-                    RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, props));
-                    uint32_t packedProps[2] = {};
-                    packedProps[0] = props.members[0].value.u32v[0];
-                    packedProps[1] = props.members[1].value.u32v[0];
-                    bool uav = (packedProps[0] & (1 << 12)) != 0;
-                    ResourceKind resKind = (ResourceKind)(packedProps[0] & 0xFF);
-                    ResourceClass resClass;
-                    if(resKind == ResourceKind::Sampler)
-                      resClass = ResourceClass::Sampler;
-                    else if(resKind == ResourceKind::CBuffer)
-                      resClass = ResourceClass::CBuffer;
-                    else if(uav)
-                      resClass = ResourceClass::UAV;
-                    else
-                      resClass = ResourceClass::SRV;
-
-                    ComponentType dxilCompType = ComponentType(packedProps[1] & 0xFF);
-                    VarType compType = VarTypeForComponentType(dxilCompType);
-                    uint32_t compCount = (uint32_t)((packedProps[1] & 0xFF00) >> 8);
-                    uint32_t byteWidth = GetElementByteSize(compType);
-                    uint32_t structStride = packedProps[1];
-                    // Store the annotate properties for the result
-                    RDCASSERTEQUAL(m_AnnotatedProperties.count(resultId), 0);
-                    m_AnnotatedProperties[resultId] = {resClass, compType, compCount, byteWidth,
-                                                       structStride};
-                  }
+                  result.name = baseResource;
                 }
                 else
                 {
                   RDCERR("Unhandled dynamic handle %s with invalid resIndexArgId", resName.c_str(),
                          resIndexArgId);
+                }
+              }
+              // Default to unannotated handle
+              result.value.u32v[3] = 0;
+
+              // Parse the packed annotate handle properties
+              // resKind : {compType, compCount} | {structStride}
+              if(dxOpCode == DXOp::AnnotateHandle)
+              {
+                // Set as an annotated handle
+                result.value.u32v[3] = 1;
+                ShaderVariable props;
+                RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, props));
+                uint32_t packedProps[2] = {};
+                packedProps[0] = props.members[0].value.u32v[0];
+                packedProps[1] = props.members[1].value.u32v[0];
+                bool uav = (packedProps[0] & (1 << 12)) != 0;
+                ResourceKind resKind = (ResourceKind)(packedProps[0] & 0xFF);
+                ResourceClass resClass;
+                if(resKind == ResourceKind::Sampler)
+                  resClass = ResourceClass::Sampler;
+                else if(resKind == ResourceKind::CBuffer)
+                  resClass = ResourceClass::CBuffer;
+                else if(uav)
+                  resClass = ResourceClass::UAV;
+                else
+                  resClass = ResourceClass::SRV;
+
+                uint32_t structStride = 0;
+                if((resKind == ResourceKind::StructuredBuffer) ||
+                   (resKind == ResourceKind::StructuredBufferWithCounter))
+                {
+                  structStride = packedProps[1];
+                }
+                else if(resKind == ResourceKind::Texture1D || resKind == ResourceKind::Texture2D ||
+                        resKind == ResourceKind::Texture3D || resKind == ResourceKind::TextureCube ||
+                        resKind == ResourceKind::Texture1DArray ||
+                        resKind == ResourceKind::Texture2DArray ||
+                        resKind == ResourceKind::TextureCubeArray ||
+                        resKind == ResourceKind::TypedBuffer || resKind == ResourceKind::Texture2DMS ||
+                        resKind == ResourceKind::Texture2DMSArray)
+                {
+                  ComponentType dxilCompType = ComponentType(packedProps[1] & 0xFF);
+                  VarType compType = VarTypeForComponentType(dxilCompType);
+                  uint32_t compCount = (packedProps[1] & 0xFF00) >> 8;
+                  uint32_t byteWidth = GetElementByteSize(compType);
+                  structStride = compCount * byteWidth;
+                }
+                // Store the annotate properties for the result
+                auto it = m_AnnotatedProperties.find(resultId);
+                if(it == m_AnnotatedProperties.end())
+                {
+                  m_AnnotatedProperties[resultId] = {resKind, resClass, structStride};
+                }
+                else
+                {
+                  const AnnotationProperties &existingProps = it->second;
+                  RDCASSERTEQUAL(existingProps.resKind, resKind);
+                  RDCASSERTEQUAL(existingProps.resClass, resClass);
+                  RDCASSERTEQUAL(existingProps.structStride, structStride);
                 }
               }
             }
