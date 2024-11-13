@@ -787,7 +787,7 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
   if(var.members.empty())
   {
     RDCASSERTEQUAL(var.rows, 1);
-    RDCASSERT(var.columns > 1);
+    RDCASSERT(var.columns >= 1);
     if(var.columns > 1)
     {
       if(constant->isCompound())
@@ -4188,10 +4188,17 @@ bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, 
         // TODO: Need to do the arithmetic with indexes
         return true;
       }
+      else if(c->op == Operation::NoOp)
+      {
+        ConvertDXILTypeToShaderVariable(c->type, var);
+        RDCASSERT(ConvertDXILConstantToShaderVariable(c, var));
+        return true;
+      }
       else if(c->op != Operation::NoOp)
       {
         RDCERR("Constant isCompound DXIL Value with unsupported operation %s", ToStr(c->op).c_str());
       }
+      return false;
     }
     else
     {
