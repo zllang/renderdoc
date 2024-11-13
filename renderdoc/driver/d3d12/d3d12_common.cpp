@@ -23,10 +23,16 @@
  ******************************************************************************/
 
 #include "d3d12_common.h"
+#include "core/settings.h"
 #include "driver/dxgi/dxgi_common.h"
 #include "driver/dxgi/dxgi_wrapped.h"
 #include "d3d12_manager.h"
 #include "d3d12_resources.h"
+
+RDOC_CONFIG(bool, D3D12_Debug_EnableGPUVA, false,
+            "Enable GPU Validation when enabling D3D12 validation.");
+
+RDOC_CONFIG(bool, D3D12_Debug_EnableDRED, false, "Enable DRED when enabling D3D12 validation.");
 
 D3D12MarkerRegion::D3D12MarkerRegion(ID3D12GraphicsCommandList *l, const rdcstr &marker)
 {
@@ -301,25 +307,76 @@ bool EnableD3D12DebugLayer(D3D12DevConfiguration *devConfig,
 
     RDCDEBUG("Enabling debug layer");
 
-// enable this to get GPU-based validation, where available, whenever we enable API validation
-#if 0
-    ID3D12Debug1 *debug1 = NULL;
-    hr = debug->QueryInterface(__uuidof(ID3D12Debug1), (void **)&debug1);
-
-    if(SUCCEEDED(hr) && debug1)
+    if(RenderDoc::Inst().IsReplayApp() && D3D12_Debug_EnableGPUVA())
     {
-      RDCDEBUG("Enabling GPU-based validation");
-      debug1->SetEnableGPUBasedValidation(true);
+      ID3D12Debug1 *debug1 = NULL;
+      HRESULT hr = debug->QueryInterface(__uuidof(ID3D12Debug1), (void **)&debug1);
+
+      if(SUCCEEDED(hr) && debug1)
+      {
+        RDCLOG("Enabling GPU-based validation");
+        debug1->SetEnableGPUBasedValidation(true);
+      }
+      else
+      {
+        RDCLOG("GPU-based validation not available");
+      }
       SAFE_RELEASE(debug1);
     }
-    else
-    {
-      RDCDEBUG("GPU-based validation not available");
-    }
-#endif
 
     SAFE_RELEASE(debug);
 
+    return true;
+  }
+
+  return false;
+}
+
+bool EnableDRED(D3D12DevConfiguration *devConfig, PFN_D3D12_GET_DEBUG_INTERFACE getDebugInterface)
+{
+  ID3D12DeviceRemovedExtendedDataSettings *dred = NULL;
+  if(devConfig)
+  {
+    if(devConfig->dred)
+    {
+      dred = devConfig->dred;
+      dred->AddRef();
+    }
+  }
+  else
+  {
+    if(!getDebugInterface)
+      getDebugInterface = (PFN_D3D12_GET_DEBUG_INTERFACE)GetProcAddress(
+          GetModuleHandleA("d3d12.dll"), "D3D12GetDebugInterface");
+
+    if(!getDebugInterface)
+    {
+      RDCERR("Couldn't find D3D12GetDebugInterface!");
+      return false;
+    }
+
+    HRESULT hr = getDebugInterface(__uuidof(ID3D12DeviceRemovedExtendedDataSettings), (void **)&dred);
+
+    if(FAILED(hr))
+      SAFE_RELEASE(dred);
+  }
+
+  if(dred && D3D12_Debug_EnableDRED())
+  {
+    RDCLOG("Enabling DRED");
+
+    dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    dred->SetWatsonDumpEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+
+    ID3D12DeviceRemovedExtendedDataSettings1 *settings1 = NULL;
+    HRESULT hr = dred->QueryInterface(__uuidof(ID3D12DeviceRemovedExtendedDataSettings1),
+                                      (void **)&settings1);
+    if(SUCCEEDED(hr) && settings1)
+      settings1->SetBreadcrumbContextEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+    SAFE_RELEASE(settings1);
+
+    SAFE_RELEASE(dred);
     return true;
   }
 

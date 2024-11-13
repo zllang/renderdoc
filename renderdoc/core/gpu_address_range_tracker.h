@@ -60,4 +60,7 @@ struct GPUAddressRangeTracker
   void GetResIDFromAddr(GPUAddressRange::Address addr, ResourceId &id, uint64_t &offs);
   void GetResIDFromAddrAllowOutOfBounds(GPUAddressRange::Address addr, ResourceId &id,
                                         uint64_t &offs);
+  void GetResIDBoundForAddr(GPUAddressRange::Address addr, ResourceId &lower,
+                            GPUAddressRange::Address &lowerVA, ResourceId &upper,
+                            GPUAddressRange::Address &upperVA);
 };
