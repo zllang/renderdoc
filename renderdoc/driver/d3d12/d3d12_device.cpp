@@ -4497,7 +4497,12 @@ void WrappedID3D12Device::GPUSync(ID3D12CommandQueue *queue, ID3D12Fence *fence)
   RDCASSERTEQUAL(hr, S_OK);
 
   fence->SetEventOnCompletion(m_GPUSyncCounter, m_GPUSyncHandle);
-  WaitForSingleObject(m_GPUSyncHandle, 10000);
+
+  // wait 10s for hardware GPUs, 100s for CPU
+  if(m_Replay && m_Replay->GetDriverInfo().vendor == GPUVendor::Software)
+    WaitForSingleObject(m_GPUSyncHandle, 100000);
+  else
+    WaitForSingleObject(m_GPUSyncHandle, 10000);
 
   hr = m_pDevice->GetDeviceRemovedReason();
   CHECK_HR(this, hr);
@@ -5251,6 +5256,8 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
 
     m_GPUSyncCounter++;
 
+    GPUSyncAllQueues();
+
     // I'm not sure the reason for this, but the debug layer warns about being unable to resubmit
     // command lists due to the 'previous queue fence' not being ready yet, even if no fences are
     // signalled or waited. So instead we just signal a dummy fence each new 'frame'
@@ -5280,6 +5287,8 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
 
     ExecuteLists();
     FlushLists(true);
+
+    GPUSyncAllQueues();
 
     // clear any previous ray dispatch references
     D3D12CommandData &cmd = *m_Queue->GetCommandData();
