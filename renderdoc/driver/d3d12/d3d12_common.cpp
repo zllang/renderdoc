@@ -161,8 +161,22 @@ void BarrierSet::Configure(ID3D12Resource *res, const SubresourceStateVector &st
       break;
   }
 
-  barriers.reserve(states.size());
-  newBarriers.reserve(states.size());
+  bool different = false;
+  for(size_t i = 1; i < states.size(); i++)
+  {
+    if(states[i] != states[0])
+    {
+      different = true;
+      break;
+    }
+  }
+
+  if(different)
+  {
+    barriers.reserve(states.size());
+    newBarriers.reserve(states.size());
+  }
+
   for(size_t i = 0; i < states.size(); i++)
   {
     if(states[i].IsStates())
@@ -183,7 +197,13 @@ void BarrierSet::Configure(ID3D12Resource *res, const SubresourceStateVector &st
       b.Transition.Subresource = (UINT)i;
       b.Transition.StateAfter = resourceState;
 
+      if(!different)
+        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
       barriers.push_back(b);
+
+      if(!different)
+        break;
     }
     // buffers don't need any transitions with the new layouts
     else if(!isBuffer)
@@ -213,7 +233,13 @@ void BarrierSet::Configure(ID3D12Resource *res, const SubresourceStateVector &st
       b.Subresources.IndexOrFirstMipLevel = (UINT)i;
       b.pResource = res;
 
+      if(!different)
+        b.Subresources.IndexOrFirstMipLevel = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
       newBarriers.push_back(b);
+
+      if(!different)
+        break;
     }
   }
 }
