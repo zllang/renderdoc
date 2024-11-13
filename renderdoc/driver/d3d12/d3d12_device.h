@@ -888,11 +888,7 @@ public:
   const D3D12_FEATURE_DATA_D3D12_OPTIONS16 &GetOpts16() { return m_D3D12Opts16; }
   void RemoveQueue(WrappedID3D12CommandQueue *queue);
 
-  void AddForcedReference(D3D12ResourceRecord *record)
-  {
-    SCOPED_LOCK(m_ForcedReferencesLock);
-    m_ForcedReferences.push_back(record);
-  }
+  void AddForcedReference(D3D12ResourceRecord *record);
 
   // only valid on replay
   const std::map<ResourceId, WrappedID3D12Resource *> &GetResourceList() { return *m_ResourceList; }

@@ -3331,6 +3331,21 @@ void WrappedID3D12Device::UploadBLASBufferAddresses()
   m_addressBufferUploaded = true;
 }
 
+void WrappedID3D12Device::AddForcedReference(D3D12ResourceRecord *record)
+{
+  {
+    SCOPED_LOCK(m_ForcedReferencesLock);
+    m_ForcedReferences.push_back(record);
+  }
+
+  // in case we're currently capturing, immediately consider the resource as referenced. If we're
+  // not capturing this will naturally be cleared before the frame capture starts and we don't have
+  // to consider races as this is internally locked. If we're racing with a frame capture starting
+  // we will either add this redundantly (after clear but before forced references are added) or as
+  // required (after references are cleared and after forced references are added)
+  GetResourceManager()->MarkResourceFrameReferenced(record->GetResourceID(), eFrameRef_Read);
+}
+
 void WrappedID3D12Device::ReleaseResource(ID3D12DeviceChild *res)
 {
   ResourceId id = GetResID(res);
