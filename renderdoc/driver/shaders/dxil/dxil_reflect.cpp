@@ -1231,6 +1231,12 @@ static void AddResourceBind(DXBC::Reflection *refl, const TypeInfo &typeInfo, co
   RDCASSERT(resType->type == Type::Pointer);
   resType = resType->inner;
 
+  bool structType = resType->type == Type::Struct;
+
+  const Type *bufType = NULL;
+  if(resType->type == Type::Struct && resType->members.size() == 1)
+    bufType = resType->members[0];
+
   // textures are a struct containing the inner type and a mips type
   if(resType->type == Type::Struct && !resType->members.empty())
     resType = resType->members[0];
@@ -1250,6 +1256,9 @@ static void AddResourceBind(DXBC::Reflection *refl, const TypeInfo &typeInfo, co
     else if(resType->scalarType == Type::Int)
       bind.retType = RETURN_TYPE_SINT;
   }
+
+  if(bufType && (resType->type == Type::Scalar))
+    structType = false;
 
   const Metadata *tags =
       srv ? r->children[(size_t)ResField::SRVTags] : r->children[(size_t)ResField::UAVTags];
@@ -1371,20 +1380,23 @@ static void AddResourceBind(DXBC::Reflection *refl, const TypeInfo &typeInfo, co
       bind.type = srv ? ShaderInputBind::TYPE_BYTEADDRESS : ShaderInputBind::TYPE_UAV_RWBYTEADDRESS;
       defName = srv ? "ByteAddressBuffer" : "RWByteAddressBuffer";
       bind.dimension = ShaderInputBind::DIM_BUFFER;
-      bind.retType = RETURN_TYPE_MIXED;
+      if(bind.retType == RETURN_TYPE_UNKNOWN && structType)
+        bind.retType = RETURN_TYPE_MIXED;
       break;
     case ResourceKind::StructuredBuffer:
       bind.type = srv ? ShaderInputBind::TYPE_STRUCTURED : ShaderInputBind::TYPE_UAV_RWSTRUCTURED;
       defName = srv ? "StructuredBuffer" : "RWStructuredBuffer";
       bind.dimension = ShaderInputBind::DIM_BUFFER;
-      bind.retType = RETURN_TYPE_MIXED;
+      if(bind.retType == RETURN_TYPE_UNKNOWN && structType)
+        bind.retType = RETURN_TYPE_MIXED;
       break;
     case ResourceKind::StructuredBufferWithCounter:
       bind.type = srv ? ShaderInputBind::TYPE_STRUCTURED
                       : ShaderInputBind::TYPE_UAV_RWSTRUCTURED_WITH_COUNTER;
       defName = srv ? "StructuredBufferWithCounter" : "RWStructuredBufferWithCounter";
       bind.dimension = ShaderInputBind::DIM_BUFFER;
-      bind.retType = RETURN_TYPE_MIXED;
+      if(bind.retType == RETURN_TYPE_UNKNOWN && structType)
+        bind.retType = RETURN_TYPE_MIXED;
       break;
   }
 
