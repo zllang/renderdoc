@@ -759,3 +759,33 @@ rdcstr DoStringise(const DXIL::BarrierMode &el)
   }
   END_BITFIELD_STRINGISE();
 };
+
+template <>
+rdcstr DoStringise(const DXIL::ResourceKind &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::ResourceKind);
+  {
+    STRINGISE_ENUM_CLASS(Unknown);
+    STRINGISE_ENUM_CLASS(Texture1D);
+    STRINGISE_ENUM_CLASS(Texture2D);
+    STRINGISE_ENUM_CLASS(Texture2DMS);
+    STRINGISE_ENUM_CLASS(Texture3D);
+    STRINGISE_ENUM_CLASS(TextureCube);
+    STRINGISE_ENUM_CLASS(Texture1DArray);
+    STRINGISE_ENUM_CLASS(Texture2DArray);
+    STRINGISE_ENUM_CLASS(Texture2DMSArray);
+    STRINGISE_ENUM_CLASS(TextureCubeArray);
+    STRINGISE_ENUM_CLASS(TypedBuffer);
+    STRINGISE_ENUM_CLASS(RawBuffer);
+    STRINGISE_ENUM_CLASS(StructuredBuffer);
+    STRINGISE_ENUM_CLASS(CBuffer);
+    STRINGISE_ENUM_CLASS(Sampler);
+    STRINGISE_ENUM_CLASS(TBuffer);
+    STRINGISE_ENUM_CLASS(RTAccelerationStructure);
+    STRINGISE_ENUM_CLASS(FeedbackTexture2D);
+    STRINGISE_ENUM_CLASS(FeedbackTexture2DArray);
+    STRINGISE_ENUM_CLASS(StructuredBufferWithCounter);
+    STRINGISE_ENUM_CLASS(SamplerComparison);
+  }
+  END_ENUM_STRINGISE();
+};

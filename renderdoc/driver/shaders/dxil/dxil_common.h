@@ -208,3 +208,4 @@ enum class SamplerFeedbackType : uint8_t
 
 DECLARE_STRINGISE_TYPE(DXIL::ComponentType);
 DECLARE_STRINGISE_TYPE(DXIL::ResourceClass);
+DECLARE_STRINGISE_TYPE(DXIL::ResourceKind);
