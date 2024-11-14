@@ -141,13 +141,14 @@ ID3D12DeviceChild *Unwrap(ID3D12DeviceChild *ptr)
 
 WRAPPED_POOL_INST(D3D12AccelerationStructure);
 
-D3D12AccelerationStructure::D3D12AccelerationStructure(WrappedID3D12Device *wrappedDevice,
-                                                       WrappedID3D12Resource *bufferRes,
-                                                       D3D12BufferOffset bufferOffset,
-                                                       UINT64 byteSize)
+D3D12AccelerationStructure::D3D12AccelerationStructure(
+    WrappedID3D12Device *wrappedDevice, WrappedID3D12Resource *bufferRes,
+    D3D12BufferOffset bufferOffset, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
+    UINT64 byteSize)
     : WrappedDeviceChild12(NULL, wrappedDevice),
       m_asbWrappedResource(bufferRes),
       m_asbWrappedResourceBufferOffset(bufferOffset),
+      type(type),
       byteSize(byteSize)
 {
 }
@@ -158,8 +159,9 @@ D3D12AccelerationStructure::~D3D12AccelerationStructure()
   Shutdown();
 }
 
-bool WrappedID3D12Resource::CreateAccStruct(D3D12BufferOffset bufferOffset, UINT64 byteSize,
-                                            D3D12AccelerationStructure **accStruct)
+bool WrappedID3D12Resource::CreateAccStruct(D3D12BufferOffset bufferOffset,
+                                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
+                                            UINT64 byteSize, D3D12AccelerationStructure **accStruct)
 {
   SCOPED_LOCK(m_accStructResourcesCS);
   auto existing = m_accelerationStructMap.find(bufferOffset);
@@ -171,7 +173,7 @@ bool WrappedID3D12Resource::CreateAccStruct(D3D12BufferOffset bufferOffset, UINT
   }
 
   m_accelerationStructMap[bufferOffset] =
-      new D3D12AccelerationStructure(m_pDevice, this, bufferOffset, byteSize);
+      new D3D12AccelerationStructure(m_pDevice, this, bufferOffset, type, byteSize);
 
   *accStruct = m_accelerationStructMap[bufferOffset];
 

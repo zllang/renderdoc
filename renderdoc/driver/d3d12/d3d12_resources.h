@@ -1332,7 +1332,8 @@ public:
     return this->GetResourceID();
   }
 
-  bool CreateAccStruct(D3D12BufferOffset bufferOffset, UINT64 byteSize,
+  bool CreateAccStruct(D3D12BufferOffset bufferOffset,
+                       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize,
                        D3D12AccelerationStructure **accStruct);
 
   bool GetAccStructIfExist(D3D12BufferOffset bufferOffset,
@@ -1665,7 +1666,8 @@ public:
   ALLOCATE_WITH_WRAPPED_POOL(D3D12AccelerationStructure);
 
   D3D12AccelerationStructure(WrappedID3D12Device *wrappedDevice, WrappedID3D12Resource *bufferRes,
-                             D3D12BufferOffset bufferOffset, UINT64 byteSize);
+                             D3D12BufferOffset bufferOffset,
+                             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize);
 
   ~D3D12AccelerationStructure();
 
@@ -1675,12 +1677,14 @@ public:
   {
     return m_asbWrappedResource->GetGPUVirtualAddress() + m_asbWrappedResourceBufferOffset;
   }
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE Type() const { return type; }
 
   ASBuildData *buildData = NULL;
 
 private:
   WrappedID3D12Resource *m_asbWrappedResource;
   D3D12BufferOffset m_asbWrappedResourceBufferOffset;
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type;
   UINT64 byteSize;
 };
 

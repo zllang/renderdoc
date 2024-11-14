@@ -1334,8 +1334,9 @@ public:
                                        const char *Path);
 
   IMPLEMENT_FUNCTION_THREAD_SERIALISED(void, CreateAS, ID3D12Resource *pResource,
-                                       UINT64 resourceOffset, UINT64 byteSize,
-                                       D3D12AccelerationStructure *as);
+                                       UINT64 resourceOffset,
+                                       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
+                                       UINT64 byteSize, D3D12AccelerationStructure *as);
 
   // IHV APIs
   IMPLEMENT_FUNCTION_SERIALISED(void, SetShaderExtUAV, GPUVendor vendor, uint32_t reg,

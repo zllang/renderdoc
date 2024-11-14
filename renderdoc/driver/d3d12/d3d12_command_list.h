@@ -600,6 +600,7 @@ public:
 
   bool ProcessASBuildAfterSubmission(ResourceId asbWrappedResourceId,
                                      D3D12BufferOffset asbWrappedResourceBufferOffset,
+                                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
                                      UINT64 byteSize, ASBuildData *buildData);
 
   IMPLEMENT_FUNCTION_SERIALISED(

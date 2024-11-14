@@ -3931,11 +3931,13 @@ void WrappedID3D12Device::SetName(ID3D12DeviceChild *pResource, const char *Name
 
 template <typename SerialiserType>
 bool WrappedID3D12Device::Serialise_CreateAS(SerialiserType &ser, ID3D12Resource *pResource,
-                                             UINT64 resourceOffset, UINT64 byteSize,
-                                             D3D12AccelerationStructure *as)
+                                             UINT64 resourceOffset,
+                                             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
+                                             UINT64 byteSize, D3D12AccelerationStructure *as)
 {
   SERIALISE_ELEMENT(pResource);
   SERIALISE_ELEMENT(resourceOffset);
+  SERIALISE_ELEMENT(type);
   SERIALISE_ELEMENT(byteSize);
   SERIALISE_ELEMENT_LOCAL(asId, as->GetResourceID());
 
@@ -3945,7 +3947,7 @@ bool WrappedID3D12Device::Serialise_CreateAS(SerialiserType &ser, ID3D12Resource
   {
     WrappedID3D12Resource *asbWrappedResource = (WrappedID3D12Resource *)pResource;
     D3D12AccelerationStructure *accStructAtOffset = NULL;
-    if(asbWrappedResource->CreateAccStruct(resourceOffset, byteSize, &accStructAtOffset))
+    if(asbWrappedResource->CreateAccStruct(resourceOffset, type, byteSize, &accStructAtOffset))
     {
       GetResourceManager()->AddLiveResource(asId, accStructAtOffset);
 
@@ -3964,14 +3966,17 @@ bool WrappedID3D12Device::Serialise_CreateAS(SerialiserType &ser, ID3D12Resource
   return true;
 }
 
-template bool WrappedID3D12Device::Serialise_CreateAS(ReadSerialiser &ser, ID3D12Resource *pResource,
-                                                      UINT64 resourceOffset, UINT64 byteSize,
-                                                      D3D12AccelerationStructure *as);
-template bool WrappedID3D12Device::Serialise_CreateAS(WriteSerialiser &ser, ID3D12Resource *pResource,
-                                                      UINT64 resourceOffset, UINT64 byteSize,
-                                                      D3D12AccelerationStructure *as);
+template bool WrappedID3D12Device::Serialise_CreateAS(
+    ReadSerialiser &ser, ID3D12Resource *pResource, UINT64 resourceOffset,
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize,
+    D3D12AccelerationStructure *as);
+template bool WrappedID3D12Device::Serialise_CreateAS(
+    WriteSerialiser &ser, ID3D12Resource *pResource, UINT64 resourceOffset,
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize,
+    D3D12AccelerationStructure *as);
 
 void WrappedID3D12Device::CreateAS(ID3D12Resource *pResource, UINT64 resourceOffset,
+                                   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type,
                                    UINT64 byteSize, D3D12AccelerationStructure *as)
 {
   if(IsCaptureMode(m_State))
@@ -3983,7 +3988,7 @@ void WrappedID3D12Device::CreateAS(ID3D12Resource *pResource, UINT64 resourceOff
     {
       WriteSerialiser &ser = GetThreadSerialiser();
       SCOPED_SERIALISE_CHUNK(D3D12Chunk::CreateAS);
-      Serialise_CreateAS(ser, pResource, resourceOffset, byteSize, as);
+      Serialise_CreateAS(ser, pResource, resourceOffset, type, byteSize, as);
       record->AddChunk(scope.Get());
     }
   }
@@ -4777,7 +4782,9 @@ bool WrappedID3D12Device::ProcessChunk(ReadSerialiser &ser, D3D12Chunk context)
       return Serialise_CreateStateObject(ser, NULL, IID(), NULL);
     case D3D12Chunk::Device_AddToStateObject:
       return Serialise_AddToStateObject(ser, NULL, NULL, IID(), NULL);
-    case D3D12Chunk::CreateAS: return Serialise_CreateAS(ser, NULL, 0, {}, NULL);
+    case D3D12Chunk::CreateAS:
+      return Serialise_CreateAS(ser, NULL, 0,
+                                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL, 0, NULL);
     case D3D12Chunk::StateObject_SetPipelineStackSize:
       return Serialise_SetPipelineStackSize(ser, NULL, 0);
     case D3D12Chunk::Device_CreateRootSignatureFromSubobjectInLibrary:
