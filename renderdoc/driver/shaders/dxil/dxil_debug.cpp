@@ -24,9 +24,13 @@
 
 #include "dxil_debug.h"
 #include "common/formatting.h"
+#include "core/settings.h"
 #include "maths/formatpacking.h"
 #include "replay/common/var_dispatch_helpers.h"
 #include "dxil_controlflow.h"
+
+RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
+            "Debug logging for the DXIL shader debugger");
 
 // normal is not zero, not subnormal, not infinite, not NaN
 inline bool RDCISNORMAL(float input)

@@ -25,7 +25,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "common/formatting.h"
+#include "core/settings.h"
 #include "dxil_controlflow.h"
+
+RDOC_EXTERN_CONFIG(bool, D3D12_DXILShaderDebugger_Logging);
 
 /*
 
@@ -326,6 +330,73 @@ void ControlFlow::FindUniformBlocks(rdcarray<uint32_t> &uniformBlocks)
   {
     if(!loopBlocks.contains(block))
       uniformBlocks.push_back(block);
+  }
+
+  if(D3D12_DXILShaderDebugger_Logging())
+  {
+    RDCLOG("Block Links:");
+    for(auto it = m_BlockLinks.begin(); it != m_BlockLinks.end(); ++it)
+    {
+      uint32_t from = it->first;
+      for(uint32_t to : it->second)
+        RDCLOG("Block:%d->Block:%d", from, to);
+    }
+
+    RDCLOG("Thread Paths:");
+    rdcstr output = "";
+    for(uint32_t pathIdx = 0; pathIdx < m_Paths.size(); ++pathIdx)
+    {
+      bool start = true;
+      for(uint32_t block : m_Paths[pathIdx])
+      {
+        if(start)
+        {
+          output = StringFormat::Fmt("%d : %d", pathIdx, block);
+          start = false;
+        }
+        else
+        {
+          if(block != PATH_END)
+            output += " -> " + ToStr(block);
+          else
+            output += " : END";
+        }
+      }
+      RDCLOG(output.c_str());
+    }
+
+    output = "";
+    bool needComma = false;
+    for(uint32_t block : loopBlocks)
+    {
+      if(needComma)
+        output += ", ";
+      output += ToStr(block);
+      needComma = true;
+    }
+    RDCLOG("Blocks in Loops: %s", output.c_str());
+
+    output = "";
+    needComma = false;
+    for(uint32_t block : allPathsBlocks)
+    {
+      if(needComma)
+        output += ", ";
+      output += ToStr(block);
+      needComma = true;
+    }
+    RDCLOG("Blocks in All-Paths: %s", output.c_str());
+
+    output = "";
+    needComma = false;
+    for(uint32_t block : uniformBlocks)
+    {
+      if(needComma)
+        output += ", ";
+      output += ToStr(block);
+      needComma = true;
+    }
+    RDCLOG("Uniform Blocks: %s", output.c_str());
   }
 }
 
