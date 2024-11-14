@@ -30,6 +30,7 @@
 #include "../vk_shader_cache.h"
 #include "api/replay/version.h"
 #include "core/settings.h"
+#include "driver/ihv/nv/nv_aftermath.h"
 #include "strings/string_utils.h"
 
 RDOC_CONFIG(
@@ -3919,6 +3920,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       for(uint32_t i = 0; i < device_group_info->physicalDeviceCount; i++)
         physDevs[i] = Unwrap(m_PhysicalDevices[GetPhysicalDeviceIndexFromHandle(physDevs[i])]);
     }
+
+    NVAftermath_Init();
+    NVAftermath_EnableVK(supportedExtensions, Extensions, &createInfo.pNext);
 
     vkr = GetDeviceDispatchTable(NULL)->CreateDevice(Unwrap(physicalDevice), &createInfo, NULL,
                                                      &device);

@@ -104,9 +104,11 @@
     <ClCompile Include="nv_d3d12_counters.cpp" />
     <ClCompile Include="nv_gl_counters.cpp" />
     <ClCompile Include="nv_vk_counters.cpp" />
+    <ClCompile Include="nv_aftermath.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="nvapi_wrapper.h" />
+    <ClInclude Include="nv_aftermath.h" />
     <ClInclude Include="nv_counters.h" />
     <ClInclude Include="nv_counter_enumerator.h" />
     <ClInclude Include="nv_d3d11_counters.h" />

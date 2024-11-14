@@ -29,6 +29,7 @@
 #include "driver/dxgi/dxgi_common.h"
 #include "driver/ihv/amd/amd_counters.h"
 #include "driver/ihv/amd/amd_rgp.h"
+#include "driver/ihv/nv/nv_aftermath.h"
 #include "driver/ihv/nv/nv_d3d12_counters.h"
 #include "driver/shaders/dxbc/dxbc_common.h"
 #include "maths/camera.h"
@@ -4643,6 +4644,9 @@ RDResult D3D12_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
   INVAPID3DDevice *nvapiDev = NULL;
   IAGSD3DDevice *agsDev = NULL;
 
+  if(!isProxy)
+    NVAftermath_Init();
+
   if(initParams.VendorExtensions == GPUVendor::nVidia)
   {
     nvapiDev = InitialiseNVAPIReplay();
@@ -4776,6 +4780,8 @@ RDResult D3D12_CreateReplayDevice(RDCFile *rdc, const ReplayOptions &opts, IRepl
           "support nvapi extensions");
     }
   }
+
+  NVAftermath_EnableD3D12(dev);
 
   WrappedID3D12Device *wrappedDev = new WrappedID3D12Device(dev, initParams, debugLayerEnabled);
   wrappedDev->SetInitParams(initParams, ver, opts, nvapiDev, agsDev);

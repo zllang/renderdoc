@@ -27,6 +27,7 @@
 #include <algorithm>
 #include "core/settings.h"
 #include "driver/ihv/amd/amd_rgp.h"
+#include "driver/ihv/nv/nv_aftermath.h"
 #include "driver/shaders/spirv/spirv_compile.h"
 #include "jpeg-compressor/jpge.h"
 #include "maths/formatpacking.h"
@@ -4923,6 +4924,8 @@ void WrappedVulkan::CheckErrorVkResult(const char *file, int line, VkResult vkr)
     SET_ERROR_RESULT(m_FatalError, ResultCode::DeviceLost,
                      "Logging device lost fatal error at %s:%d: %s", file, line, ToStr(vkr).c_str());
     m_FailedReplayResult = m_FatalError;
+
+    NVAftermath_DumpCrash();
   }
   else if(vkr == VK_ERROR_OUT_OF_HOST_MEMORY || vkr == VK_ERROR_OUT_OF_DEVICE_MEMORY)
   {

@@ -31,6 +31,7 @@
 #include "driver/dxgi/dxgi_wrapped.h"
 #include "driver/ihv/amd/amd_rgp.h"
 #include "driver/ihv/amd/official/DXExt/AmdExtD3D.h"
+#include "driver/ihv/nv/nv_aftermath.h"
 #include "jpeg-compressor/jpge.h"
 #include "maths/formatpacking.h"
 #include "serialise/rdcfile.h"
@@ -3771,6 +3772,9 @@ void WrappedID3D12Device::CheckHRESULT(const char *file, int line, HRESULT hr)
 
       SAFE_RELEASE(dred);
     }
+
+    NVAftermath_DumpRTValidation(m_pDevice5);
+    NVAftermath_DumpCrash();
   }
   else if(hr == E_OUTOFMEMORY)
   {
