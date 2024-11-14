@@ -833,9 +833,7 @@ void D3D12Replay::FillDescriptor(Descriptor &dst, const D3D12Descriptor *src)
         {
           // we *should* get an AS here
           D3D12AccelerationStructure *as = NULL;
-          asRes->GetAccStructIfExist(dst.byteOffset, &as);
-
-          if(as)
+          if(asRes->GetAccStructIfExist(dst.byteOffset, &as))
           {
             dst.resource = rm->GetOriginalID(as->GetResourceID());
             dst.byteOffset = 0;

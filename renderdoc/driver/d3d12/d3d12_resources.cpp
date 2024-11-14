@@ -162,25 +162,23 @@ bool WrappedID3D12Resource::CreateAccStruct(D3D12BufferOffset bufferOffset, UINT
                                             D3D12AccelerationStructure **accStruct)
 {
   SCOPED_LOCK(m_accStructResourcesCS);
-  if(m_accelerationStructMap.find(bufferOffset) == m_accelerationStructMap.end())
+  auto existing = m_accelerationStructMap.find(bufferOffset);
+  if(existing != m_accelerationStructMap.end())
   {
-    m_accelerationStructMap[bufferOffset] =
-        new D3D12AccelerationStructure(m_pDevice, this, bufferOffset, byteSize);
-
-    if(accStruct)
-    {
-      *accStruct = m_accelerationStructMap[bufferOffset];
-
-      if(IsCaptureMode(m_pDevice->GetState()))
-      {
-        DeleteOverlappingAccStructsInRangeAtOffset(bufferOffset);
-      }
-    }
-
-    return true;
+    if(IsCaptureMode(m_pDevice->GetState()))
+      RDCASSERTEQUAL((uint32_t)existing->second->Release(), 0);
+    m_accelerationStructMap.erase(existing);
   }
 
-  return false;
+  m_accelerationStructMap[bufferOffset] =
+      new D3D12AccelerationStructure(m_pDevice, this, bufferOffset, byteSize);
+
+  *accStruct = m_accelerationStructMap[bufferOffset];
+
+  if(IsCaptureMode(m_pDevice->GetState()))
+    DeleteOverlappingAccStructsInRangeAtOffset(bufferOffset);
+
+  return true;
 }
 
 WrappedID3D12Resource::~WrappedID3D12Resource()
@@ -434,10 +432,8 @@ bool WrappedID3D12Resource::DeleteAccStructAtOffset(D3D12BufferOffset bufferOffs
   D3D12AccelerationStructure *accStruct = NULL;
   if(GetAccStructIfExist(bufferOffset, &accStruct))
   {
-    if(m_accelerationStructMap[bufferOffset]->Release() == 0)
-    {
-      m_accelerationStructMap.erase(bufferOffset);
-    }
+    RDCASSERTEQUAL((uint32_t)accStruct->Release(), 0);
+    m_accelerationStructMap.erase(bufferOffset);
 
     return true;
   }

@@ -732,78 +732,52 @@ bool WrappedID3D12GraphicsCommandList::ProcessASBuildAfterSubmission(ResourceId 
                                                                      UINT64 byteSize,
                                                                      ASBuildData *buildData)
 {
-  bool success = false;
-  D3D12ResourceManager *resManager = m_pDevice->GetResourceManager();
+  D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
 
+  WrappedID3D12Resource *dstASB = rm->GetCurrentAs<WrappedID3D12Resource>(destASBId);
+
+  // unconditionally create a new AS at this location, never allow re-use even in the case of
+  // in-place update builds. This makes it easier to track ASs and we will not run out of
+  // ResourceIds. There is no case where we need to track an update (it may as well be a new build
+  // for our purposes), and when validating if a TLAS should be rebuilt based on the existing inputs
+  // it is easier if each build is new, as each build of a BLAS invalidates the TLAS.
+  //
+  // CreateAccStruct deletes any previous overlapping ASs on the ASB
   D3D12AccelerationStructure *accStructAtDestOffset = NULL;
-
-  WrappedID3D12Resource *dstASB = resManager->GetCurrentAs<WrappedID3D12Resource>(destASBId);
-
-  // See if acc already exist at the given offset
-  bool accStructExistAtDestOffset =
-      dstASB->GetAccStructIfExist(destASBOffset, &accStructAtDestOffset);
-
-  bool createAccStruct = false;
-
-  if(accStructExistAtDestOffset)
+  if(dstASB->CreateAccStruct(destASBOffset, byteSize, &accStructAtDestOffset))
   {
-    if(accStructAtDestOffset && accStructAtDestOffset->Size() != byteSize)
+    D3D12ResourceRecord *record = rm->AddResourceRecord(accStructAtDestOffset->GetResourceID());
+    record->type = Resource_AccelerationStructure;
+    record->Length = 0;
+    accStructAtDestOffset->SetResourceRecord(record);
+    rm->MarkDirtyResource(accStructAtDestOffset->GetResourceID());
+
+    record->AddParent(rm->GetResourceRecord(accStructAtDestOffset->GetBackingBufferResourceId()));
+
+    // register this AS so its resource can be created during replay
+    m_pDevice->CreateAS(dstASB, destASBOffset, byteSize, accStructAtDestOffset);
+
+    m_pDevice->AddForcedReference(record);
+    // in case we're currently capturing, immediately consider the AS as referenced
+    GetResourceManager()->MarkResourceFrameReferenced(accStructAtDestOffset->GetResourceID(),
+                                                      eFrameRef_Read);
+
+    if(buildData)
     {
-      dstASB->DeleteAccStructAtOffset(destASBOffset);
-      createAccStruct = true;
-    }
-    else
-    {
-      // if the AS is being rebuilt in place, that's also successful
-      success = true;
+      // release any existing build data we had, this is a new version
+      SAFE_RELEASE(accStructAtDestOffset->buildData);
+
+      // take ownership of the implicit ref
+      accStructAtDestOffset->buildData = buildData;
     }
   }
   else
   {
-    createAccStruct = true;
+    RDCERR("Unable to create acceleration structure");
+    return false;
   }
 
-  if(createAccStruct)
-  {
-    // CreateAccStruct also deletes any previous overlapping ASs on the ASB
-    if(dstASB->CreateAccStruct(destASBOffset, byteSize, &accStructAtDestOffset))
-    {
-      success = true;
-      D3D12ResourceRecord *record =
-          resManager->AddResourceRecord(accStructAtDestOffset->GetResourceID());
-      record->type = Resource_AccelerationStructure;
-      record->Length = 0;
-      accStructAtDestOffset->SetResourceRecord(record);
-      resManager->MarkDirtyResource(accStructAtDestOffset->GetResourceID());
-
-      record->AddParent(
-          resManager->GetResourceRecord(accStructAtDestOffset->GetBackingBufferResourceId()));
-
-      // register this AS so its resource can be created during replay
-      m_pDevice->CreateAS(dstASB, destASBOffset, byteSize, accStructAtDestOffset);
-
-      m_pDevice->AddForcedReference(record);
-      // in case we're currently capturing, immediately consider the AS as referenced
-      GetResourceManager()->MarkResourceFrameReferenced(accStructAtDestOffset->GetResourceID(),
-                                                        eFrameRef_Read);
-    }
-    else
-    {
-      RDCERR("Unable to create acceleration structure");
-      success = false;
-    }
-  }
-
-  if(success && buildData)
-  {
-    // release any existing build data we had, this is a new version
-    SAFE_RELEASE(accStructAtDestOffset->buildData);
-
-    // take ownership of the implicit ref
-    accStructAtDestOffset->buildData = buildData;
-  }
-
-  return success;
+  return true;
 }
 
 bool WrappedID3D12GraphicsCommandList::PatchAccStructBlasAddress(
