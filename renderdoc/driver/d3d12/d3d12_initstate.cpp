@@ -1447,10 +1447,11 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
               UINT64 blasOffs;
               m_Device->GetResIDFromOrigAddr(instances[i].AccelerationStructure, blasId, blasOffs);
 
-              WrappedID3D12Resource *blas = GetLiveAs<WrappedID3D12Resource>(blasId);
+              WrappedID3D12Resource *blasASB = GetLiveAs<WrappedID3D12Resource>(blasId);
 
-              D3D12AccelerationStructure *as = NULL;
-              if(blasId == ResourceId() || blas == NULL || !blas->GetAccStructIfExist(blasOffs, &as))
+              D3D12AccelerationStructure *blasCheck = NULL;
+              if(blasId == ResourceId() || blasASB == NULL ||
+                 !blasASB->GetAccStructIfExist(blasOffs, &blasCheck))
               {
                 RDCWARN(
                     "  %u: BLAS referenced by TLAS is not available on replay - possibly stale "
@@ -1460,7 +1461,24 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
                 continue;
               }
 
-              instances[i].AccelerationStructure = blas->GetGPUVirtualAddress() + blasOffs;
+              if(id < GetOriginalID(blasCheck->GetResourceID()))
+              {
+                RDCWARN("  %u: BLAS referenced by TLAS is newer than TLAS - possibly stale TLAS", i);
+                instances[i].AccelerationStructure = 0;
+                continue;
+              }
+
+              if(blasCheck->Type() != D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL)
+              {
+                RDCWARN("  %u: BLAS is not of correct type - possibly stale TLAS", i);
+                instances[i].AccelerationStructure = 0;
+                continue;
+              }
+
+              RDCASSERTEQUAL(blasCheck->GetVirtualAddress(),
+                             blasASB->GetGPUVirtualAddress() + blasOffs);
+
+              instances[i].AccelerationStructure = blasASB->GetGPUVirtualAddress() + blasOffs;
             }
 
             void *upload = mappedBuffer->Map();
