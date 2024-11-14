@@ -55,9 +55,12 @@ D3D12_UNORDERED_ACCESS_VIEW_DESC MakeUAVDesc(const D3D12_RESOURCE_DESC &desc);
 class TrackedResource12
 {
 public:
-  TrackedResource12()
+  TrackedResource12(ResourceId id = ResourceId())
   {
-    m_ID = ResourceIDGen::GetNewUniqueID();
+    if(id == ResourceId())
+      m_ID = ResourceIDGen::GetNewUniqueID();
+    else
+      m_ID = id;
     m_pRecord = NULL;
   }
   ResourceId GetResourceID() { return m_ID; }
@@ -82,8 +85,8 @@ protected:
   WrappedID3D12Device *m_pDevice;
   int32_t m_Resident = 1;
 
-  WrappedDeviceChild12(NestedType *real, WrappedID3D12Device *device)
-      : RefCounter12(real), m_pDevice(device)
+  WrappedDeviceChild12(NestedType *real, WrappedID3D12Device *device, ResourceId id = ResourceId())
+      : RefCounter12(real), TrackedResource12(id), m_pDevice(device)
   {
     m_pDevice->SoftRef();
 
@@ -1334,7 +1337,7 @@ public:
 
   bool CreateAccStruct(D3D12BufferOffset bufferOffset,
                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize,
-                       D3D12AccelerationStructure **accStruct);
+                       ResourceId id, D3D12AccelerationStructure **accStruct);
 
   bool GetAccStructIfExist(D3D12BufferOffset bufferOffset,
                            D3D12AccelerationStructure **accStruct = NULL);
@@ -1665,8 +1668,8 @@ class D3D12AccelerationStructure : public WrappedDeviceChild12<ID3D12DeviceChild
 public:
   ALLOCATE_WITH_WRAPPED_POOL(D3D12AccelerationStructure);
 
-  D3D12AccelerationStructure(WrappedID3D12Device *wrappedDevice, WrappedID3D12Resource *bufferRes,
-                             D3D12BufferOffset bufferOffset,
+  D3D12AccelerationStructure(WrappedID3D12Device *wrappedDevice, ResourceId id,
+                             WrappedID3D12Resource *bufferRes, D3D12BufferOffset bufferOffset,
                              D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize);
 
   ~D3D12AccelerationStructure();

@@ -353,6 +353,9 @@ uint32_t Serialiser<SerialiserMode::Writing>::BeginChunk(uint32_t chunkID, uint6
   RDCASSERTMSG("Beginning a chunk inside another chunk", m_ChunkMetadata.chunkID == 0,
                m_ChunkMetadata.chunkID);
 
+  // don't carry over any previous sideband data
+  m_SidebandKV.clear();
+
   {
     // chunk index needs to be valid
     RDCASSERT(chunkID > 0);

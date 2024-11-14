@@ -3947,7 +3947,8 @@ bool WrappedID3D12Device::Serialise_CreateAS(SerialiserType &ser, ID3D12Resource
   {
     WrappedID3D12Resource *asbWrappedResource = (WrappedID3D12Resource *)pResource;
     D3D12AccelerationStructure *accStructAtOffset = NULL;
-    if(asbWrappedResource->CreateAccStruct(resourceOffset, type, byteSize, &accStructAtOffset))
+    if(asbWrappedResource->CreateAccStruct(resourceOffset, type, byteSize, ResourceId(),
+                                           &accStructAtOffset))
     {
       GetResourceManager()->AddLiveResource(asId, accStructAtOffset);
 

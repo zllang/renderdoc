@@ -728,7 +728,7 @@ void WrappedID3D12GraphicsCommandList::ExecuteMetaCommand(
 }
 
 bool WrappedID3D12GraphicsCommandList::ProcessASBuildAfterSubmission(
-    ResourceId destASBId, D3D12BufferOffset destASBOffset,
+    ResourceId destASBId, D3D12BufferOffset destASBOffset, ResourceId dstASId,
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE type, UINT64 byteSize, ASBuildData *buildData)
 {
   D3D12ResourceManager *rm = m_pDevice->GetResourceManager();
@@ -743,7 +743,7 @@ bool WrappedID3D12GraphicsCommandList::ProcessASBuildAfterSubmission(
   //
   // CreateAccStruct deletes any previous overlapping ASs on the ASB
   D3D12AccelerationStructure *accStructAtDestOffset = NULL;
-  if(dstASB->CreateAccStruct(destASBOffset, type, byteSize, &accStructAtDestOffset))
+  if(dstASB->CreateAccStruct(destASBOffset, type, byteSize, dstASId, &accStructAtDestOffset))
   {
     D3D12ResourceRecord *record = rm->AddResourceRecord(accStructAtDestOffset->GetResourceID());
     record->type = Resource_AccelerationStructure;
@@ -1142,6 +1142,9 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
           sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE_DESC));
     }
 
+    // pre-allocate the AS ID so it can be serialised before the resource is created later on after submission
+    ResourceId dstASId = ResourceIDGen::GetNewUniqueID();
+
     // Acceleration structure (AS) are created on buffer created with Acceleration structure init
     // state which helps them differentiate between non-Acceleration structure buffers (non-ASB).
 
@@ -1153,6 +1156,10 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     {
       CACHE_THREAD_SERIALISER();
       SCOPED_SERIALISE_CHUNK(D3D12Chunk::List_BuildRaytracingAccelerationStructure);
+
+      // pass in the new AS ID for the destination
+      ser.SetSidebandData(D3D12DestASLocation::SidebandGUID, dstASId);
+
       Serialise_BuildRaytracingAccelerationStructure(ser, pDesc, NumPostbuildInfoDescs,
                                                      pPostbuildInfoDescs);
 
@@ -1199,9 +1206,10 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
 
     AddSubmissionASBuildCallback(
         false,
-        [this, asbWrappedResourceId, asbWrappedResourceBufferOffset, type, byteSize, buildData]() {
+        [this, asbWrappedResourceId, asbWrappedResourceBufferOffset, dstASId, type, byteSize,
+         buildData]() {
           return ProcessASBuildAfterSubmission(asbWrappedResourceId, asbWrappedResourceBufferOffset,
-                                               type, byteSize, buildData);
+                                               dstASId, type, byteSize, buildData);
         },
         [buildData]() {
           if(buildData)
@@ -1258,7 +1266,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_EmitRaytracingAccelerationStruc
   SERIALISE_ELEMENT(pCommandList);
   SERIALISE_ELEMENT_LOCAL(Desc, *pDesc).Named("pDesc");
   SERIALISE_ELEMENT(NumSourceAccelerationStructures).Important();
-  SERIALISE_ELEMENT_ARRAY_TYPED(D3D12BufferLocation, pSourceAccelerationStructureData,
+  SERIALISE_ELEMENT_ARRAY_TYPED(D3D12SrcASLocation, pSourceAccelerationStructureData,
                                 NumSourceAccelerationStructures);
 
   SERIALISE_CHECK_READ_ERRORS();
@@ -1363,10 +1371,10 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyRaytracingAccelerationStruc
 {
   ID3D12GraphicsCommandList4 *pCommandList = this;
   SERIALISE_ELEMENT(pCommandList);
-  SERIALISE_ELEMENT_TYPED(D3D12BufferLocation, DestAccelerationStructureData)
+  SERIALISE_ELEMENT_TYPED(D3D12DestASLocation, DestAccelerationStructureData)
       .TypedAs("D3D12_GPU_VIRTUAL_ADDRESS"_lit)
       .Important();
-  SERIALISE_ELEMENT_TYPED(D3D12BufferLocation, SourceAccelerationStructureData)
+  SERIALISE_ELEMENT_TYPED(D3D12SrcASLocation, SourceAccelerationStructureData)
       .TypedAs("D3D12_GPU_VIRTUAL_ADDRESS"_lit)
       .Important();
   SERIALISE_ELEMENT(Mode);
@@ -1421,9 +1429,16 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     // invalidating occupying previous acceleration structure(s) in order of command list execution.
     // It can also be updated but there are many update constraints around it.
 
+    // pre-allocate the AS ID so it can be serialised before the resource is created later on after submission
+    ResourceId dstASId = ResourceIDGen::GetNewUniqueID();
+
     {
       CACHE_THREAD_SERIALISER();
       SCOPED_SERIALISE_CHUNK(D3D12Chunk::List_CopyRaytracingAccelerationStructure);
+
+      // pass in the new AS ID for the destination
+      ser.SetSidebandData(D3D12DestASLocation::SidebandGUID, dstASId);
+
       Serialise_CopyRaytracingAccelerationStructure(ser, DestAccelerationStructureData,
                                                     SourceAccelerationStructureData, Mode);
 
@@ -1510,13 +1525,15 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
         type = accStructAtSrcOffset->Type();
       }
 
-      auto PostBldExecute = [this, destASBId, destASBOffset, type, sizeBuffer, buildData]() -> bool {
+      auto PostBldExecute = [this, destASBId, destASBOffset, dstASId, type, sizeBuffer,
+                             buildData]() -> bool {
         UINT64 *size = (UINT64 *)sizeBuffer->Map();
         UINT64 destSize = *size;
         sizeBuffer->Unmap();
         sizeBuffer->Release();
 
-        return ProcessASBuildAfterSubmission(destASBId, destASBOffset, type, destSize, buildData);
+        return ProcessASBuildAfterSubmission(destASBId, destASBOffset, dstASId, type, destSize,
+                                             buildData);
       };
 
       AddSubmissionASBuildCallback(true, PostBldExecute, [buildData]() {
@@ -1540,7 +1557,7 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
       // up to date before any subsequent work that depends on it like beginning a capture.
       AddSubmissionASBuildCallback(
           true,
-          [this, destASBId, destASBOffset, srcASBId, srcASBOffset]() {
+          [this, destASBId, destASBOffset, dstASId, srcASBId, srcASBOffset]() {
             D3D12ResourceManager *resManager = m_pDevice->GetResourceManager();
 
             D3D12AccelerationStructure *accStructAtSrcOffset = NULL;
@@ -1558,7 +1575,7 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
             // is likely to be deleted and release its own ref)
             SAFE_ADDREF(accStructAtSrcOffset->buildData);
             return ProcessASBuildAfterSubmission(
-                destASBId, destASBOffset, accStructAtSrcOffset->Type(),
+                destASBId, destASBOffset, dstASId, accStructAtSrcOffset->Type(),
                 accStructAtSrcOffset->Size(), accStructAtSrcOffset->buildData);
           },
           NULL);
