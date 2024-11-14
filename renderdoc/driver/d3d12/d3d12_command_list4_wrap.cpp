@@ -870,10 +870,11 @@ bool WrappedID3D12GraphicsCommandList::PatchAccStructBlasAddress(
 
       // keep these buffer around until the parent cmd executes even if we reallocate soon
       tempBuffer->AddRef();
-      AddSubmissionASBuildCallback(true, [tempBuffer]() {
+      auto cleanup = [tempBuffer]() {
         tempBuffer->Release();
         return true;
-      });
+      };
+      AddSubmissionASBuildCallback(true, cleanup, cleanup);
     }
     else
     {
@@ -1165,7 +1166,7 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
 
     if(buildData->cleanupCallback)
     {
-      AddSubmissionASBuildCallback(true, buildData->cleanupCallback);
+      AddSubmissionASBuildCallback(true, buildData->cleanupCallback, buildData->cleanupCallback);
       buildData->cleanupCallback = std::function<bool()>();
     }
 
@@ -1196,9 +1197,14 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     UINT64 byteSize = preBldInfo.ResultDataMaxSizeInBytes;
 
     AddSubmissionASBuildCallback(
-        false, [this, asbWrappedResourceId, asbWrappedResourceBufferOffset, byteSize, buildData]() {
+        false,
+        [this, asbWrappedResourceId, asbWrappedResourceBufferOffset, byteSize, buildData]() {
           return ProcessASBuildAfterSubmission(asbWrappedResourceId, asbWrappedResourceBufferOffset,
                                                byteSize, buildData);
+        },
+        [buildData]() {
+          if(buildData)
+            buildData->Release();
         });
 
     // an indirect AS build will pull in buffers we can't know about
@@ -1510,7 +1516,10 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
         return ProcessASBuildAfterSubmission(destASBId, destASBOffset, destSize, buildData);
       };
 
-      AddSubmissionASBuildCallback(true, PostBldExecute);
+      AddSubmissionASBuildCallback(true, PostBldExecute, [buildData]() {
+        if(buildData)
+          buildData->Release();
+      });
     }
     else
     {
@@ -1526,26 +1535,30 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
       // directly processed then we need to defer this to wait until the source acceleration
       // structure is up to date. Deferring this should not cause a problem as we will still have it
       // up to date before any subsequent work that depends on it like beginning a capture.
-      AddSubmissionASBuildCallback(true, [this, destASBId, destASBOffset, srcASBId, srcASBOffset]() {
-        D3D12ResourceManager *resManager = m_pDevice->GetResourceManager();
+      AddSubmissionASBuildCallback(
+          true,
+          [this, destASBId, destASBOffset, srcASBId, srcASBOffset]() {
+            D3D12ResourceManager *resManager = m_pDevice->GetResourceManager();
 
-        D3D12AccelerationStructure *accStructAtSrcOffset = NULL;
+            D3D12AccelerationStructure *accStructAtSrcOffset = NULL;
 
-        WrappedID3D12Resource *srcASB = resManager->GetCurrentAs<WrappedID3D12Resource>(srcASBId);
+            WrappedID3D12Resource *srcASB = resManager->GetCurrentAs<WrappedID3D12Resource>(srcASBId);
 
-        // get the source AS, we should have this and can't proceed without it to give us the size
-        if(!srcASB->GetAccStructIfExist(srcASBOffset, &accStructAtSrcOffset))
-        {
-          RDCERR("Couldn't find source acceleration structure in AS copy");
-          return false;
-        }
+            // get the source AS, we should have this and can't proceed without it to give us the size
+            if(!srcASB->GetAccStructIfExist(srcASBOffset, &accStructAtSrcOffset))
+            {
+              RDCERR("Couldn't find source acceleration structure in AS copy");
+              return false;
+            }
 
-        // get a new refcount for this build data, it will be shared by the new copy (the old AS is
-        // likely to be deleted and release its own ref)
-        SAFE_ADDREF(accStructAtSrcOffset->buildData);
-        return ProcessASBuildAfterSubmission(destASBId, destASBOffset, accStructAtSrcOffset->Size(),
-                                             accStructAtSrcOffset->buildData);
-      });
+            // get a new refcount for this build data, it will be shared by the new copy (the old AS
+            // is likely to be deleted and release its own ref)
+            SAFE_ADDREF(accStructAtSrcOffset->buildData);
+            return ProcessASBuildAfterSubmission(destASBId, destASBOffset,
+                                                 accStructAtSrcOffset->Size(),
+                                                 accStructAtSrcOffset->buildData);
+          },
+          NULL);
     }
   }
 }

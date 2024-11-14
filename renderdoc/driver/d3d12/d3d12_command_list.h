@@ -203,6 +203,7 @@ private:
 
   rdcarray<std::function<bool()>> m_ImmediateASCallbacks;
   rdcarray<std::function<bool()>> m_PendingASCallbacks;
+  rdcarray<std::function<void()>> m_UnusedCleanupCallbacks;
 public:
   ALLOCATE_WITH_WRAPPED_POOL(WrappedID3D12GraphicsCommandList);
 
@@ -252,12 +253,14 @@ public:
 
   bool ValidateRootGPUVA(D3D12_GPU_VIRTUAL_ADDRESS buffer);
 
-  void AddSubmissionASBuildCallback(bool waitForSubmission, const std::function<bool()> &postBldExec)
+  void AddSubmissionASBuildCallback(bool waitForSubmission, const std::function<bool()> &postBldExec,
+                                    const std::function<void()> &unusedCleanup)
   {
     if(waitForSubmission)
       m_PendingASCallbacks.push_back(postBldExec);
     else
       m_ImmediateASCallbacks.push_back(postBldExec);
+    m_UnusedCleanupCallbacks.push_back(unusedCleanup);
   }
 
   bool ExecuteImmediateASBuildCallbacks()
@@ -270,6 +273,7 @@ public:
     }
 
     m_ImmediateASCallbacks.clear();
+    m_UnusedCleanupCallbacks.clear();
     return success;
   }
 

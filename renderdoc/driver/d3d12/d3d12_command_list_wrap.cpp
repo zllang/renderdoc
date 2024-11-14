@@ -397,6 +397,13 @@ HRESULT WrappedID3D12GraphicsCommandList::ResetInternal(ID3D12CommandAllocator *
     }
     m_RayDispatches.clear();
 
+    m_ImmediateASCallbacks.clear();
+    m_PendingASCallbacks.clear();
+
+    for(std::function<void()> &func : m_UnusedCleanupCallbacks)
+      func();
+    m_UnusedCleanupCallbacks.clear();
+
     m_CaptureComputeState = D3D12RenderState();
     m_CaptureComputeState.m_ResourceManager = GetResourceManager();
 

@@ -1416,6 +1416,10 @@ WrappedID3D12GraphicsCommandList::~WrappedID3D12GraphicsCommandList()
 {
   SAFE_RELEASE(m_AMDMarkers);
 
+  for(std::function<void()> &func : m_UnusedCleanupCallbacks)
+    func();
+  m_UnusedCleanupCallbacks.clear();
+
   if(m_pList)
     m_pDevice->GetResourceManager()->RemoveWrapper(m_pList);
 
