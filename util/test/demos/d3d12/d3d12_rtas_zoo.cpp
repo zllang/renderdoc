@@ -225,6 +225,7 @@ void miss(inout RayPayload payload)
                                    .InitialState(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     MakeUAV(uavtex).CreateCPU(1);
+    MakeAS(asb).Offset(tlasOffset).CreateCPU(0);
 
     while(Running())
     {
@@ -286,7 +287,6 @@ void miss(inout RayPayload payload)
       desc.Inputs.InstanceDescs = instIndirectData->GetGPUVirtualAddress();
 
       cmd4->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
-      MakeAS(asb).Offset(tlasOffset).CreateCPU(0);
 
       ResourceBarrier(cmd);
 
