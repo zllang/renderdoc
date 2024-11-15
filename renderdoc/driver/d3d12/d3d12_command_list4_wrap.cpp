@@ -1211,10 +1211,19 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
           return ProcessASBuildAfterSubmission(asbWrappedResourceId, asbWrappedResourceBufferOffset,
                                                dstASId, type, byteSize, buildData);
         },
+        [buildData]() { buildData->Release(); });
+
+    // add a ref for the lambda below which tracks when it's ready for readback
+    buildData->AddRef();
+
+    AddSubmissionASBuildCallback(
+        true,
         [buildData]() {
-          if(buildData)
-            buildData->Release();
-        });
+          buildData->MarkWorkComplete();
+          buildData->Release();
+          return true;
+        },
+        [buildData]() { buildData->Release(); });
 
     // an indirect AS build will pull in buffers we can't know about
     if(pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)

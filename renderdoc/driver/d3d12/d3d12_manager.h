@@ -1125,6 +1125,9 @@ struct ASBuildData
   // geometry GPU addresses have been de-based to contain only offsets
   rdcarray<RTGeometryDesc> geoms;
 
+  void MarkWorkComplete() { complete = true; }
+  bool IsWorkComplete() const { return complete; }
+
   void AddRef();
   void Release();
 
@@ -1146,6 +1149,9 @@ private:
 
   // timestamp this build data was recorded on
   double timestamp = 0;
+
+  // has the GPU work for this build data finished and synchronised?
+  bool complete = false;
 
   // how many bytes of overhead are currently present, due to copying with strided vertex/AABB data
   uint64_t bytesOverhead = 0;
