@@ -1445,7 +1445,7 @@ void ThreadState::InitialiseHelper(const ThreadState &activeState)
 {
   m_Input = activeState.m_Input;
   m_Semantics = activeState.m_Semantics;
-  m_LiveVariables = activeState.m_LiveVariables;
+  m_Variables = activeState.m_Variables;
 }
 
 bool ThreadState::Finished() const
@@ -1469,7 +1469,7 @@ void ThreadState::ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray
     if(liveGlobals.contains(id))
       continue;
 
-    m_State->changes.push_back({m_LiveVariables[id]});
+    m_State->changes.push_back({m_Variables[id]});
   }
 
   for(const Id &id : newLive)
@@ -1477,7 +1477,7 @@ void ThreadState::ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray
     if(liveGlobals.contains(id))
       continue;
 
-    m_State->changes.push_back({ShaderVariable(), m_LiveVariables[id]});
+    m_State->changes.push_back({ShaderVariable(), m_Variables[id]});
   }
 }
 
@@ -1516,7 +1516,7 @@ void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *st
   EnterFunction(function, {});
 
   for(const GlobalVariable &gv : m_GlobalState.globals)
-    m_LiveVariables[gv.id] = gv.var;
+    m_Variables[gv.id] = gv.var;
 
   m_State = NULL;
 }
@@ -2204,8 +2204,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint32_t regIndex = arg.value.u32v[0];
 
             RDCASSERT(m_Live.contains(handleId));
-            auto itVar = m_LiveVariables.find(handleId);
-            RDCASSERT(itVar != m_LiveVariables.end());
+            auto itVar = m_Variables.find(handleId);
+            RDCASSERT(itVar != m_Variables.end());
             result.value = itVar->second.members[regIndex].value;
 
             // DXIL will create a vector of a single type with total size of 16-bytes
@@ -2908,7 +2908,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::ExtractVal:
     {
       Id src = GetArgumentId(0);
-      const ShaderVariable &srcVal = m_LiveVariables[src];
+      const ShaderVariable &srcVal = m_Variables[src];
       RDCASSERT(srcVal.members.empty());
       // TODO: handle greater than one index
       RDCASSERTEQUAL(inst.args.size(), 2);
@@ -2984,19 +2984,19 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, val);
 
       ShaderVariableChange change;
-      change.before = m_LiveVariables[baseMemoryId];
+      change.before = m_Variables[baseMemoryId];
 
       UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocMemoryBackingPtr);
 
       // record the change to the base memory variable
-      change.after = m_LiveVariables[baseMemoryId];
+      change.after = m_Variables[baseMemoryId];
       if(m_State)
         m_State->changes.push_back(change);
 
       // Update the ptr variable value
       // Set the result to be the ptr variable which will then be recorded as a change
       resultId = ptrId;
-      result = m_LiveVariables[resultId];
+      result = m_Variables[resultId];
       result.value = val.value;
       break;
     }
@@ -3012,7 +3012,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       Id ptrId = GetArgumentId(0);
 
       RDCASSERT(m_MemoryAllocs.count(ptrId) == 1);
-      RDCASSERT(m_LiveVariables.count(ptrId) == 1);
+      RDCASSERT(m_Variables.count(ptrId) == 1);
 
       // arg[1..] : indices 1...N
       rdcarray<uint64_t> indexes;
@@ -3029,7 +3029,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       uint64_t offset = 0;
 
       // TODO: Resolve indexes to a single offset
-      const ShaderVariable &basePtr = m_LiveVariables[ptrId];
+      const ShaderVariable &basePtr = m_Variables[ptrId];
       if(indexes.size() > 1)
         offset += indexes[1] * GetElementByteSize(basePtr.type);
       RDCASSERT(indexes.size() <= 2);
@@ -3907,7 +3907,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERTNOTEQUAL(baseMemoryId, DXILDebug::INVALID_ID);
 
       RDCASSERTEQUAL(resultId, DXILDebug::INVALID_ID);
-      ShaderVariable a = m_LiveVariables[baseMemoryId];
+      ShaderVariable a = m_Variables[baseMemoryId];
 
       ShaderVariable b;
       RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, b));
@@ -4010,19 +4010,19 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, res);
 
       ShaderVariableChange change;
-      change.before = m_LiveVariables[baseMemoryId];
+      change.before = m_Variables[baseMemoryId];
 
       UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocMemoryBackingPtr);
 
       // record the change to the base memory variable
-      change.after = m_LiveVariables[baseMemoryId];
+      change.after = m_Variables[baseMemoryId];
       if(m_State)
         m_State->changes.push_back(change);
 
       // Update the ptr variable value
       // Set the result to be the ptr variable which will then be recorded as a change
       resultId = ptrId;
-      result = m_LiveVariables[resultId];
+      result = m_Variables[resultId];
       result.value = res.value;
       break;
     }
@@ -4048,18 +4048,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     {
       RDCASSERTNOTEQUAL(id, resultId);
       liveIdsToRemove.push_back(id);
-      m_DormantVariables[id] = m_LiveVariables[id];
       if(!m_Dormant.contains(id))
         m_Dormant.push_back(id);
 
       if(m_State)
       {
         ShaderVariableChange change;
-        change.before = m_LiveVariables[id];
+        change.before = m_Variables[id];
         m_State->changes.push_back(change);
       }
-
-      m_LiveVariables.erase(id);
     }
   }
   for(const Id &id : liveIdsToRemove)
@@ -4082,14 +4079,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         if(m_FunctionInstructionIdx <= maxInstruction)
         {
           dormantIdsToRemove.push_back(id);
-          m_LiveVariables[id] = m_DormantVariables[id];
-          m_DormantVariables.erase(id);
 
           // Do not record the change for the resultId of the next instruction
           if(m_State && (id != nextResultId))
           {
             ShaderVariableChange change;
-            change.after = m_LiveVariables[id];
+            change.after = m_Variables[id];
             m_State->changes.push_back(change);
           }
         }
@@ -4115,7 +4110,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
     if(!m_Live.contains(resultId))
       m_Live.push_back(resultId);
-    m_LiveVariables[resultId] = result;
+    m_Variables[resultId] = result;
   }
 
   return true;
@@ -4266,7 +4261,7 @@ bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, 
     GetVariable(inst->slot, op, dxOpCode, var);
     return true;
   }
-  RDCERR("Unandled DXIL Value type");
+  RDCERR("Unhandled DXIL Value type");
 
   return false;
 }
@@ -4274,8 +4269,8 @@ bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, 
 bool ThreadState::GetVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
 {
   RDCASSERT(m_Live.contains(id));
-  auto it = m_LiveVariables.find(id);
-  RDCASSERT(it != m_LiveVariables.end());
+  auto it = m_Variables.find(id);
+  RDCASSERT(it != m_Variables.end());
   var = it->second;
 
   bool flushDenorm = OperationFlushing(op, dxOpCode);
@@ -4304,7 +4299,7 @@ void ThreadState::SetResult(const Id &id, ShaderVariable &result, Operation op, 
   {
     ShaderVariableChange change;
     m_State->flags |= flags;
-    change.before = m_LiveVariables[id];
+    change.before = m_Variables[id];
     change.after = result;
     m_State->changes.push_back(change);
   }
@@ -4393,7 +4388,7 @@ void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize,
 
 void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr)
 {
-  ShaderVariable &baseMemory = m_LiveVariables[memoryId];
+  ShaderVariable &baseMemory = m_Variables[memoryId];
   // Memory copy from backing memory to base memory variable
   size_t elementSize = GetElementByteSize(baseMemory.type);
   const uint8_t *src = (const uint8_t *)ptr;
@@ -4705,10 +4700,10 @@ const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindI
                                                         bool &annotatedHandle)
 {
   RDCASSERT(m_Live.contains(handleId));
-  auto it = m_LiveVariables.find(handleId);
-  if(it != m_LiveVariables.end())
+  auto it = m_Variables.find(handleId);
+  if(it != m_Variables.end())
   {
-    const ShaderVariable &var = m_LiveVariables.at(handleId);
+    const ShaderVariable &var = m_Variables.at(handleId);
     const DXIL::ResourceReference *resRef = m_Program.GetResourceReference(handleId);
     if(resRef)
     {

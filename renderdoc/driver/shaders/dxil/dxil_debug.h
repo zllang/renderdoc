@@ -215,10 +215,8 @@ struct ThreadState
   ShaderVariable m_Input;
   GlobalVariable m_Output;
 
-  // Known active SSA ShaderVariables
-  std::map<Id, ShaderVariable> m_LiveVariables;
-  // Known dormant SSA ShaderVariables
-  std::map<Id, ShaderVariable> m_DormantVariables;
+  // Known SSA ShaderVariables
+  std::map<Id, ShaderVariable> m_Variables;
   // Live variables at the current scope
   rdcarray<Id> m_Live;
   // Dormant variables at the current scope
