@@ -261,7 +261,10 @@ void miss(inout RayPayload payload)
           tables->GetGPUVirtualAddress() + D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT * 2;
       rayDispatch.HitGroupTable.StrideInBytes = 0;
       rayDispatch.HitGroupTable.SizeInBytes = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
-      cmd4->DispatchRays(&rayDispatch);
+
+      // first frame the TLAS hasn't been built yet
+      if(curFrame > 1)
+        cmd4->DispatchRays(&rayDispatch);
 
       ResourceBarrier(cmd);
 
