@@ -87,6 +87,7 @@ struct FunctionInfo
   ReferencedIds referencedIds;
   InstructionRangePerId rangePerId;
   uint32_t globalInstructionOffset = ~0U;
+  rdcarray<uint32_t> uniformBlocks;
 };
 
 struct StackFrame
@@ -145,6 +146,8 @@ struct ThreadState
   void StepOverNopInstructions();
 
   bool Finished() const;
+  bool InUniformBlock() const;
+
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroups);
 
   void MarkResourceAccess(const rdcstr &name, const ShaderBindIndex &bindIndex);
@@ -176,7 +179,7 @@ struct ThreadState
   void ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray<Id> &newLive);
 
   void InitialiseHelper(const ThreadState &activeState);
-  bool ThreadsAreConverged(const rdcarray<ThreadState> &workgroups) const;
+  static bool ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups);
 
   struct MemoryAlloc
   {

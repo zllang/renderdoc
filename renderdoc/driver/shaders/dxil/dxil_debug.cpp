@@ -22,12 +22,11 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#pragma once
-
 #include "dxil_debug.h"
 #include "common/formatting.h"
 #include "maths/formatpacking.h"
 #include "replay/common/var_dispatch_helpers.h"
+#include "dxil_controlflow.h"
 
 // normal is not zero, not subnormal, not infinite, not NaN
 inline bool RDCISNORMAL(float input)
@@ -1453,6 +1452,11 @@ bool ThreadState::Finished() const
   return m_Killed || m_Ended || m_Callstack.empty();
 }
 
+bool ThreadState::InUniformBlock() const
+{
+  return m_FunctionInfo->uniformBlocks.contains(m_Block);
+}
+
 void ThreadState::ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray<Id> &newLive)
 {
   // nothing to do if we aren't tracking into a state
@@ -1507,6 +1511,7 @@ void ThreadState::EnterFunction(const Function *function, const rdcarray<Value *
 
   ShaderDebugState *state = m_State;
   m_State = state;
+  StepOverNopInstructions();
 }
 
 void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *state)
@@ -2517,7 +2522,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             else
             {
-              RDCASSERT(ThreadsAreConverged(workgroups));
+              RDCASSERT(!ThreadsAreDiverged(workgroups));
               Id id = GetArgumentId(1);
               if(dxOpCode == DXOp::DerivCoarseX)
                 result.value = DDX(false, opCode, dxOpCode, workgroups, id);
@@ -2627,7 +2632,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             BarrierMode barrierMode = (BarrierMode)arg.value.u32v[0];
             // For thread barriers the threads must be converged
             if(barrierMode & BarrierMode::SyncThreadGroup)
-              RDCASSERT(ThreadsAreConverged(workgroups));
+              RDCASSERT(!ThreadsAreDiverged(workgroups));
             break;
           }
           case DXOp::Discard:
@@ -4118,9 +4123,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
 void ThreadState::StepOverNopInstructions()
 {
+  if(m_Ended)
+    return;
   do
   {
     m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
+    RDCASSERT(m_FunctionInstructionIdx < m_FunctionInfo->function->instructions.size());
     const Instruction *inst = m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
     if(!IsNopInstruction(*inst))
     {
@@ -4632,7 +4640,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     }
     else
     {
-      RDCASSERT(ThreadsAreConverged(workgroups));
+      RDCASSERT(!ThreadsAreDiverged(workgroups));
       // texture samples use coarse derivatives
       ShaderValue delta;
       for(uint32_t i = 0; i < 4; i++)
@@ -4738,7 +4746,7 @@ void ThreadState::Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderVa
 ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
                              const rdcarray<ThreadState> &quad, const Id &id) const
 {
-  RDCASSERT(ThreadsAreConverged(quad));
+  RDCASSERT(!ThreadsAreDiverged(quad));
   uint32_t index = ~0U;
   int quadIndex = m_WorkgroupIndex;
 
@@ -4769,7 +4777,7 @@ ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
 ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
                              const rdcarray<ThreadState> &quad, const Id &id) const
 {
-  RDCASSERT(ThreadsAreConverged(quad));
+  RDCASSERT(!ThreadsAreDiverged(quad));
   uint32_t index = ~0U;
   int quadIndex = m_WorkgroupIndex;
 
@@ -4797,21 +4805,20 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
   return ret;
 }
 
-bool ThreadState::ThreadsAreConverged(const rdcarray<ThreadState> &workgroups) const
+bool ThreadState::ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups)
 {
   const uint32_t block0 = workgroups[0].m_Block;
   const uint32_t instr0 = workgroups[0].m_ActiveGlobalInstructionIdx;
   for(size_t i = 1; i < workgroups.size(); i++)
   {
-    // Check all threads are in the basic block
+    // not in the same basic block
     if(workgroups[i].m_Block != block0)
-      return false;
-    // Check executing the same instruction
+      return true;
+    // not executing the same instruction
     if(workgroups[i].m_ActiveGlobalInstructionIdx != instr0)
-      return false;
+      return true;
   }
-  // TODO: Implement pixel shader convergence and check the basic block is a convergence block
-  return true;
+  return false;
 }
 
 // static helper function
@@ -4851,7 +4858,18 @@ void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
   if(m_Stage != ShaderStage::Pixel)
     return;
 
-  // TODO: implement pixel shader convergence
+  // Not diverged then all active
+  if(!ThreadState::ThreadsAreDiverged(m_Workgroups))
+    return;
+
+  for(size_t i = 0; i < m_Workgroups.size(); i++)
+  {
+    if(!activeMask[i])
+      continue;
+    // Run any thread that is not in a uniform block
+    // Stop any thread that is not in a uniform block
+    activeMask[i] = !m_Workgroups[i].InUniformBlock();
+  }
   return;
 }
 
@@ -5883,6 +5901,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   m_EventId = eventId;
   m_ActiveLaneIndex = activeLaneIndex;
   m_Steps = 0;
+  m_Stage = shaderStage;
 
   // Ensure the DXIL reflection data is built
   DXIL::Program *program = ((DXIL::Program *)m_Program);
@@ -6062,6 +6081,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   // global instruction offset
   // all SSA Ids referenced
   // minimum and maximum instruction per SSA reference
+  // uniform control blocks
   for(const Function *f : m_Program->m_Functions)
   {
     if(!f->external)
@@ -6142,6 +6162,28 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       }
       // If these do not match in size that means there is a result SSA that is never read
       RDCASSERTEQUAL(ssaRefs.size(), ssaRange.size());
+
+      // Find the uniform control blocks in the function
+      rdcarray<rdcpair<uint32_t, uint32_t>> links;
+      for(const Block *block : f->blocks)
+      {
+        for(const Block *pred : block->preds)
+        {
+          if(pred->name.empty())
+          {
+            uint32_t from = pred->id;
+            uint32_t to = block->id;
+            links.push_back({from, to});
+          }
+        }
+      }
+      DXIL::FindUniformBlocks(links, info.uniformBlocks);
+      // Handle de-generate case when a single block
+      if(info.uniformBlocks.empty())
+      {
+        RDCASSERTEQUAL(f->blocks.size(), 1);
+        info.uniformBlocks.push_back(f->blocks[0]->id);
+      }
     }
   }
 
@@ -6470,16 +6512,6 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
     // calculate the current mask of which threads are active
     CalcActiveMask(activeMask);
 
-    // step all active members of the workgroup over Nop instructions and set the active instruction
-    for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
-    {
-      if(activeMask[lane])
-      {
-        ThreadState &thread = m_Workgroups[lane];
-        thread.StepOverNopInstructions();
-      }
-    }
-
     // step all active members of the workgroup
     for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
     {
@@ -6509,6 +6541,11 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
           thread.StepNext(NULL, apiWrapper, m_Workgroups);
         }
       }
+    }
+    for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
+    {
+      if(activeMask[lane])
+        m_Workgroups[lane].StepOverNopInstructions();
     }
   }
   return ret;
