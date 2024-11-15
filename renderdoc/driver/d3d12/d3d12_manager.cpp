@@ -27,6 +27,7 @@
 #include "core/settings.h"
 #include "driver/dx/official/d3dcompiler.h"
 #include "driver/dxgi/dxgi_common.h"
+#include "strings/string_utils.h"
 #include "d3d12_command_list.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_device.h"
@@ -45,6 +46,15 @@ RDOC_CONFIG(
     uint32_t, D3D12_Debug_RTMaxVertexPercentIncrease, 10,
     "Percentage increase for the API-provided max vertex when building a BLAS with an index "
     "buffer, to account for incorrectly set values by application.");
+RDOC_CONFIG(uint32_t, D3D12_Debug_RTASCacheThreshold, 5000,
+            "How many milliseconds to wait before caching an AS to disk if it has been unmodified "
+            "for that long");
+
+// batch 50 at a time, if we have one check per frame this would cache 5000 BLASs in 100 frames
+// which is a reasonable background pace
+RDOC_CONFIG(uint32_t, D3D12_Debug_RTASCacheBatchSize, 50,
+            "The maximum number of ASs to cache to disk in a single batch (batch processing "
+            "happens at indeterminate intervals but no more than once per submission");
 
 void D3D12Descriptor::Init(const D3D12_SAMPLER_DESC2 *pDesc)
 {
@@ -810,6 +820,104 @@ void D3D12RTManager::AddPendingASBuilds(ID3D12Fence *fence, UINT64 waitValue,
   }
 }
 
+void D3D12RTManager::TickASManagement()
+{
+  CheckPendingASBuilds();
+  CheckASCaching();
+}
+
+void D3D12RTManager::CheckASCaching()
+{
+  double now = m_Timestamp.GetMilliseconds();
+
+  SCOPED_LOCK(m_ASBuildDataLock);
+
+  const uint32_t ageThreshold = D3D12_Debug_RTASCacheThreshold();
+  const size_t maxCacheBatch = D3D12_Debug_RTASCacheBatchSize();
+
+  // see if any AS builds are finished and old enough that we should flush them to disk.
+  // to avoid doing too much work at a time we do these in batches of up to N. They're pushed in
+  // order so the first one is oldest. We don't care too much about completion (there may be a
+  // slight gap between record/create and submission, but that will be dominated by the time
+  // between submission and it being old enough) but we don't want an AS which is built but never
+  // submitted or destroyed and stays potential forever to block caching, so we skip over any such
+  // ASs and start from the first old-enough AS.
+  size_t first = ~0U;
+  for(size_t i = 0; i < m_InMemASBuildDatas.size(); i++)
+  {
+    ASBuildData *buildData = m_InMemASBuildDatas[i];
+
+    uint32_t age = uint32_t(now - buildData->timestamp);
+
+    // if we encounter one that is too young, bail out as all later ones will be too young as well
+    if(age < ageThreshold)
+      break;
+
+    // skip any that are somehow old enough but not complete
+    if(!buildData->IsWorkComplete())
+      continue;
+
+    // this build is both complete and old enough, store
+    first = i;
+  }
+
+  // if we didn't find one at all, stop now.
+  if(first == ~0U)
+    return;
+
+  // the build data at [first] is both old enough to be cached and complete! we take a few more -
+  // up to a small batch at a time.
+  size_t last;
+  for(last = first; last < m_InMemASBuildDatas.size() && last < first + maxCacheBatch; last++)
+  {
+    ASBuildData *buildData = m_InMemASBuildDatas[last];
+
+    uint32_t age = uint32_t(now - buildData->timestamp);
+
+    // as soon as we find a build which is either too new or not complete, we're finished.
+    if(age < ageThreshold || !buildData->IsWorkComplete())
+    {
+      // decrement last now so that it is inclusive of the range. We know [first] will have passed
+      // because it can only have gotten older
+      last--;
+      break;
+    }
+  }
+
+  // if the whole list was old then last could be pointing off the end
+  if(last == m_InMemASBuildDatas.size())
+    last--;
+
+  // whether there were more to batch or not, last is the last element (and may be equal to first)
+
+  for(size_t i = first; i <= last; i++)
+  {
+    ASBuildData *buildData = m_InMemASBuildDatas[i];
+
+    RDCDEBUG("Flushing AS build data of size %llu to disk", buildData->buffer->Size());
+
+    // de-interleave positions in geoms here if their stride is greater than vertex format?
+    buildData->filename = StringFormat::Fmt(
+        "%s/rdoc_as_%llu_%llu.bin", get_dirname(RenderDoc::Inst().GetCaptureFileTemplate()).c_str(),
+        Timing::GetTick(), Threading::GetCurrentID());
+    buildData->bytesOnDisk = buildData->buffer->Size();
+    FileIO::CreateParentDirectory(buildData->filename);
+
+    {
+      StreamWriter writer(FileIO::fopen(buildData->filename, FileIO::WriteBinary), Ownership::Stream);
+      writer.Write(buildData->buffer->Map(), buildData->buffer->Size());
+    }
+
+    buildData->buffer->Unmap();
+    SAFE_RELEASE(buildData->buffer);
+
+    m_DiskCachedASBuildDatas.push_back(buildData);
+  }
+
+  // remove the build datas that we've processed
+  m_InMemASBuildDatas.erase(first, last - first + 1);
+}
+
 void D3D12RTManager::CheckPendingASBuilds()
 {
   std::map<ID3D12Fence *, UINT64> fenceValues;
@@ -834,6 +942,61 @@ void D3D12RTManager::CheckPendingASBuilds()
 
   // remove any builds that completed
   m_PendingASBuilds.removeIf([](const PendingASBuild &build) { return build.fence == NULL; });
+}
+
+void D3D12RTManager::GatherASAgeStatistics(ASStats &blasAges, ASStats &tlasAges)
+{
+  double now = m_Timestamp.GetMilliseconds();
+
+  SCOPED_LOCK(m_ASBuildDataLock);
+
+  blasAges.bucket[0].msThreshold = tlasAges.bucket[0].msThreshold = 50;
+  blasAges.bucket[1].msThreshold = tlasAges.bucket[1].msThreshold = 250;
+  blasAges.bucket[2].msThreshold = tlasAges.bucket[2].msThreshold = 2000;
+  blasAges.bucket[3].msThreshold = tlasAges.bucket[3].msThreshold = ~0U;
+
+  for(ASBuildData *buildData : m_DiskCachedASBuildDatas)
+  {
+    if(buildData && !buildData->filename.empty())
+    {
+      ASStats &ages = buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
+                          ? tlasAges
+                          : blasAges;
+
+      ages.diskBytes += buildData->bytesOnDisk;
+      ages.diskCached++;
+    }
+  }
+
+  for(ASBuildData *buildData : m_InMemASBuildDatas)
+  {
+    if(buildData)
+    {
+      uint32_t age = uint32_t(now - buildData->timestamp);
+
+      ASStats &ages = buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
+                          ? tlasAges
+                          : blasAges;
+
+      // should never encounter this
+      if(!buildData->filename.empty())
+        continue;
+
+      uint64_t size = buildData->buffer ? buildData->buffer->Size() : 0;
+
+      ages.overheadBytes += buildData->bytesOverhead;
+
+      for(size_t i = 0; i < ARRAY_COUNT(tlasAges.bucket); i++)
+      {
+        if(age <= ages.bucket[i].msThreshold)
+        {
+          ages.bucket[i].count++;
+          ages.bucket[i].bytes += size;
+          break;
+        }
+      }
+    }
+  }
 }
 
 PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *unwrappedCmd,
@@ -1281,6 +1444,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   ret->Type = inputs.Type;
   ret->Flags = inputs.Flags;
   ret->timestamp = m_Timestamp.GetMilliseconds();
+  ret->rtManager = this;
 
   if(inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
   {
@@ -1564,6 +1728,14 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   D3D12_RESOURCE_BARRIER barrier = {};
   barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
   unwrappedCmd->ResourceBarrier(1, &barrier);
+
+  // only bother tracking build data with a buffer attached, as without the buffer there is nothing
+  // to cache and we don't care too much about missing stats for empty/degenerate ASs
+  if(ret->buffer)
+  {
+    SCOPED_LOCK(m_ASBuildDataLock);
+    m_InMemASBuildDatas.push_back(ret);
+  }
 
   return ret;
 }
@@ -2896,59 +3068,14 @@ void ASBuildData::Release()
   unsigned int ret = InterlockedDecrement(&m_RefCount);
   if(ret == 0)
   {
-    {
-#if ENABLED(RDOC_DEVEL)
-      SCOPED_WRITELOCK(dataslock);
-      datas.removeOne(this);
-#endif
-    }
+    if(rtManager)
+      rtManager->RemoveASBuildData(this);
 
     SAFE_RELEASE(buffer);
 
+    if(!filename.empty())
+      FileIO::Delete(filename);
+
     delete this;
   }
-}
-
-#if ENABLED(RDOC_DEVEL)
-Threading::RWLock ASBuildData::dataslock;
-rdcarray<ASBuildData *> ASBuildData::datas;
-#endif
-
-void ASBuildData::GatherASAgeStatistics(D3D12ResourceManager *rm, double now, ASStats &blasAges,
-                                        ASStats &tlasAges)
-{
-#if ENABLED(RDOC_DEVEL)
-  SCOPED_READLOCK(dataslock);
-
-  blasAges.bucket[0].msThreshold = tlasAges.bucket[0].msThreshold = 50;
-  blasAges.bucket[1].msThreshold = tlasAges.bucket[1].msThreshold = 500;
-  blasAges.bucket[2].msThreshold = tlasAges.bucket[2].msThreshold = 5000;
-  blasAges.bucket[3].msThreshold = tlasAges.bucket[3].msThreshold = ~0U;
-
-  for(ASBuildData *buildData : datas)
-  {
-    if(buildData)
-    {
-      uint32_t age = uint32_t(now - buildData->timestamp);
-
-      ASStats &ages = buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
-                          ? tlasAges
-                          : blasAges;
-
-      uint64_t size = buildData->buffer ? buildData->buffer->Size() : 0;
-
-      ages.overheadBytes += buildData->bytesOverhead;
-
-      for(size_t i = 0; i < ARRAY_COUNT(tlasAges.bucket); i++)
-      {
-        if(age <= ages.bucket[i].msThreshold)
-        {
-          ages.bucket[i].count++;
-          ages.bucket[i].bytes += size;
-          break;
-        }
-      }
-    }
-  }
-#endif
 }

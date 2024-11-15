@@ -2440,13 +2440,11 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         rdcstr overlayText =
             RenderDoc::Inst().GetOverlayText(RDCDriver::D3D12, devWnd, m_FrameCounter, 0);
 
-#if ENABLED(RDOC_DEVEL)
         if(D3D12_Debug_RTOverlay() && m_UsedRT)
         {
-          double now = GetResourceManager()->GetRTManager()->GetCurrentASTimestamp();
           ASStats blasStats = {}, tlasStats = {};
 
-          ASBuildData::GatherASAgeStatistics(GetResourceManager(), now, blasStats, tlasStats);
+          GetResourceManager()->GetRTManager()->GatherASAgeStatistics(blasStats, tlasStats);
 
           overlayText += "       TLAS               BLAS\n";
 
@@ -2464,10 +2462,11 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
           }
 
           overlayText += StringFormat::Fmt(
-              "%.2f MB overhead\n",
-              float(blasStats.overheadBytes + tlasStats.overheadBytes) / 1048576.0f);
+              "%.2f MB overhead, %.2f MB (%u BLAS %u TLAS) cached to disk\n",
+              float(blasStats.overheadBytes + tlasStats.overheadBytes) / 1048576.0f,
+              float(blasStats.diskBytes + tlasStats.diskBytes) / 1048576.0f, blasStats.diskCached,
+              tlasStats.diskCached);
         }
-#endif
 
         m_TextRenderer->RenderText(list, 0.0f, 0.0f, overlayText);
 
@@ -2698,7 +2697,7 @@ void WrappedID3D12Device::StartFrameCapture(DeviceOwnedWindow devWnd)
     GPUSyncAllQueues();
 
     // wait until we've synced all queues to check for these
-    GetResourceManager()->GetRTManager()->CheckPendingASBuilds();
+    GetResourceManager()->GetRTManager()->TickASManagement();
 
     GetResourceManager()->PrepareInitialContents();
 

@@ -1056,7 +1056,9 @@ public:
   Serialiser &SerialiseStream(const rdcstr &name, StreamReader &stream,
                               RENDERDOC_ProgressCallback progress = RENDERDOC_ProgressCallback())
   {
-    RDCCOMPILE_ASSERT(IsWriting(), "Can't read into a StreamReader");
+    // we don't make this a compile-time assert so this code can be compiled in a
+    // templated-serialisation function (but we still assert as this will not be valid to execute
+    RDCASSERTMSG("Can't read into a StreamReader", IsWriting());
 
     uint64_t totalSize = stream.GetSize();
 

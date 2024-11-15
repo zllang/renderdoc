@@ -1056,6 +1056,8 @@ struct ASStats
   } bucket[4];
 
   uint64_t overheadBytes;
+  uint64_t diskBytes;
+  uint32_t diskCached;
 };
 
 // this is a refcounted GPU buffer with the build data, together with the metadata
@@ -1132,20 +1134,18 @@ struct ASBuildData
   void Release();
 
   D3D12GpuBuffer *buffer = NULL;
-
-  static void GatherASAgeStatistics(D3D12ResourceManager *rm, double now, ASStats &blasAges,
-                                    ASStats &tlasAges);
+  rdcstr filename;
+  uint64_t bytesOnDisk = 0;
 
   std::function<bool()> cleanupCallback;
 
 private:
-  ASBuildData()
-  {
-#if ENABLED(RDOC_DEVEL)
-    SCOPED_WRITELOCK(dataslock);
-    datas.push_back(this);
-#endif
-  }
+  ASBuildData() = default;
+
+  friend class D3D12RTManager;
+  friend class D3D12ResourceManager;
+
+  D3D12RTManager *rtManager = NULL;
 
   // timestamp this build data was recorded on
   double timestamp = 0;
@@ -1157,14 +1157,6 @@ private:
   uint64_t bytesOverhead = 0;
 
   unsigned int m_RefCount = 1;
-
-  friend class D3D12RTManager;
-  friend class D3D12ResourceManager;
-
-#if ENABLED(RDOC_DEVEL)
-  static Threading::RWLock dataslock;
-  static rdcarray<ASBuildData *> datas;
-#endif
 };
 
 DECLARE_REFLECTION_STRUCT(ASBuildData::RVAWithStride);
@@ -1218,6 +1210,16 @@ public:
 
   ASBuildData *CopyBuildInputs(ID3D12GraphicsCommandList4 *unwrappedCmd,
                                const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &inputs);
+  void RemoveASBuildData(ASBuildData *data)
+  {
+    SCOPED_LOCK(m_ASBuildDataLock);
+    if(data->buffer)
+      m_InMemASBuildDatas.removeOne(data);
+    else
+      m_DiskCachedASBuildDatas.removeOne(data);
+  }
+
+  void GatherASAgeStatistics(ASStats &blasAges, ASStats &tlasAges);
 
   D3D12GpuBuffer *UnrollBLASInstancesList(
       ID3D12GraphicsCommandList4 *unwrappedCmd,
@@ -1237,7 +1239,7 @@ public:
 
   void AddPendingASBuilds(ID3D12Fence *fence, UINT64 waitValue,
                           const rdcarray<std::function<bool()>> &callbacks);
-  void CheckPendingASBuilds();
+  void TickASManagement();
 
   void ResizeSerialisationBuffer(UINT64 ScratchDataSizeInBytes);
 
@@ -1253,6 +1255,9 @@ private:
   void InitRayDispatchPatchingResources();
   void InitTLASInstanceCopyingResources();
   void InitReplayBlasPatchingResources();
+
+  void CheckASCaching();
+  void CheckPendingASBuilds();
 
   void CopyFromVA(ID3D12GraphicsCommandList4 *unwrappedCmd, ID3D12Resource *dstRes,
                   uint64_t dstOffset, D3D12_GPU_VIRTUAL_ADDRESS sourceVA, uint64_t byteSize);
@@ -1283,6 +1288,10 @@ private:
 
   // export databases that are alive
   rdcarray<D3D12ShaderExportDatabase *> m_ExportDatabases;
+
+  Threading::CriticalSection m_ASBuildDataLock;
+  rdcarray<ASBuildData *> m_InMemASBuildDatas;
+  rdcarray<ASBuildData *> m_DiskCachedASBuildDatas;
 
   // is the lookup buffer dirty and needs to be recreated with the latest data?
   bool m_LookupBufferDirty = true;

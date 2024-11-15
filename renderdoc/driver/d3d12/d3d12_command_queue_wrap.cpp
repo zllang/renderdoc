@@ -786,7 +786,7 @@ void WrappedID3D12CommandQueue::ExecuteCommandListsInternal(UINT NumCommandLists
     }
 
     // check AS builds now
-    GetResourceManager()->GetRTManager()->CheckPendingASBuilds();
+    GetResourceManager()->GetRTManager()->TickASManagement();
   }
 
   if(IsCaptureMode(m_State))

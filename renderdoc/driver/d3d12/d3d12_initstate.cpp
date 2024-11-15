@@ -616,6 +616,8 @@ uint64_t D3D12ResourceManager::GetSize_InitialState(ResourceId id, const D3D12In
       if(buildData->buffer)
         ret += 64 + buildData->buffer->Size();
 
+      ret += 64 + buildData->bytesOnDisk;
+
       return ret;
     }
   }
@@ -1364,6 +1366,10 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
             ret = false;
           }
         }
+        else if(!initial->buildData->filename.empty())
+        {
+          ContentsLength = initial->buildData->bytesOnDisk;
+        }
 
         buildData = initial->buildData;
       }
@@ -1422,11 +1428,20 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
           BufferContents = tempAlloc = new byte[(size_t)ContentsLength];
       }
 
-      // not using SERIALISE_ELEMENT_ARRAY so we can deliberately avoid allocation - we serialise
-      // directly into already allocated memory (either directly upload memory for BLAS, or
-      // temporary memory to patch for TLASs)
-      ser.Serialise("BufferContents"_lit, BufferContents, ContentsLength, SerialiserFlags::NoFlags)
-          .Important();
+      if(!buildData->filename.empty() && ser.IsWriting())
+      {
+        StreamReader reader(FileIO::fopen(buildData->filename, FileIO::ReadBinary));
+
+        ser.SerialiseStream("BufferContents"_lit, reader);
+      }
+      else
+      {
+        // not using SERIALISE_ELEMENT_ARRAY so we can deliberately avoid allocation - we serialise
+        // directly into already allocated memory (either directly upload memory for BLAS, or
+        // temporary memory to patch for TLASs)
+        ser.Serialise("BufferContents"_lit, BufferContents, ContentsLength, SerialiserFlags::NoFlags)
+            .Important();
+      }
 
       if(buildData)
       {
