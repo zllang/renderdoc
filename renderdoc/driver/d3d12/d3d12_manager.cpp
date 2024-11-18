@@ -1946,6 +1946,9 @@ void D3D12RTManager::InitRayDispatchPatchingResources()
 
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for dispatch patching");
+
+      if(m_RayPatchingData.descPatchPipe)
+        m_RayPatchingData.descPatchPipe->SetName(L"RENDERDOC_PatchRayDispatchCS");
     }
     else
     {
@@ -2056,6 +2059,9 @@ void D3D12RTManager::InitRayDispatchPatchingResources()
 
       result = m_wrappedDevice->GetReal()->CreateComputePipelineState(
           &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_RayPatchingData.indirectPrepPipe);
+
+      if(m_RayPatchingData.indirectPrepPipe)
+        m_RayPatchingData.indirectPrepPipe->SetName(L"RENDERDOC_PrepareRayIndirectExecuteCS");
 
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for indirect execute patching");
@@ -2195,6 +2201,9 @@ void D3D12RTManager::InitTLASInstanceCopyingResources()
       result = m_wrappedDevice->GetReal()->CreateComputePipelineState(
           &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_TLASCopyingData.PreparePipe);
 
+      if(m_TLASCopyingData.PreparePipe)
+        m_TLASCopyingData.PreparePipe->SetName(L"RENDERDOC_PrepareTLASCopyIndirectExecuteCS");
+
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for TLAS instance copying");
     }
@@ -2219,6 +2228,9 @@ void D3D12RTManager::InitTLASInstanceCopyingResources()
 
       result = m_wrappedDevice->GetReal()->CreateComputePipelineState(
           &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_TLASCopyingData.CopyPipe);
+
+      if(m_TLASCopyingData.CopyPipe)
+        m_TLASCopyingData.CopyPipe->SetName(L"RENDERDOC_CopyBLASInstanceCS");
 
       if(!SUCCEEDED(result))
         RDCERR("Unable to create pipeline for TLAS instance copying");
@@ -2325,6 +2337,9 @@ void D3D12RTManager::InitReplayBlasPatchingResources()
 
         result = m_wrappedDevice->GetReal()->CreateComputePipelineState(
             &pipeline, __uuidof(ID3D12PipelineState), (void **)&m_accStructPatchInfo.m_pipeline);
+
+        if(m_accStructPatchInfo.m_pipeline)
+          m_accStructPatchInfo.m_pipeline->SetName(L"RENDERDOC_PatchAccStructAddressCS");
 
         if(!SUCCEEDED(result))
           RDCERR("Unable to create pipeline for patching the BLAS");
