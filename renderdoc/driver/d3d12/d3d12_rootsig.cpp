@@ -24,6 +24,7 @@
 
 #include "d3d12_rootsig.h"
 #include "driver/shaders/dxbc/dxbc_container.h"
+#include "driver/shaders/dxil/dxil_metadata.h"
 
 static D3D12_STATIC_SAMPLER_DESC1 Upconvert(const D3D12_STATIC_SAMPLER_DESC &StaticSampler)
 {
@@ -82,17 +83,61 @@ D3D12RootSignature DecodeRootSig(const void *data, size_t dataSize, bool withSta
 {
   D3D12RootSignature ret;
 
+  DXIL::RDATData rdat;
   const byte *base = (const byte *)data;
   if(withStandardContainer)
   {
     size_t rts0Size = 0;
     const byte *rts0 = DXBC::DXBCContainer::FindChunk(base, dataSize, DXBC::FOURCC_RTS0, rts0Size);
 
-    if(!rts0)
-      return {};
+    if(rts0Size > 0 && rts0)
+    {
+      base = rts0;
+      dataSize = rts0Size;
+    }
+    else
+    {
+      size_t rdatSize = 0;
+      const byte *rdatData =
+          DXBC::DXBCContainer::FindChunk((const byte *)base, dataSize, DXBC::FOURCC_RDAT, rdatSize);
 
-    base = rts0;
-    dataSize = rts0Size;
+      if(rdatSize > 0 && rdatData)
+      {
+        DXBC::DXBCContainer::GetRuntimeData(rdatData, rdatSize, rdat);
+
+        const bytebuf *globalRS = NULL;
+        for(const DXIL::RDATData::SubobjectInfo &sub : rdat.subobjectsInfo)
+        {
+          if(sub.type == DXIL::RDATData::SubobjectInfo::SubobjectType::GlobalRS)
+          {
+            if(globalRS)
+            {
+              RDCERR(
+                  "Multiple global Root signatures found, can't create root signature from library "
+                  "blob");
+              return {};
+            }
+
+            globalRS = &sub.rs.data;
+          }
+        }
+
+        if(!globalRS)
+        {
+          RDCERR("Root signature blob does not contain RTS0 or global root signature in RDAT");
+          return {};
+        }
+
+        base = globalRS->data();
+        dataSize = globalRS->size();
+      }
+      else
+      {
+        RDCERR("Root signature blob does not contain RTS0 or RDAT");
+
+        return {};
+      }
+    }
   }
 
   const RootSigHeader *header = (const RootSigHeader *)base;
