@@ -939,16 +939,18 @@ void D3D12ShaderExportDatabase::PopulateDatabase(size_t NumSubobjects,
             if(exports.contains(sub.name) || exports.empty())
             {
               localRSs.push_back(sub.name);
-              dxilLocalRootSigs[sub.name] = m_RayManager->RegisterLocalRootSig(
+              uint32_t rsIndex = m_RayManager->RegisterLocalRootSig(
                   DecodeRootSig(sub.rs.data.data(), sub.rs.data.size(), false));
 
               // ignore these if an explicit default association has been made
               if(!explicitDXILDefault)
               {
                 // if multiple root signatures are defined, then there can't be an unspecified default
-                unassocDXILDefaultValid = explicitDefaultDxilAssocs.empty();
-                dxilDefaultRoot = dxilLocalRootSigs[sub.assoc.subobject];
+                unassocDXILDefaultValid = dxilLocalRootSigs.empty();
+                dxilDefaultRoot = rsIndex;
               }
+
+              dxilLocalRootSigs[sub.name] = rsIndex;
             }
           }
           else if(sub.type == DXIL::RDATData::SubobjectInfo::SubobjectType::SubobjectToExportsAssoc)
