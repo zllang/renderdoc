@@ -4620,7 +4620,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
 
     if(gatherArg > 0)
     {
-      if(GetShaderVariable(inst.args[gatherArg], opCode, dxOpCode, arg))
+      if(GetShaderVariable(inst.args[gatherArg], opCode, dxOpCode, arg, false))
       {
         RDCASSERTEQUAL(arg.type, VarType::SInt);
         // Red = 0, Green = 1, Blue = 2, Alpha = 3
