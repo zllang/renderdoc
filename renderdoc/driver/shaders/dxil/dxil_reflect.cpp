@@ -1814,8 +1814,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::AtomicBinOp:
               case DXOp::AtomicCompareExchange:
               case DXOp::CalculateLOD:
-              case DXOp::DerivFineX:
-              case DXOp::DerivFineY:
               case DXOp::EvalSnapped:
               case DXOp::EvalSampleIndex:
               case DXOp::EvalCentroid:

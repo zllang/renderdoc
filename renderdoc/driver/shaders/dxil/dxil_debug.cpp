@@ -2515,6 +2515,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           }
           case DXOp::DerivCoarseX:
           case DXOp::DerivCoarseY:
+          case DXOp::DerivFineX:
+          case DXOp::DerivFineY:
           {
             if(m_ShaderType != DXBC::ShaderType::Pixel || workgroups.size() != 4)
             {
@@ -2526,8 +2528,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               Id id = GetArgumentId(1);
               if(dxOpCode == DXOp::DerivCoarseX)
                 result.value = DDX(false, opCode, dxOpCode, workgroups, id);
-              else
+              else if(dxOpCode == DXOp::DerivCoarseY)
                 result.value = DDY(false, opCode, dxOpCode, workgroups, id);
+              else if(dxOpCode == DXOp::DerivFineX)
+                result.value = DDX(true, opCode, dxOpCode, workgroups, id);
+              else if(dxOpCode == DXOp::DerivFineY)
+                result.value = DDY(true, opCode, dxOpCode, workgroups, id);
             }
             break;
           }
@@ -2665,8 +2671,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
           case DXOp::CalculateLOD:
-          case DXOp::DerivFineX:
-          case DXOp::DerivFineY:
           case DXOp::EvalSnapped:
           case DXOp::EvalSampleIndex:
           case DXOp::EvalCentroid:
