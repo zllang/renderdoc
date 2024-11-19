@@ -266,6 +266,10 @@ ShaderMessageViewer::ShaderMessageViewer(ICaptureContext &ctx, ShaderStageMask s
           inputs.view = msg.location.pixel.view;
           trace = r->DebugPixel(msg.location.pixel.x, msg.location.pixel.y, inputs);
         }
+        else if(msg.stage == ShaderStage::Mesh)
+        {
+          trace = r->DebugMeshThread(msg.location.mesh.meshGroup, msg.location.mesh.thread);
+        }
 
         if(trace && trace->debugger == NULL)
         {

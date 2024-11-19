@@ -3377,6 +3377,14 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
   return ret;
 }
 
+ShaderDebugTrace *D3D12Replay::DebugMeshThread(uint32_t eventId,
+                                               const rdcfixedarray<uint32_t, 3> &groupid,
+                                               const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  // Not implemented yet
+  return new ShaderDebugTrace;
+}
+
 rdcarray<ShaderDebugState> D3D12Replay::ContinueDebug(ShaderDebugger *debugger)
 {
   if(!debugger)

@@ -231,6 +231,9 @@ public:
                                        const DebugPixelInputs &inputs) = 0;
   virtual ShaderDebugTrace *DebugThread(uint32_t eventId, const rdcfixedarray<uint32_t, 3> &groupid,
                                         const rdcfixedarray<uint32_t, 3> &threadid) = 0;
+  virtual ShaderDebugTrace *DebugMeshThread(uint32_t eventId,
+                                            const rdcfixedarray<uint32_t, 3> &groupid,
+                                            const rdcfixedarray<uint32_t, 3> &threadid) = 0;
   virtual rdcarray<ShaderDebugState> ContinueDebug(ShaderDebugger *debugger) = 0;
   virtual void FreeDebugger(ShaderDebugger *debugger) = 0;
 

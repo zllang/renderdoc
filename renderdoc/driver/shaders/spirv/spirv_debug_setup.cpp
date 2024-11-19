@@ -437,6 +437,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       "SPV_GOOGLE_user_type",
       "SPV_KHR_physical_storage_buffer",
       "SPV_KHR_relaxed_extended_instruction",
+      "SPV_EXT_mesh_shader",
   };
 
   // whitelist supported extensions
@@ -554,6 +555,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::UniformDecoration:
       case Capability::SignedZeroInfNanPreserve:
       case Capability::PhysicalStorageBufferAddresses:
+      case Capability::MeshShadingEXT:
       {
         supported = true;
         break;
@@ -641,13 +643,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::RayCullMaskKHR:
       case Capability::RayTracingOpacityMicromapEXT:
       case Capability::ShaderInvocationReorderNV:
-      {
-        supported = false;
-        break;
-      }
-
-      // mesh shading
-      case Capability::MeshShadingEXT:
       {
         supported = false;
         break;

@@ -1021,6 +1021,17 @@ bucket when the pixel values are divided between ``minval`` and ``maxval``.
   virtual ShaderDebugTrace *DebugThread(const rdcfixedarray<uint32_t, 3> &groupid,
                                         const rdcfixedarray<uint32_t, 3> &threadid) = 0;
 
+  DOCUMENT(R"(Retrieve a debugging trace from running a mesh shader.
+
+:param Tuple[int,int,int] groupid: A list containing the 3D workgroup index.
+:param Tuple[int,int,int] threadid: A list containing the 3D thread index within the workgroup.
+:return: The resulting trace resulting from debugging. Destroy with
+  :meth:`FreeTrace`.
+:rtype: ShaderDebugTrace
+)");
+  virtual ShaderDebugTrace *DebugMeshThread(const rdcfixedarray<uint32_t, 3> &groupid,
+                                            const rdcfixedarray<uint32_t, 3> &threadid) = 0;
+
   DOCUMENT(R"(Continue a shader's debugging with a given shader debugger instance. This will run an
 implementation defined number of steps and then return those steps in a list. This may be a fixed
 number of steps or it may run for a fixed length of time and return as many steps as can be

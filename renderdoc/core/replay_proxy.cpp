@@ -1685,6 +1685,44 @@ ShaderDebugTrace *ReplayProxy::DebugThread(uint32_t eventId,
 }
 
 template <typename ParamSerialiser, typename ReturnSerialiser>
+ShaderDebugTrace *ReplayProxy::Proxied_DebugMeshThread(ParamSerialiser &paramser,
+                                                       ReturnSerialiser &retser, uint32_t eventId,
+                                                       const rdcfixedarray<uint32_t, 3> &groupid,
+                                                       const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  const ReplayProxyPacket expectedPacket = eReplayProxy_DebugMeshThread;
+  ReplayProxyPacket packet = eReplayProxy_DebugMeshThread;
+  ShaderDebugTrace *ret;
+
+  {
+    BEGIN_PARAMS();
+    SERIALISE_ELEMENT(eventId);
+    SERIALISE_ELEMENT(groupid);
+    SERIALISE_ELEMENT(threadid);
+    END_PARAMS();
+  }
+
+  {
+    REMOTE_EXECUTION();
+    if(paramser.IsReading() && !paramser.IsErrored() && !m_IsErrored)
+      ret = m_Remote->DebugMeshThread(eventId, groupid, threadid);
+    else
+      ret = new ShaderDebugTrace;
+  }
+
+  SERIALISE_RETURN(*ret);
+
+  return ret;
+}
+
+ShaderDebugTrace *ReplayProxy::DebugMeshThread(uint32_t eventId,
+                                               const rdcfixedarray<uint32_t, 3> &groupid,
+                                               const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  PROXY_FUNCTION(DebugMeshThread, eventId, groupid, threadid);
+}
+
+template <typename ParamSerialiser, typename ReturnSerialiser>
 rdcarray<ShaderDebugState> ReplayProxy::Proxied_ContinueDebug(ParamSerialiser &paramser,
                                                               ReturnSerialiser &retser,
                                                               ShaderDebugger *debugger)

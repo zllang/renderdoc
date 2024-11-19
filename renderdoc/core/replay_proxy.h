@@ -89,6 +89,7 @@ enum ReplayProxyPacket
   eReplayProxy_DebugVertex,
   eReplayProxy_DebugPixel,
   eReplayProxy_DebugThread,
+  eReplayProxy_DebugMeshThread,
 
   eReplayProxy_RenderOverlay,
 
@@ -550,6 +551,9 @@ public:
   IMPLEMENT_FUNCTION_PROXIED(ShaderDebugTrace *, DebugPixel, uint32_t eventId, uint32_t x,
                              uint32_t y, const DebugPixelInputs &inputs);
   IMPLEMENT_FUNCTION_PROXIED(ShaderDebugTrace *, DebugThread, uint32_t eventId,
+                             const rdcfixedarray<uint32_t, 3> &groupid,
+                             const rdcfixedarray<uint32_t, 3> &threadid);
+  IMPLEMENT_FUNCTION_PROXIED(ShaderDebugTrace *, DebugMeshThread, uint32_t eventId,
                              const rdcfixedarray<uint32_t, 3> &groupid,
                              const rdcfixedarray<uint32_t, 3> &threadid);
   IMPLEMENT_FUNCTION_PROXIED(rdcarray<ShaderDebugState>, ContinueDebug, ShaderDebugger *debugger);

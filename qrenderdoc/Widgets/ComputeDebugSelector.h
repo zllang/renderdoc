@@ -40,6 +40,8 @@ public:
   explicit ComputeDebugSelector(QWidget *parent = 0);
   ~ComputeDebugSelector();
 
+  void SetDefaultDispatch(const rdcfixedarray<uint32_t, 3> &group,
+                          const rdcfixedarray<uint32_t, 3> &thread);
   void SetThreadBounds(const rdcfixedarray<uint32_t, 3> &group,
                        const rdcfixedarray<uint32_t, 3> &thread);
 

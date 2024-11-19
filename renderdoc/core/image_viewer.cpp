@@ -357,6 +357,11 @@ public:
   {
     return new ShaderDebugTrace();
   }
+  ShaderDebugTrace *DebugMeshThread(uint32_t eventId, const rdcfixedarray<uint32_t, 3> &groupid,
+                                    const rdcfixedarray<uint32_t, 3> &threadid)
+  {
+    return new ShaderDebugTrace();
+  }
   rdcarray<ShaderDebugState> ContinueDebug(ShaderDebugger *debugger) { return {}; }
   void FreeDebugger(ShaderDebugger *debugger) { delete debugger; }
   void BuildTargetShader(ShaderEncoding sourceEncoding, const bytebuf &source, const rdcstr &entry,

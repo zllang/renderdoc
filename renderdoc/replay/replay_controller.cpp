@@ -1698,6 +1698,24 @@ ShaderDebugTrace *ReplayController::DebugThread(const rdcfixedarray<uint32_t, 3>
   return ret;
 }
 
+ShaderDebugTrace *ReplayController::DebugMeshThread(const rdcfixedarray<uint32_t, 3> &groupid,
+                                                    const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  CHECK_REPLAY_THREAD();
+
+  RENDERDOC_PROFILEFUNCTION();
+
+  ShaderDebugTrace *ret = m_pDevice->DebugMeshThread(m_EventID, groupid, threadid);
+  FatalErrorCheck();
+
+  SetFrameEvent(m_EventID, true);
+
+  if(ret->debugger)
+    m_Debuggers.push_back(ret->debugger);
+
+  return ret;
+}
+
 rdcarray<ShaderDebugState> ReplayController::ContinueDebug(ShaderDebugger *debugger)
 {
   CHECK_REPLAY_THREAD();

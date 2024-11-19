@@ -2688,6 +2688,14 @@ ShaderDebugTrace *D3D11Replay::DebugThread(uint32_t eventId,
   return ret;
 }
 
+ShaderDebugTrace *D3D11Replay::DebugMeshThread(uint32_t eventId,
+                                               const rdcfixedarray<uint32_t, 3> &groupid,
+                                               const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  // Not supported
+  return new ShaderDebugTrace;
+}
+
 rdcarray<ShaderDebugState> D3D11Replay::ContinueDebug(ShaderDebugger *debugger)
 {
   DXBCDebug::InterpretDebugger *interpreter = (DXBCDebug::InterpretDebugger *)debugger;

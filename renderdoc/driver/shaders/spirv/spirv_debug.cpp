@@ -3521,6 +3521,12 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       break;
     }
 
+    case Op::SetMeshOutputsEXT:
+    {
+      // Ignore mesh outputs, nothing to do, really
+      break;
+    }
+
     // TODO sparse sampling
     case Op::ImageSparseSampleImplicitLod:
     case Op::ImageSparseSampleExplicitLod:
@@ -3750,7 +3756,6 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::ConvertSampledImageToUNV:
     case Op::SamplerImageAddressingModeNV:
     case Op::EmitMeshTasksEXT:
-    case Op::SetMeshOutputsEXT:
     case Op::HitObjectRecordHitMotionNV:
     case Op::HitObjectRecordHitWithIndexMotionNV:
     case Op::HitObjectRecordMissMotionNV:

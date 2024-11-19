@@ -260,6 +260,8 @@ public:
                                const DebugPixelInputs &inputs);
   ShaderDebugTrace *DebugThread(uint32_t eventId, const rdcfixedarray<uint32_t, 3> &groupid,
                                 const rdcfixedarray<uint32_t, 3> &threadid);
+  ShaderDebugTrace *DebugMeshThread(uint32_t eventId, const rdcfixedarray<uint32_t, 3> &groupid,
+                                    const rdcfixedarray<uint32_t, 3> &threadid);
   rdcarray<ShaderDebugState> ContinueDebug(ShaderDebugger *debugger);
   void FreeDebugger(ShaderDebugger *debugger);
   uint32_t PickVertex(uint32_t eventId, int32_t width, int32_t height, const MeshDisplay &cfg,

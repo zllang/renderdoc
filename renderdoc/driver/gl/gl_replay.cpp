@@ -4300,6 +4300,14 @@ ShaderDebugTrace *GLReplay::DebugThread(uint32_t eventId, const rdcfixedarray<ui
   return new ShaderDebugTrace();
 }
 
+ShaderDebugTrace *GLReplay::DebugMeshThread(uint32_t eventId,
+                                            const rdcfixedarray<uint32_t, 3> &groupid,
+                                            const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  GLNOTIMP("DebugMeshThread");
+  return new ShaderDebugTrace();
+}
+
 rdcarray<ShaderDebugState> GLReplay::ContinueDebug(ShaderDebugger *debugger)
 {
   GLNOTIMP("ContinueDebug");

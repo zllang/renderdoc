@@ -214,6 +214,8 @@ public:
   ShaderDebugTrace *DebugPixel(uint32_t x, uint32_t y, const DebugPixelInputs &inputs);
   ShaderDebugTrace *DebugThread(const rdcfixedarray<uint32_t, 3> &groupid,
                                 const rdcfixedarray<uint32_t, 3> &threadid);
+  ShaderDebugTrace *DebugMeshThread(const rdcfixedarray<uint32_t, 3> &groupid,
+                                    const rdcfixedarray<uint32_t, 3> &threadid);
   rdcarray<ShaderDebugState> ContinueDebug(ShaderDebugger *debugger);
   void FreeTrace(ShaderDebugTrace *trace);
 

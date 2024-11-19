@@ -5080,6 +5080,89 @@ ShaderDebugTrace *VulkanReplay::DebugThread(uint32_t eventId,
   return ret;
 }
 
+ShaderDebugTrace *VulkanReplay::DebugMeshThread(uint32_t eventId,
+                                                const rdcfixedarray<uint32_t, 3> &groupid,
+                                                const rdcfixedarray<uint32_t, 3> &threadid)
+{
+  const VulkanRenderState &state = m_pDriver->GetRenderState();
+  VulkanCreationInfo &c = m_pDriver->m_CreationInfo;
+
+  rdcstr regionName =
+      StringFormat::Fmt("DebugMeshThread @ %u of (%u,%u,%u) (%u,%u,%u)", eventId, groupid[0],
+                        groupid[1], groupid[2], threadid[0], threadid[1], threadid[2]);
+
+  VkMarkerRegion region(regionName);
+
+  if(Vulkan_Debug_ShaderDebugLogging())
+    RDCLOG("%s", regionName.c_str());
+
+  const ActionDescription *action = m_pDriver->GetAction(eventId);
+
+  if(!(action->flags & ActionFlags::MeshDispatch))
+  {
+    RDCLOG("No mesh dispatch selected");
+    return new ShaderDebugTrace();
+  }
+
+  // get ourselves in pristine state before this dispatch (without any side effects it may have had)
+  m_pDriver->ReplayLog(0, eventId, eReplay_WithoutDraw);
+
+  const VulkanCreationInfo::Pipeline &pipe = c.m_Pipeline[state.graphics.pipeline];
+  const VulkanCreationInfo::ShaderEntry &shaderEntry =
+      state.graphics.shaderObject
+          ? c.m_ShaderObject[state.shaderObjects[(size_t)ShaderStage::Mesh]].shad
+          : pipe.shaders[(size_t)ShaderStage::Mesh];
+  VulkanCreationInfo::ShaderModule &shader = c.m_ShaderModule[shaderEntry.module];
+  rdcstr entryPoint = shaderEntry.entryPoint;
+  const rdcarray<SpecConstant> &spec = shaderEntry.specialization;
+
+  VulkanCreationInfo::ShaderModuleReflection &shadRefl =
+      shader.GetReflection(ShaderStage::Mesh, entryPoint, state.graphics.pipeline);
+
+  if(!shadRefl.refl->debugInfo.debuggable)
+  {
+    RDCLOG("Shader is not debuggable: %s", shadRefl.refl->debugInfo.debugStatus.c_str());
+    return new ShaderDebugTrace();
+  }
+
+  shadRefl.PopulateDisassembly(shader.spirv);
+
+  VulkanAPIWrapper *apiWrapper =
+      new VulkanAPIWrapper(m_pDriver, c, ShaderStage::Mesh, eventId, shadRefl.refl->resourceId);
+
+  uint32_t threadDim[3];
+  threadDim[0] = shadRefl.refl->dispatchThreadsDimension[0];
+  threadDim[1] = shadRefl.refl->dispatchThreadsDimension[1];
+  threadDim[2] = shadRefl.refl->dispatchThreadsDimension[2];
+
+  std::map<ShaderBuiltin, ShaderVariable> &builtins = apiWrapper->builtin_inputs;
+  builtins[ShaderBuiltin::DispatchSize] =
+      ShaderVariable(rdcstr(), action->dispatchDimension[0], action->dispatchDimension[1],
+                     action->dispatchDimension[2], 0U);
+  builtins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
+      rdcstr(), groupid[0] * threadDim[0] + threadid[0], groupid[1] * threadDim[1] + threadid[1],
+      groupid[2] * threadDim[2] + threadid[2], 0U);
+  builtins[ShaderBuiltin::GroupIndex] =
+      ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
+  builtins[ShaderBuiltin::GroupSize] =
+      ShaderVariable(rdcstr(), threadDim[0], threadDim[1], threadDim[2], 0U);
+  builtins[ShaderBuiltin::GroupThreadIndex] =
+      ShaderVariable(rdcstr(), threadid[0], threadid[1], threadid[2], 0U);
+  builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+      rdcstr(), threadid[2] * threadDim[0] * threadDim[1] + threadid[1] * threadDim[0] + threadid[0],
+      0U, 0U, 0U);
+  builtins[ShaderBuiltin::DeviceIndex] = ShaderVariable(rdcstr(), 0U, 0U, 0U, 0U);
+  builtins[ShaderBuiltin::DrawIndex] = ShaderVariable(rdcstr(), action->drawIndex, 0U, 0U, 0U);
+
+  rdcspv::Debugger *debugger = new rdcspv::Debugger;
+  debugger->Parse(shader.spirv.GetSPIRV());
+  ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Mesh, entryPoint, spec,
+                                               shadRefl.instructionLines, shadRefl.patchData, 0);
+  apiWrapper->ResetReplay();
+
+  return ret;
+}
+
 rdcarray<ShaderDebugState> VulkanReplay::ContinueDebug(ShaderDebugger *debugger)
 {
   rdcspv::Debugger *spvDebugger = (rdcspv::Debugger *)debugger;

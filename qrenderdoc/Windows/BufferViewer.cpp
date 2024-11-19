@@ -39,6 +39,7 @@
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
 #include "Widgets/CollapseGroupBox.h"
+#include "Widgets/ComputeDebugSelector.h"
 #include "Widgets/Extended/RDLabel.h"
 #include "Widgets/Extended/RDSplitter.h"
 #include "Windows/Dialogs/AxisMappingDialog.h"
@@ -2361,6 +2362,8 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
   m_ModelOut1 = new BufferItemModel(ui->out1Table, false, meshview, this);
   m_ModelOut2 = new BufferItemModel(ui->out2Table, false, meshview, this);
 
+  m_MeshDebugSelector = new ComputeDebugSelector(this);
+
   // we keep the old UI names for serialised layouts compatibility
   QString containerNames[] = {
       lit("vsinData"),
@@ -2440,6 +2443,9 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
   m_DebugVert = new QAction(tr("&Debug this Vertex"), this);
   m_DebugVert->setIcon(Icons::wrench());
 
+  m_DebugMeshThread = new QAction(tr("&Debug Mesh Thread"), this);
+  m_DebugMeshThread->setIcon(Icons::wrench());
+
   m_FilterMesh = new QAction(tr("&Filter to this Meshlet"), this);
   m_FilterMesh->setIcon(Icons::filter());
 
@@ -2458,6 +2464,7 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
   QObject::connect(m_ExportBytes, &QAction::triggered,
                    [this] { exportData(BufferExport(BufferExport::RawBytes)); });
   QObject::connect(m_DebugVert, &QAction::triggered, this, &BufferViewer::debugVertex);
+  QObject::connect(m_DebugMeshThread, &QAction::triggered, this, &BufferViewer::debugMeshThread);
   QObject::connect(m_RemoveFilter, &QAction::triggered,
                    [this]() { SetMeshFilter(MeshFilter::None); });
   QObject::connect(m_FilterMesh, &QAction::triggered, [this]() {
@@ -2623,6 +2630,9 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
   // event filter to pick up tooltip events
   ui->fixedVars->setTooltipElidedItems(false);
   ui->fixedVars->installEventFilter(this);
+
+  QObject::connect(m_MeshDebugSelector, &ComputeDebugSelector::beginDebug, this,
+                   &BufferViewer::meshDebugSelector_beginDebug);
 
   Reset();
 
@@ -3093,6 +3103,37 @@ void BufferViewer::stageRowMenu(MeshDataStage stage, QMenu *menu, const QPoint &
       menu->addAction(m_RemoveFilter);
       menu->addAction(m_FilterMesh);
       menu->addAction(m_GotoTask);
+
+      const ShaderReflection *shaderDetails =
+          m_Ctx.CurPipelineState().GetShaderReflection(ShaderStage::Mesh);
+
+      m_DebugMeshThread->setEnabled(false);
+
+      if(!m_Ctx.APIProps().shaderDebugging)
+      {
+        m_DebugMeshThread->setToolTip(tr("This API does not support shader debugging"));
+      }
+      else if(!m_Ctx.CurAction() ||
+              !(m_Ctx.CurAction()->flags & (ActionFlags::Drawcall | ActionFlags::MeshDispatch)))
+      {
+        m_DebugMeshThread->setToolTip(tr("No draw call selected"));
+      }
+      else if(!shaderDetails)
+      {
+        m_DebugMeshThread->setToolTip(tr("No mesh shader bound"));
+      }
+      else if(!shaderDetails->debugInfo.debuggable)
+      {
+        m_DebugMeshThread->setToolTip(
+            tr("This shader doesn't support debugging: %1").arg(shaderDetails->debugInfo.debugStatus));
+      }
+      else
+      {
+        m_DebugMeshThread->setEnabled(true);
+        m_DebugMeshThread->setToolTip(QString());
+      }
+      menu->addAction(m_DebugMeshThread);
+
       menu->addSeparator();
 
       m_GotoTask->setEnabled(m_Ctx.CurPipelineState().GetShaderReflection(ShaderStage::Task));
@@ -6634,6 +6675,135 @@ void BufferViewer::debugVertex()
 
   // viewer takes ownership of the trace
   IShaderViewer *s = m_Ctx.DebugShader(shaderDetails, pipeline, trace, debugContext);
+
+  m_Ctx.AddDockWindow(s->Widget(), DockReference::AddTo, this);
+}
+
+void BufferViewer::debugMeshThread()
+{
+  if(!m_Ctx.IsCaptureLoaded())
+    return;
+
+  const ActionDescription *action = m_Ctx.CurAction();
+  if(!action)
+    return;
+
+  if(!m_CurView)
+    return;
+
+  QModelIndex idx = m_CurView->selectionModel()->currentIndex();
+
+  if(!idx.isValid())
+  {
+    GUIInvoke::call(this, [this]() {
+      RDDialog::critical(this, tr("Error debugging"),
+                         tr("Error debugging meshlet - make sure a valid meshlet is selected"));
+    });
+    return;
+  }
+
+  uint32_t taskIndex = 0, meshletIndex = 0;
+  GetIndicesForMeshRow((uint32_t)idx.row(), taskIndex, meshletIndex);
+
+  const ShaderReflection *shaderDetails =
+      m_Ctx.CurPipelineState().GetShaderReflection(ShaderStage::Mesh);
+
+  if(!shaderDetails)
+    return;
+
+  rdcfixedarray<uint32_t, 3> threadGroupSize = action->dispatchThreadsDimension[0] == 0
+                                                   ? shaderDetails->dispatchThreadsDimension
+                                                   : action->dispatchThreadsDimension;
+  m_MeshDebugSelector->SetThreadBounds(action->dispatchDimension, threadGroupSize);
+
+  // Calculate 3d group id from 1d meshlet index and dispatch dimensions
+  // Imagine 8x2x4 with idx 60
+  // 8x2 = 16
+  // 8x2x4 = 64
+  // 60 % x = 4
+  // 60 % (x * y) = 12 / x = 1
+  // 60 / (x * y) = 3
+  // index 60 is id (4,1,3)
+  // 4 + (8 * 1) + (16 * 3) = 60
+  uint32_t xDim = action->dispatchDimension[0];
+  uint32_t yDim = action->dispatchDimension[1];
+  uint32_t zDim = action->dispatchDimension[2];
+  rdcfixedarray<uint32_t, 3> meshletGroup = {
+      meshletIndex % xDim,
+      (meshletIndex % (xDim * yDim)) / xDim,
+      meshletIndex / (xDim * yDim),
+  };
+  m_MeshDebugSelector->SetDefaultDispatch(meshletGroup, {0, 0, 0});
+
+  RDDialog::show(m_MeshDebugSelector);
+}
+
+void BufferViewer::meshDebugSelector_beginDebug(const rdcfixedarray<uint32_t, 3> &group,
+                                                const rdcfixedarray<uint32_t, 3> &thread)
+{
+  const ActionDescription *action = m_Ctx.CurAction();
+
+  if(!action)
+    return;
+
+  const ShaderReflection *shaderDetails =
+      m_Ctx.CurPipelineState().GetShaderReflection(ShaderStage::Mesh);
+
+  if(!shaderDetails)
+    return;
+
+  struct threadSelect
+  {
+    rdcfixedarray<uint32_t, 3> g;
+    rdcfixedarray<uint32_t, 3> t;
+  } debugThread = {
+      // g[]
+      {group[0], group[1], group[2]},
+      // t[]
+      {thread[0], thread[1], thread[2]},
+  };
+
+  bool done = false;
+  ShaderDebugTrace *trace = NULL;
+
+  m_Ctx.Replay().AsyncInvoke([&trace, &done, debugThread](IReplayController *r) {
+    trace = r->DebugMeshThread(debugThread.g, debugThread.t);
+
+    if(trace->debugger == NULL)
+    {
+      r->FreeTrace(trace);
+      trace = NULL;
+    }
+
+    done = true;
+  });
+
+  QString debugContext = lit("Mesh Group [%1,%2,%3] Thread [%4,%5,%6]")
+                             .arg(group[0])
+                             .arg(group[1])
+                             .arg(group[2])
+                             .arg(thread[0])
+                             .arg(thread[1])
+                             .arg(thread[2]);
+
+  // wait a short while before displaying the progress dialog (which won't show if we're already
+  // done by the time we reach it)
+  for(int i = 0; !done && i < 100; i++)
+    QThread::msleep(5);
+
+  ShowProgressDialog(this, tr("Debugging %1").arg(debugContext), [&done]() { return done; });
+
+  if(!trace)
+  {
+    RDDialog::critical(
+        this, tr("Error debugging"),
+        tr("Error debugging thread - make sure a valid group and thread is selected"));
+    return;
+  }
+
+  // viewer takes ownership of the trace
+  IShaderViewer *s = m_Ctx.DebugShader(
+      shaderDetails, m_Ctx.CurPipelineState().GetComputePipelineObject(), trace, debugContext);
 
   m_Ctx.AddDockWindow(s->Widget(), DockReference::AddTo, this);
 }
