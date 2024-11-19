@@ -4641,8 +4641,11 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                 lineStr += " ";
               else
                 lineStr += ", ";
-              lineStr += StringFormat::Fmt("[ %s, %s ]", GetArgId(inst, a).c_str(),
-                                           GetArgId(inst, a + 1).c_str());
+              rdcstr block = GetArgId(inst, a + 1);
+              lineStr += "[ ";
+              if(IsSSA(inst.args[a]))
+                lineStr += StringFormat::Fmt("%s::", block.c_str());
+              lineStr += StringFormat::Fmt("%s, %s ]", GetArgId(inst, a).c_str(), block.c_str());
             }
             break;
           }
