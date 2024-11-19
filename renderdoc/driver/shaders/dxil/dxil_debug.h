@@ -55,6 +55,7 @@ struct InstructionRange
 typedef std::map<ShaderBuiltin, ShaderVariable> BuiltinInputs;
 typedef std::set<Id> ReferencedIds;
 typedef std::map<Id, InstructionRange> InstructionRangePerId;
+typedef std::map<uint32_t, ReferencedIds> PhiReferencedIdsPerBlock;
 
 void GetInterpolationModeForInputParams(const rdcarray<SigParameter> &stageInputSig,
                                         const DXIL::Program *program,
@@ -86,6 +87,7 @@ struct FunctionInfo
   const DXIL::Function *function = NULL;
   ReferencedIds referencedIds;
   InstructionRangePerId rangePerId;
+  PhiReferencedIdsPerBlock phiReferencedIdsPerBlock;
   uint32_t globalInstructionOffset = ~0U;
   rdcarray<uint32_t> uniformBlocks;
 };
@@ -157,10 +159,24 @@ struct ThreadState
   Id GetArgumentId(uint32_t i) const;
   const DXIL::ResourceReference *GetResource(Id handleId, ShaderBindIndex &bindIndex,
                                              bool &annotatedHandle);
+
   bool GetShaderVariable(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
-                         ShaderVariable &var, bool flushDenormInput = true) const;
-  bool GetVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
-                   ShaderVariable &var) const;
+                         ShaderVariable &var, bool flushDenormInput = true) const
+  {
+    return GetShaderVariableHelper(dxilValue, op, dxOpCode, var, flushDenormInput, true);
+  }
+
+  bool GetPhiShaderVariable(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
+                            ShaderVariable &var, bool flushDenormInput = true) const
+  {
+    return GetShaderVariableHelper(dxilValue, op, dxOpCode, var, flushDenormInput, false);
+  }
+
+  bool GetLiveVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
+                       ShaderVariable &var) const;
+  bool GetPhiVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
+                      ShaderVariable &var) const;
+  bool GetVariableHelper(DXIL::Operation op, DXIL::DXOp dxOpCode, ShaderVariable &var) const;
   void AllocateMemoryForType(const DXIL::Type *type, Id allocId, ShaderVariable &var);
   void UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize, const ShaderVariable &var);
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
@@ -181,6 +197,8 @@ struct ThreadState
   void InitialiseHelper(const ThreadState &activeState);
   static bool ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups);
 
+  bool GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
+                               ShaderVariable &var, bool flushDenormInput, bool isLive) const;
   struct MemoryAlloc
   {
     void *backingMemory;
@@ -220,6 +238,8 @@ struct ThreadState
 
   // Known SSA ShaderVariables
   std::map<Id, ShaderVariable> m_Variables;
+  // SSA Variables captured when a branch happens for use in phi nodes
+  std::map<Id, ShaderVariable> m_PhiVariables;
   // Live variables at the current scope
   rdcarray<Id> m_Live;
   // Dormant variables at the current scope

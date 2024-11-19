@@ -1505,6 +1505,7 @@ void ThreadState::EnterFunction(const Function *function, const rdcarray<Value *
   m_Dormant.clear();
   m_Block = 0;
   m_PreviousBlock = ~0U;
+  m_PhiVariables.clear();
 
   m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
   m_Callstack.push_back(frame);
@@ -2859,6 +2860,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::Branch:
     {
       m_PreviousBlock = m_Block;
+      m_PhiVariables.clear();
+      auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
+      if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
+      {
+        const ReferencedIds &phiIds = it->second;
+        for(Id id : phiIds)
+          m_PhiVariables[id] = m_Variables[id];
+      }
+
       // Branch <label>
       // Branch <label_true> <label_false> <BOOL_VAR>
       uint32_t targetArg = 0;
@@ -2904,7 +2914,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       if(dxilValue)
       {
         ShaderVariable arg;
-        RDCASSERT(GetShaderVariable(dxilValue, opCode, dxOpCode, arg));
+        RDCASSERT(GetPhiShaderVariable(dxilValue, opCode, dxOpCode, arg));
         result.value = arg.value;
         break;
       }
@@ -4168,8 +4178,9 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
   m_State = NULL;
 }
 
-bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, DXOp dxOpCode,
-                                    ShaderVariable &var, bool flushDenormInput) const
+bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Operation op,
+                                          DXIL::DXOp dxOpCode, ShaderVariable &var,
+                                          bool flushDenormInput, bool isLive) const
 {
   var.name.clear();
   var.members.clear();
@@ -4270,21 +4281,39 @@ bool ThreadState::GetShaderVariable(const DXIL::Value *dxilValue, Operation op, 
 
   if(const Instruction *inst = cast<Instruction>(dxilValue))
   {
-    GetVariable(inst->slot, op, dxOpCode, var);
-    return true;
+    if(isLive)
+      return GetLiveVariable(inst->slot, op, dxOpCode, var);
+    else
+      return GetPhiVariable(inst->slot, op, dxOpCode, var);
   }
   RDCERR("Unhandled DXIL Value type");
 
   return false;
 }
 
-bool ThreadState::GetVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
+bool ThreadState::GetLiveVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
 {
   RDCASSERT(m_Live.contains(id));
   auto it = m_Variables.find(id);
   RDCASSERT(it != m_Variables.end());
   var = it->second;
+  return GetVariableHelper(op, dxOpCode, var);
+}
 
+bool ThreadState::GetPhiVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
+{
+  auto it = m_PhiVariables.find(id);
+  if(it != m_PhiVariables.end())
+  {
+    var = it->second;
+    return GetVariableHelper(op, dxOpCode, var);
+  }
+  RDCERR("Phi Variable not found %d", id);
+  return false;
+}
+
+bool ThreadState::GetVariableHelper(Operation op, DXOp dxOpCode, ShaderVariable &var) const
+{
   bool flushDenorm = OperationFlushing(op, dxOpCode);
   if(var.type == VarType::Double)
     flushDenorm = false;
@@ -4772,8 +4801,8 @@ ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
   ShaderValue ret;
   ShaderVariable a;
   ShaderVariable b;
-  RDCASSERT(quad[index + 1].GetVariable(id, opCode, dxOpCode, a));
-  RDCASSERT(quad[index].GetVariable(id, opCode, dxOpCode, b));
+  RDCASSERT(quad[index + 1].GetLiveVariable(id, opCode, dxOpCode, a));
+  RDCASSERT(quad[index].GetLiveVariable(id, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
 }
@@ -4803,8 +4832,8 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
   ShaderValue ret;
   ShaderVariable a;
   ShaderVariable b;
-  RDCASSERT(quad[index + 2].GetVariable(id, opCode, dxOpCode, a));
-  RDCASSERT(quad[index].GetVariable(id, opCode, dxOpCode, b));
+  RDCASSERT(quad[index + 2].GetLiveVariable(id, opCode, dxOpCode, a));
+  RDCASSERT(quad[index].GetLiveVariable(id, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
 }
@@ -6105,67 +6134,77 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         if(DXIL::IsDXCNop(inst) || DXIL::IsLLVMDebugCall(inst))
           continue;
 
+        // Stack allocations last until the end of the function
         // Allow the variable to live for one instruction longer
-        const uint32_t maxInst = i + 1;
+        const uint32_t maxInst = (inst.op == Operation::Alloca) ? countInstructions : i + 1;
+        Id resultId = inst.slot;
+        if(resultId != DXILDebug::INVALID_ID)
         {
-          Id resultId = inst.slot;
-          if(resultId != DXILDebug::INVALID_ID)
-          {
-            // The result SSA should not have been referenced before
-            RDCASSERTEQUAL(ssaRefs.count(resultId), 0);
-            ssaRefs.insert(resultId);
+          // The result SSA should not have been referenced before
+          RDCASSERTEQUAL(ssaRefs.count(resultId), 0);
+          ssaRefs.insert(resultId);
 
-            // For assignment track maximum and minimum (as current instruction plus one)
-            auto itRange = ssaRange.find(resultId);
-            if(itRange == ssaRange.end())
-            {
-              ssaRange[resultId] = {i + 1, maxInst};
-            }
-            else
-            {
-              itRange->second.min = RDCMIN(i + 1, itRange->second.min);
-              itRange->second.max = RDCMAX(maxInst, itRange->second.max);
-            }
-
-            // Stack allocations last until the end of the function
-            if(inst.op == Operation::Alloca)
-              itRange->second.max = countInstructions;
-          }
+          // The result SSA should not have any range tracking
+          RDCASSERTEQUAL(ssaRange.count(resultId), 0);
+          // For assignment track maximum and minimum (as current instruction plus one)
+          ssaRange[resultId] = {i + 1, maxInst};
         }
-        // Track min and max when SSA is referenced
-        bool isPhiNode = (inst.op == Operation::Phi);
+        // Track min and max when SSA is referenced as an argument
+        // Arguments to phi instructions are handled separately
+        if(inst.op == Operation::Phi)
+          continue;
         for(uint32_t a = 0; a < inst.args.size(); ++a)
         {
           DXIL::Value *arg = inst.args[a];
-          if(DXIL::IsSSA(arg))
+          if(!DXIL::IsSSA(arg))
+            continue;
+          Id argId = GetSSAId(arg);
+          // Add GlobalVar args to the SSA refs (they won't be the result of an instruction)
+          if(cast<GlobalVar>(arg))
           {
-            Id argId = GetSSAId(arg);
-            // Add GlobalVar args to the SSA refs (they won't be the result of an instruction)
-            if(cast<GlobalVar>(arg))
+            if(ssaRefs.count(argId) == 0)
             {
-              if(ssaRefs.count(argId) == 0)
-                ssaRefs.insert(argId);
+              ssaRefs.insert(argId);
+              ssaRange[argId] = {0, maxInst};
             }
-            if(!isPhiNode)
-            {
-              // For non phi-nodes the argument SSA should already exist as the result of a previous operation
-              RDCASSERTEQUAL(ssaRefs.count(argId), 1);
-            }
-            auto itRange = ssaRange.find(argId);
-            if(itRange == ssaRange.end())
-            {
-              ssaRange[argId] = {i, maxInst};
-            }
-            else
-            {
-              itRange->second.min = RDCMIN(i, itRange->second.min);
-              itRange->second.max = RDCMAX(maxInst, itRange->second.max);
-            }
+          }
+          // For non phi-nodes the argument SSA should already exist as the result of a previous operation
+          RDCASSERTEQUAL(ssaRefs.count(argId), 1);
+          // The result SSA should not have any range tracking
+          auto itRange = ssaRange.find(argId);
+          if(itRange != ssaRange.end())
+          {
+            itRange->second.min = RDCMIN(i, itRange->second.min);
+            itRange->second.max = RDCMAX(maxInst, itRange->second.max);
+          }
+          else
+          {
+            RDCERR("SSA Id range not found %d", argId);
           }
         }
       }
       // If these do not match in size that means there is a result SSA that is never read
       RDCASSERTEQUAL(ssaRefs.size(), ssaRange.size());
+
+      // store the block captured SSA IDs used as arguments to phi nodes
+      PhiReferencedIdsPerBlock &phiReferencedIdsPerBlock = info.phiReferencedIdsPerBlock;
+      for(uint32_t i = 0; i < countInstructions; ++i)
+      {
+        const Instruction &inst = *(f->instructions[i]);
+        if(inst.op != Operation::Phi)
+          continue;
+        for(uint32_t a = 0; a < inst.args.size(); a += 2)
+        {
+          DXIL::Value *arg = inst.args[a];
+          if(!DXIL::IsSSA(arg))
+            continue;
+          Id argId = GetSSAId(arg);
+          const Block *block = cast<Block>(inst.args[a + 1]);
+          RDCASSERT(block);
+          uint32_t blockId = block->id;
+          phiReferencedIdsPerBlock[blockId].insert(argId);
+        }
+      }
 
       // Find the uniform control blocks in the function
       rdcarray<rdcpair<uint32_t, uint32_t>> links;
