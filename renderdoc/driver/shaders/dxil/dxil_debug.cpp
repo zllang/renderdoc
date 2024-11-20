@@ -4887,7 +4887,7 @@ rdcstr Debugger::GetResourceReferenceName(const DXIL::Program *program,
       continue;
     if(resRef.resourceBase.regBase > slot.shaderRegister)
       continue;
-    if(resRef.resourceBase.regBase + resRef.resourceBase.regCount < slot.shaderRegister)
+    if(resRef.resourceBase.regBase + resRef.resourceBase.regCount <= slot.shaderRegister)
       continue;
 
     return program->GetHandleAlias(resRef.handleID);
