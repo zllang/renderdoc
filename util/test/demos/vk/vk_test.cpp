@@ -93,6 +93,8 @@ void main()
 
 #pragma warning(push)
 #pragma warning(disable : 4127)
+#pragma warning(disable : 4324)
+#pragma warning(disable : 4505)
 
 #include "vk_headers.h"
 
@@ -717,6 +719,8 @@ bool VulkanGraphicsTest::Init()
   }
 
   VmaVulkanFunctions funcs = {
+      vkGetInstanceProcAddr,
+      vkGetDeviceProcAddr,
       vkGetPhysicalDeviceProperties,
       vkGetPhysicalDeviceMemoryProperties,
       vkAllocateMemory,
@@ -733,17 +737,27 @@ bool VulkanGraphicsTest::Init()
       vkDestroyBuffer,
       vkCreateImage,
       vkDestroyImage,
+      vkCmdCopyBuffer,
       vkGetBufferMemoryRequirements2KHR,
       vkGetImageMemoryRequirements2KHR,
+      vkBindBufferMemory2KHR,
+      vkBindImageMemory2KHR,
+      vkGetPhysicalDeviceMemoryProperties2KHR,
+      vkGetDeviceBufferMemoryRequirements,
+      vkGetDeviceImageMemoryRequirements,
   };
 
   VmaAllocatorCreateInfo allocInfo = {};
+  allocInfo.instance = instance;
   allocInfo.physicalDevice = phys;
   allocInfo.device = device;
-  allocInfo.frameInUseCount = 4;
   allocInfo.pVulkanFunctions = &funcs;
+  allocInfo.vulkanApiVersion = devVersion;
   if(hasExt(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME) && vmaDedicated)
     allocInfo.flags |= VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT;
+  if((hasExt(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) || devVersion >= VK_MAKE_VERSION(1, 2, 0)) &&
+     vmaBDA)
+    allocInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
   vmaCreateAllocator(&allocInfo, &allocator);
 

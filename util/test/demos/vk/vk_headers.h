@@ -85,5 +85,8 @@
 // then include volk
 #include "3rdparty/volk/volk.h"
 
+// avoid warning about unused variables
+#define VMA_DEBUG_LOG_FORMAT(format, ...) (void)(__VA_ARGS__);
+
 // finally VMA
 #include "3rdparty/VulkanMemoryAllocator/vk_mem_alloc.h"

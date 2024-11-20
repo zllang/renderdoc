@@ -334,6 +334,7 @@ struct VulkanGraphicsTest : public GraphicsTest
 
   // VMA
   bool vmaDedicated = false;
+  bool vmaBDA = false;
   VmaAllocator allocator = VK_NULL_HANDLE;
 
 private:
