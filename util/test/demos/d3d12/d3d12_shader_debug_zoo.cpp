@@ -742,6 +742,13 @@ float4 main(v2f IN) : SV_Target0
     float2 uv = posone * float2(0.55f, 0.48f);
     return smileyint.Load(int3(uv*16,0));
   }
+  if(IN.tri == 82)
+  {
+    uint f16_half = f32tof16(posone*0.5);
+    uint f16_one = f32tof16(posone*1.0);
+    uint f16_two = f32tof16(posone*2.0);
+    return float4(f16tof32(f16_half), f16tof32(f16_one), f16tof32(f16_two), 0.0f);
+  }
 
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
