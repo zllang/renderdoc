@@ -1826,6 +1826,16 @@ AllocatedBuffer::AllocatedBuffer(VulkanGraphicsTest *test, const VkBufferCreateI
   vmaCreateBuffer(allocator, &bufInfo, &allocInfo, &buffer, &alloc, NULL);
 
   test->bufferAllocs[buffer] = alloc;
+
+  if(bufInfo.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+  {
+    VkBufferDeviceAddressInfoKHR info = {
+        VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_KHR,
+        NULL,
+        buffer,
+    };
+    address = vkGetBufferDeviceAddressKHR(test->device, &info);
+  }
 }
 
 void AllocatedBuffer::free()

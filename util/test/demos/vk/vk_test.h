@@ -41,6 +41,7 @@ struct AllocatedBuffer
   VmaAllocator allocator = NULL;
   VkBuffer buffer = VK_NULL_HANDLE;
   VmaAllocation alloc = {};
+  VkDeviceAddress address = 0;
 
   AllocatedBuffer() {}
   AllocatedBuffer(VulkanGraphicsTest *test, const VkBufferCreateInfo &bufInfo,
