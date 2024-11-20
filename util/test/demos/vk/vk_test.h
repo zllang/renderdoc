@@ -184,6 +184,7 @@ private:
   uint32_t semIdx = 0;
   VkSemaphore renderStartSemaphore[4] = {};
   VkSemaphore renderEndSemaphore[4] = {};
+  VkFence imageFences[4] = {};
   std::vector<VkFramebuffer> fbs;
 
   GraphicsWindow *m_Win;

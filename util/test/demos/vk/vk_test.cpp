@@ -1033,6 +1033,12 @@ void VulkanGraphicsTest::setName(VkSemaphore obj, const std::string &name)
   setName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)obj, name);
 }
 
+template <>
+void VulkanGraphicsTest::setName(VkFence obj, const std::string &name)
+{
+  setName(VK_OBJECT_TYPE_FENCE, (uint64_t)obj, name);
+}
+
 void VulkanGraphicsTest::setName(VkObjectType objType, uint64_t obj, const std::string &name)
 {
   if(vkSetDebugUtilsObjectNameEXT)
@@ -1409,6 +1415,12 @@ VulkanWindow::VulkanWindow(VulkanGraphicsTest *test, GraphicsWindow *win)
 
       test->setName(renderStartSemaphore[i], title + " renderStartSemaphore" + std::to_string(i));
       test->setName(renderEndSemaphore[i], title + " renderEndSemaphore" + std::to_string(i));
+
+      // create signalled so the first wait works
+      CHECK_VKR(vkCreateFence(m_Test->device, vkh::FenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT),
+                              NULL, &imageFences[i]));
+
+      test->setName(imageFences[i], title + " fence" + std::to_string(i));
     }
 
 #if defined(WIN32)
@@ -1467,6 +1479,7 @@ VulkanWindow::~VulkanWindow()
     {
       vkDestroySemaphore(m_Test->device, renderStartSemaphore[i], NULL);
       vkDestroySemaphore(m_Test->device, renderEndSemaphore[i], NULL);
+      vkDestroyFence(m_Test->device, imageFences[i], NULL);
     }
 
     if(surface)
@@ -1597,8 +1610,12 @@ void VulkanWindow::Acquire()
 
   semIdx = (semIdx + 1) % ARRAY_COUNT(renderStartSemaphore);
 
+  // acquire next image stupidly does not properly block, do a manual block
+  vkWaitForFences(m_Test->device, 1, &imageFences[semIdx], VK_FALSE, UINT64_MAX);
+  vkResetFences(m_Test->device, 1, &imageFences[semIdx]);
+
   VkResult vkr = vkAcquireNextImageKHR(m_Test->device, swap, UINT64_MAX,
-                                       renderStartSemaphore[semIdx], VK_NULL_HANDLE, &imgIndex);
+                                       renderStartSemaphore[semIdx], imageFences[semIdx], &imgIndex);
 
   if(vkr == VK_SUBOPTIMAL_KHR || vkr == VK_ERROR_OUT_OF_DATE_KHR)
   {
