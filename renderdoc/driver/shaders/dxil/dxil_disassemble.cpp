@@ -2901,6 +2901,8 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             if(sig.rows > 1)
               m_Disassembly += "[" + ToStr(sig.rows) + "]";
             m_Disassembly += ";";
+            m_Disassembly += " // Rows:" + ToStr(sig.rows) + " StartRow:" + ToStr(sig.startRow);
+            m_Disassembly += " Cols:" + ToStr(sig.cols) + " StartCol:" + ToStr(sig.startCol);
             needBlankLine = true;
           }
           DisassemblyAddNewLine();
@@ -2968,6 +2970,8 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             if(sig.rows > 1)
               m_Disassembly += "[" + ToStr(sig.rows) + "]";
             m_Disassembly += ";";
+            m_Disassembly += " // Rows:" + ToStr(sig.rows) + " StartRow:" + ToStr(sig.startRow);
+            m_Disassembly += " Cols:" + ToStr(sig.cols) + " StartCol:" + ToStr(sig.startCol);
             needBlankLine = true;
           }
           DisassemblyAddNewLine();
