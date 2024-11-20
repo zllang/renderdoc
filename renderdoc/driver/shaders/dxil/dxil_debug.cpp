@@ -2653,6 +2653,28 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
+          case DXOp::LegacyF32ToF16:
+          {
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(retType->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(retType->scalarType, Type::Int);
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            result.value.u16v[0] = ConvertToHalf(arg.value.f32v[0]);
+            break;
+          }
+          case DXOp::LegacyF16ToF32:
+          {
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(retType->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(retType->scalarType, Type::Float);
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            result.value.f32v[0] = ConvertFromHalf(arg.value.u16v[0]);
+            break;
+          }
           case DXOp::TempRegLoad:
           case DXOp::TempRegStore:
           case DXOp::MinPrecXRegLoad:
@@ -2711,8 +2733,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::BitcastF32toI32:
           case DXOp::BitcastI64toF64:
           case DXOp::BitcastF64toI64:
-          case DXOp::LegacyF32ToF16:
-          case DXOp::LegacyF16ToF32:
           case DXOp::LegacyDoubleToFloat:
           case DXOp::LegacyDoubleToSInt32:
           case DXOp::LegacyDoubleToUInt32:

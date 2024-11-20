@@ -1853,8 +1853,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::BitcastF32toI32:
               case DXOp::BitcastI64toF64:
               case DXOp::BitcastF64toI64:
-              case DXOp::LegacyF32ToF16:
-              case DXOp::LegacyF16ToF32:
               case DXOp::LegacyDoubleToFloat:
               case DXOp::LegacyDoubleToSInt32:
               case DXOp::LegacyDoubleToUInt32:
