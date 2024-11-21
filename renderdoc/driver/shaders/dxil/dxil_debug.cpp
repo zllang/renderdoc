@@ -1534,6 +1534,8 @@ bool IsNopInstruction(const Instruction &inst)
     const Function *callFunc = inst.getFuncCall();
     if(callFunc->family == FunctionFamily::LLVMDbg)
       return true;
+    if(callFunc->family == FunctionFamily::LLVMInstrinsic)
+      return true;
   }
 
   if(IsDXCNop(inst))
@@ -5320,13 +5322,12 @@ void Debugger::ParseDebugData()
         }
 
         const Function *dbgFunc = inst.getFuncCall();
-        switch(dbgFunc->llvmDbgOp)
+        switch(dbgFunc->llvmIntrinsicOp)
         {
-          case LLVMDbgOp::Declare: ParseDbgOpDeclare(inst, activeInstructionIndex); break;
-          case LLVMDbgOp::Value: ParseDbgOpValue(inst, activeInstructionIndex); break;
-          case LLVMDbgOp::Unknown:
-            RDCASSERT("Unsupported LLVM debug operation", dbgFunc->llvmDbgOp);
-            break;
+          case LLVMIntrinsicOp::DbgDeclare: ParseDbgOpDeclare(inst, activeInstructionIndex); break;
+          case LLVMIntrinsicOp::DbgValue: ParseDbgOpValue(inst, activeInstructionIndex); break;
+          case LLVMIntrinsicOp::Unknown:
+          default: RDCASSERT("Unsupported LLVM debug operation", dbgFunc->llvmIntrinsicOp); break;
         };
       }
     }
@@ -6151,7 +6152,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
         const Instruction &inst = *(f->instructions[i]);
-        if(DXIL::IsDXCNop(inst) || DXIL::IsLLVMDebugCall(inst))
+        if(DXIL::IsDXCNop(inst) || IsLLVMDebugCall(inst) || DXIL::IsLLVMIntrinsicCall(inst))
           continue;
 
         // Stack allocations last until the end of the function

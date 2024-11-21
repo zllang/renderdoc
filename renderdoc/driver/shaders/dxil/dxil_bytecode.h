@@ -60,13 +60,18 @@ enum class FunctionFamily : uint8_t
   LLVM,
   DXOp,
   LLVMDbg,
+  LLVMInstrinsic,
 };
 
-enum class LLVMDbgOp : uint8_t
+enum class LLVMIntrinsicOp : uint8_t
 {
   Unknown = 0,
-  Declare,
-  Value,
+  DbgDeclare,
+  DbgValue,
+  LifetimeStart,
+  LifetimeEnd,
+  InvariantStart,
+  InvariantEnd,
 };
 
 struct BumpAllocator
@@ -1397,7 +1402,7 @@ struct Function : public Value
   AttachedMetadata attachedMeta;
 
   FunctionFamily family = FunctionFamily::Unknown;
-  LLVMDbgOp llvmDbgOp = LLVMDbgOp::Unknown;
+  LLVMIntrinsicOp llvmIntrinsicOp = LLVMIntrinsicOp::Unknown;
 };
 
 class LLVMOrderAccumulator
@@ -1745,6 +1750,7 @@ bool IsSSA(const Value *dxilValue);
 DXILDebug::Id GetSSAId(const DXIL::Value *value);
 bool IsDXCNop(const Instruction &inst);
 bool IsLLVMDebugCall(const Instruction &inst);
+bool IsLLVMIntrinsicCall(const Instruction &inst);
 
 bool isUndef(const Value *v);
 
@@ -1759,7 +1765,7 @@ DECLARE_STRINGISE_TYPE(DXIL::Operation);
 DECLARE_STRINGISE_TYPE(DXIL::DXOp);
 DECLARE_STRINGISE_TYPE(DXIL::Type::TypeKind);
 DECLARE_STRINGISE_TYPE(DXIL::Type::ScalarKind);
-DECLARE_STRINGISE_TYPE(DXIL::LLVMDbgOp);
+DECLARE_STRINGISE_TYPE(DXIL::LLVMIntrinsicOp);
 DECLARE_STRINGISE_TYPE(DXIL::DIBase::Type);
 DECLARE_STRINGISE_TYPE(DXIL::ValueKind);
 DECLARE_STRINGISE_TYPE(DXIL::BarrierMode);

@@ -1772,7 +1772,8 @@ rdcstr Program::GetDebugStatus()
     // Only support "dx.op" external functions
     if(f.external)
     {
-      if(!f.name.beginsWith("dx.op.") && !f.name.beginsWith("llvm.dbg."))
+      if(!f.name.beginsWith("dx.op.") && !f.name.beginsWith("llvm.dbg.") &&
+         !f.name.beginsWith("llvm.lifetime.") && !f.name.beginsWith("llvm.invariant."))
         return StringFormat::Fmt("Unsupported external function '%s'", f.name.c_str());
     }
 
@@ -1980,6 +1981,14 @@ rdcstr Program::GetDebugStatus()
             break;
           }
           else if(funcCallName.beginsWith("llvm.dbg."))
+          {
+            break;
+          }
+          else if(funcCallName.beginsWith("llvm.lifetime."))
+          {
+            break;
+          }
+          else if(funcCallName.beginsWith("llvm.invariant."))
           {
             break;
           }

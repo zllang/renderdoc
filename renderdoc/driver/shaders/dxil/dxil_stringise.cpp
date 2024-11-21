@@ -524,13 +524,17 @@ rdcstr DoStringise(const DXIL::Type::ScalarKind &el)
 }
 
 template <>
-rdcstr DoStringise(const DXIL::LLVMDbgOp &el)
+rdcstr DoStringise(const DXIL::LLVMIntrinsicOp &el)
 {
-  BEGIN_ENUM_STRINGISE(DXIL::LLVMDbgOp);
+  BEGIN_ENUM_STRINGISE(DXIL::LLVMIntrinsicOp);
   {
-    STRINGISE_ENUM_CLASS(Declare);
-    STRINGISE_ENUM_CLASS(Value);
     STRINGISE_ENUM_CLASS(Unknown);
+    STRINGISE_ENUM_CLASS(DbgDeclare);
+    STRINGISE_ENUM_CLASS(DbgValue);
+    STRINGISE_ENUM_CLASS(LifetimeStart);
+    STRINGISE_ENUM_CLASS(LifetimeEnd);
+    STRINGISE_ENUM_CLASS(InvariantStart);
+    STRINGISE_ENUM_CLASS(InvariantEnd);
   }
   END_ENUM_STRINGISE();
 }

@@ -105,6 +105,12 @@ bool DXIL::IsLLVMDebugCall(const Instruction &inst)
   return ((inst.op == Operation::Call) && (inst.getFuncCall()->family == FunctionFamily::LLVMDbg));
 }
 
+bool DXIL::IsLLVMIntrinsicCall(const Instruction &inst)
+{
+  return ((inst.op == Operation::Call) &&
+          (inst.getFuncCall()->family == FunctionFamily::LLVMInstrinsic));
+}
+
 // true if the Value is an SSA value i.e. from an instruction, not a constant etc.
 bool DXIL::IsSSA(const Value *dxilValue)
 {
@@ -1160,18 +1166,50 @@ void Program::SettleIDs()
           RDCASSERT(funcCallName.beginsWith(dxOpFunctionNames[(uint32_t)dxOpCode]));
           callFunc->family = FunctionFamily::DXOp;
         }
-        else if(funcCallName.beginsWith("llvm.dbg."))
+        else if(funcCallName.beginsWith("llvm."))
         {
-          LLVMDbgOp dbgOpCode = LLVMDbgOp::Unknown;
-          if(funcCallName == "llvm.dbg.declare")
-            dbgOpCode = LLVMDbgOp::Declare;
-          else if(funcCallName == "llvm.dbg.value")
-            dbgOpCode = LLVMDbgOp::Value;
-          else
-            RDCERR("Unknown llv.dbg call: ", funcCallName.c_str());
+          LLVMIntrinsicOp intrinsicOp = LLVMIntrinsicOp::Unknown;
+          FunctionFamily family = FunctionFamily::Unknown;
 
-          callFunc->family = FunctionFamily::LLVMDbg;
-          callFunc->llvmDbgOp = dbgOpCode;
+          if(funcCallName.beginsWith("llvm.dbg."))
+          {
+            family = FunctionFamily::LLVMDbg;
+
+            if(funcCallName == "llvm.dbg.declare")
+              intrinsicOp = LLVMIntrinsicOp::DbgDeclare;
+            else if(funcCallName == "llvm.dbg.value")
+              intrinsicOp = LLVMIntrinsicOp::DbgValue;
+            else
+              RDCERR("Unknown llvm.dbg call: ", funcCallName.c_str());
+          }
+          else if(funcCallName.beginsWith("llvm.lifetime."))
+          {
+            family = FunctionFamily::LLVMInstrinsic;
+
+            if(funcCallName == "llvm.lifetime.start")
+              intrinsicOp = LLVMIntrinsicOp::LifetimeStart;
+            else if(funcCallName == "llvm.lifetime.end")
+              intrinsicOp = LLVMIntrinsicOp::LifetimeEnd;
+            else
+              RDCERR("Unknown llvm.lifetime call: ", funcCallName.c_str());
+          }
+          else if(funcCallName.beginsWith("llvm.invariant"))
+          {
+            family = FunctionFamily::LLVMInstrinsic;
+
+            if(funcCallName == "llvm.invariant.start")
+              intrinsicOp = LLVMIntrinsicOp::InvariantStart;
+            else if(funcCallName == "llvm.invariant.end")
+              intrinsicOp = LLVMIntrinsicOp::InvariantEnd;
+            else
+              RDCERR("Unknown llvm.invariant call: ", funcCallName.c_str());
+          }
+          else
+          {
+            RDCERR("Unknown llvm. call: ", funcCallName.c_str());
+          }
+          callFunc->family = family;
+          callFunc->llvmIntrinsicOp = intrinsicOp;
         }
       }
     }
@@ -4126,6 +4164,9 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
               }
             }
             else if(callFunc->family == FunctionFamily::LLVMDbg)
+            {
+            }
+            else if(callFunc->family == FunctionFamily::LLVMInstrinsic)
             {
             }
             else
