@@ -2139,34 +2139,47 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               recordChange = false;
               if(result.name.isEmpty())
               {
-                if(resIndexArgId < inst.args.size())
+                if((resRef->resourceBase.resClass == ResourceClass::SRV) ||
+                   (resRef->resourceBase.resClass == ResourceClass::UAV))
                 {
-                  // Make the ShaderVariable to represent the dynamic binding
-                  // The base binding exists : array index is in argument "resIndexArgId"
-                  ShaderVariable arg;
-                  RDCASSERT(GetShaderVariable(inst.args[resIndexArgId], opCode, dxOpCode, arg));
-                  uint32_t arrayIndex = arg.value.u32v[0];
-                  bool isSRV = (resRef->resourceBase.resClass == ResourceClass::SRV);
-                  DescriptorCategory category = isSRV ? DescriptorCategory::ReadOnlyResource
-                                                      : DescriptorCategory::ReadWriteResource;
-                  result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
-                  result.name = baseResource;
+                  if(resIndexArgId < inst.args.size())
+                  {
+                    // Make the ShaderVariable to represent the dynamic binding
+                    // The base binding exists : array index is in argument "resIndexArgId"
+                    ShaderVariable arg;
+                    RDCASSERT(GetShaderVariable(inst.args[resIndexArgId], opCode, dxOpCode, arg));
+                    uint32_t arrayIndex = arg.value.u32v[0];
+                    bool isSRV = (resRef->resourceBase.resClass == ResourceClass::SRV);
+                    DescriptorCategory category = isSRV ? DescriptorCategory::ReadOnlyResource
+                                                        : DescriptorCategory::ReadWriteResource;
+                    result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
+                    result.name = baseResource;
+                    // Default to unannotated handle
+                    result.value.u32v[3] = 0;
+                  }
+                  else
+                  {
+                    RDCERR("Unhandled dynamic handle %s with invalid resIndexArgId",
+                           resName.c_str(), resIndexArgId);
+                  }
                 }
                 else
                 {
-                  RDCERR("Unhandled dynamic handle %s with invalid resIndexArgId", resName.c_str(),
-                         resIndexArgId);
+                  RDCERR("Unknown resource handle %s class %s", resName.c_str(),
+                         ToStr(resRef->resourceBase.resClass).c_str());
                 }
               }
-              // Default to unannotated handle
-              result.value.u32v[3] = 0;
 
               // Parse the packed annotate handle properties
               // resKind : {compType, compCount} | {structStride}
               if(dxOpCode == DXOp::AnnotateHandle)
               {
                 // Set as an annotated handle
-                result.value.u32v[3] = 1;
+                if((resRef->resourceBase.resClass == ResourceClass::SRV) ||
+                   (resRef->resourceBase.resClass == ResourceClass::UAV))
+                {
+                  result.value.u32v[3] = 1;
+                }
                 ShaderVariable props;
                 RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, props));
                 uint32_t packedProps[2] = {};
@@ -2235,9 +2248,47 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint32_t regIndex = arg.value.u32v[0];
 
             RDCASSERT(m_Live.contains(handleId));
+            // Find the cbuffer variable from the handleId
             auto itVar = m_Variables.find(handleId);
             RDCASSERT(itVar != m_Variables.end());
-            result.value = itVar->second.members[regIndex].value;
+            const ShaderVariable &cbufferVar = itVar->second;
+
+            // Find the cbuffer index in the global state (matching by name)
+            uint32_t cbufferIndex = ~0U;
+            for(uint32_t i = 0; i < m_GlobalState.constantBlocks.size(); ++i)
+            {
+              if(m_GlobalState.constantBlocks[i].name == cbufferVar.name)
+              {
+                cbufferIndex = i;
+                break;
+              }
+            }
+            result.value.u32v[0] = 0;
+            result.value.u32v[1] = 0;
+            result.value.u32v[2] = 0;
+            result.value.u32v[3] = 0;
+            if(cbufferIndex != ~0U)
+            {
+              const bytebuf &cbufferData = m_GlobalState.constantBlocksData[cbufferIndex];
+              const uint32_t bufferSize = (uint32_t)cbufferData.size();
+              const uint32_t maxIndex = bufferSize / 16;
+              RDCASSERTMSG("Out of bounds cbuffer load", regIndex < maxIndex, regIndex, maxIndex);
+              if(regIndex < maxIndex)
+              {
+                const byte *data = cbufferData.data() + regIndex * 16;
+                GlobalState::ViewFmt cbufferFmt;
+                cbufferFmt.byteWidth = 4;
+                cbufferFmt.numComps = 4;
+                cbufferFmt.fmt = CompType::Float;
+                cbufferFmt.stride = 16;
+
+                result.value = TypedUAVLoad(cbufferFmt, data);
+              }
+            }
+            else
+            {
+              RDCERR("Failed to find data for cbuffer %s", cbufferVar.name.c_str());
+            }
 
             // DXIL will create a vector of a single type with total size of 16-bytes
             // The vector element type will change to match what value will be extracted
@@ -5994,6 +6045,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   // The constant buffer data and details are filled in outside of this method
   size_t count = reflection.constantBlocks.size();
   m_GlobalState.constantBlocks.resize(count);
+  m_GlobalState.constantBlocksData.resize(count);
   for(uint32_t i = 0; i < count; i++)
   {
     const ConstantBlock &cbuffer = reflection.constantBlocks[i];

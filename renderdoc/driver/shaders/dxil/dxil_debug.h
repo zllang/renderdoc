@@ -343,6 +343,7 @@ struct GlobalState
 
   // allocated storage for opaque uniform blocks, does not change over the course of debugging
   rdcarray<ShaderVariable> constantBlocks;
+  rdcarray<bytebuf> constantBlocksData;
 
   // workgroup private variables
   rdcarray<ShaderVariable> workgroups;
