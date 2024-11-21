@@ -5321,6 +5321,7 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
 
     for(PatchedRayDispatch &r : cmd.m_RayDispatches)
     {
+      GetResourceManager()->GetRTManager()->Verify(r);
       r.resources.Release();
     }
     cmd.m_RayDispatches.clear();

@@ -1268,6 +1268,11 @@ public:
 
   double GetCurrentASTimestamp() { return m_Timestamp.GetMilliseconds(); }
 
+  void Verify(PatchedRayDispatch &r);
+
+  void VerifyRecord(const uint64_t recordSize, byte *table, byte *ref,
+                    WrappedID3D12DescriptorHeap *resHeap, WrappedID3D12DescriptorHeap *sampHeap);
+
 private:
   void InitRayDispatchPatchingResources();
   void InitTLASInstanceCopyingResources();
