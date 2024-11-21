@@ -814,7 +814,7 @@ void D3D12GraphicsTest::Present()
     m_GPUSyncCounter++;
     queue->Signal(m_GPUSyncFence, m_GPUSyncCounter);
 
-    pendingCommandBuffers.push_back(std::make_pair(cmd, m_GPUSyncFence));
+    pendingCommandBuffers.push_back(std::make_pair(cmd, m_GPUSyncCounter));
   }
 
   for(auto it = pendingCommandBuffers.begin(); it != pendingCommandBuffers.end();)
