@@ -52,6 +52,7 @@ RDOC_DEBUG_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing, false,
                   "Every command buffer is submitted and fully flushed to the GPU, to narrow down "
                   "the source of problems.");
 RDOC_DEBUG_CONFIG(bool, D3D12_Debug_RTOverlay, false, "Add some RT tracking to the overlay.");
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
 
 WRAPPED_POOL_INST(WrappedID3D12Device);
 
@@ -3951,6 +3952,33 @@ bool WrappedID3D12Device::Serialise_CreateAS(SerialiserType &ser, ID3D12Resource
     {
       GetResourceManager()->AddLiveResource(asId, accStructAtOffset);
 
+      if(D3D12_Debug_RTAuditing())
+      {
+        RDCLOG("Creating %s AS %s at %s + %llu (%llu bytes): %llx remapped to %llx",
+               type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ? "blas" : "tlas",
+               ToStr(asId).c_str(),
+               ToStr(GetResourceManager()->GetOriginalID(GetResID(pResource))).c_str(),
+               resourceOffset, byteSize, asbWrappedResource->GetOriginalVA() + resourceOffset,
+               accStructAtOffset->GetVirtualAddress());
+
+        RDCASSERTEQUAL(accStructAtOffset->GetVirtualAddress(),
+                       asbWrappedResource->GetGPUVirtualAddress() + resourceOffset);
+
+        m_ASDebugTracking.update(accStructAtOffset->GetVirtualAddress(),
+                                 accStructAtOffset->GetVirtualAddress() + accStructAtOffset->Size(),
+                                 asId, [](ResourceId x, ResourceId y) {
+                                   if(x == ResourceId())
+                                     return y;
+                                   if(y == ResourceId())
+                                     return x;
+                                   // not necessarily an error if one is stale or overwritten partway
+                                   // through the frame, but something to watch out for in tracking
+                                   RDCWARN("AS Overlap between %s and %s", ToStr(x).c_str(),
+                                           ToStr(y).c_str());
+                                   return x;
+                                 });
+      }
+
       AddResource(asId, ResourceType::AccelerationStructure, "Acceleration Structure");
       // ignored if there's no heap
       DerivedResource(pResource, asId);
@@ -3982,6 +4010,12 @@ void WrappedID3D12Device::CreateAS(ID3D12Resource *pResource, UINT64 resourceOff
   if(IsCaptureMode(m_State))
   {
     D3D12ResourceRecord *record = as->GetResourceRecord();
+
+    if(D3D12_Debug_RTAuditing())
+    {
+      RDCLOG("Creating %s at %s + %llx (%llx)", ToStr(as->GetResourceID()).c_str(),
+             ToStr(GetResID(pResource)).c_str(), resourceOffset, as->GetVirtualAddress());
+    }
 
     m_HaveSeenASBuild = true;
 

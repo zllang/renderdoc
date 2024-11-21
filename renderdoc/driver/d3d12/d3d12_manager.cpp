@@ -1068,7 +1068,10 @@ void D3D12RTManager::CheckASCaching()
   {
     ASBuildData *buildData = m_InMemASBuildDatas[i];
 
-    RDCDEBUG("Flushing AS build data of size %llu to disk", buildData->buffer->Size());
+    if(D3D12_Debug_RTAuditing())
+    {
+      RDCDEBUG("Flushing AS build data of size %llu to disk", buildData->buffer->Size());
+    }
 
     // de-interleave positions in geoms here if their stride is greater than vertex format?
     buildData->filename = StringFormat::Fmt(

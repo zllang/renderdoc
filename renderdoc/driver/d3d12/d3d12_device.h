@@ -588,6 +588,7 @@ private:
   rdcarray<D3D12ResourceRecord *> m_ForcedReferences;
   Threading::CriticalSection m_ForcedReferencesLock;
   bool m_HaveSeenASBuild = false;
+  Intervals<ResourceId> m_ASDebugTracking;
 
   int64_t m_QueueCounter = 0;
 

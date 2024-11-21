@@ -1484,6 +1484,27 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
               WrappedID3D12Resource *blasASB = GetLiveAs<WrappedID3D12Resource>(blasId);
 
               D3D12AccelerationStructure *blasCheck = NULL;
+
+              // check and log more fine-grained if we're auditing
+              if(D3D12_Debug_RTAuditing())
+              {
+                rdcstr invalid;
+
+                if(blasId == ResourceId() || blasASB == NULL)
+                  invalid = StringFormat::Fmt("Address references non-existant buffer");
+                else if(!blasASB->GetAccStructIfExist(blasOffs, &blasCheck))
+                  invalid = StringFormat::Fmt("No valid AS created at buffer location");
+                else if(blasCheck->Type() == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+                  invalid = StringFormat::Fmt("TLAS referenced, assuming overwritten");
+
+                if(!invalid.empty())
+                {
+                  RDCWARN("%s %u: %s", ToStr(id).c_str(), i, invalid.c_str());
+                  instances[i].AccelerationStructure = 0;
+                  continue;
+                }
+              }
+
               if(blasId == ResourceId() || blasASB == NULL ||
                  !blasASB->GetAccStructIfExist(blasOffs, &blasCheck))
               {
@@ -1507,6 +1528,13 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
                 RDCWARN("  %u: BLAS is not of correct type - possibly stale TLAS", i);
                 instances[i].AccelerationStructure = 0;
                 continue;
+              }
+
+              if(D3D12_Debug_RTAuditing())
+              {
+                RDCLOG("%s %u: remapped from %llx to %llx", ToStr(id).c_str(), i,
+                       instances[i].AccelerationStructure,
+                       blasASB->GetGPUVirtualAddress() + blasOffs);
               }
 
               RDCASSERTEQUAL(blasCheck->GetVirtualAddress(),
@@ -2059,6 +2087,13 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
       {
         desc.DestAccelerationStructureData = as->GetVirtualAddress();
         list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
+
+        if(D3D12_Debug_RTAuditing())
+        {
+          RDCLOG("Apply TLAS - Rebuilding %s to %llx",
+                 ToStr(GetOriginalID(as->GetResourceID())).c_str(),
+                 desc.DestAccelerationStructureData);
+        }
       }
       // if we haven't cached it, build and cache the AS then copy into place
       else if(data.cachedBuiltAS == NULL)
@@ -2070,12 +2105,25 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
         desc.DestAccelerationStructureData = data.cachedBuiltAS->Address();
         list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
 
+        if(D3D12_Debug_RTAuditing())
+        {
+          RDCLOG("Apply BLAS - Caching %s to %llx", ToStr(GetOriginalID(as->GetResourceID())).c_str(),
+                 desc.DestAccelerationStructureData);
+        }
+
         list->ResourceBarrier(1, &barrier);
 
         // copy to the real location
         list->CopyRaytracingAccelerationStructure(
             as->GetVirtualAddress(), desc.DestAccelerationStructureData,
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+        if(D3D12_Debug_RTAuditing())
+        {
+          RDCLOG("Apply BLAS - Copying %s from %llx to %llx",
+                 ToStr(GetOriginalID(as->GetResourceID())).c_str(),
+                 desc.DestAccelerationStructureData, as->GetVirtualAddress());
+        }
       }
       // if we have a cached AS, just copy from it
       else
@@ -2088,6 +2136,13 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
         list->CopyRaytracingAccelerationStructure(
             as->GetVirtualAddress(), data.cachedBuiltAS->Address(),
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
+
+        if(D3D12_Debug_RTAuditing())
+        {
+          RDCLOG("Apply BLAS - Copying %s from %llx to %llx",
+                 ToStr(GetOriginalID(as->GetResourceID())).c_str(), data.cachedBuiltAS->Address(),
+                 as->GetVirtualAddress());
+        }
       }
 
       list->ResourceBarrier(1, &barrier);

@@ -1009,6 +1009,12 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
 
     if(D3D12_Debug_RTAuditing())
     {
+      RDCLOG("Recording %s dynamic build to %llx on %s",
+             AccStructDesc.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
+                 ? "tlas"
+                 : "blas",
+             AccStructDesc.DestAccelerationStructureData, ToStr(m_Cmd->m_LastCmdListID).c_str());
+
       ResourceId destASBId;
       D3D12BufferOffset destASBOffset;
 
@@ -1199,6 +1205,15 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
 
     // pre-allocate the AS ID so it can be serialised before the resource is created later on after submission
     ResourceId dstASId = ResourceIDGen::GetNewUniqueID();
+
+    if(D3D12_Debug_RTAuditing())
+    {
+      RDCLOG("%s: Build to %llx, will be %s", ToStr(GetResourceID()).c_str(),
+             pDesc->DestAccelerationStructureData, ToStr(dstASId).c_str());
+
+      for(UINT i = 0; i < NumPostbuildInfoDescs; i++)
+        RDCLOG("   postbuild %s", ToStr(pPostbuildInfoDescs[i].InfoType).c_str());
+    }
 
     // Acceleration structure (AS) are created on buffer created with Acceleration structure init
     // state which helps them differentiate between non-Acceleration structure buffers (non-ASB).
@@ -1412,6 +1427,23 @@ void WrappedID3D12GraphicsCommandList::EmitRaytracingAccelerationStructurePostbu
 
   if(IsCaptureMode(m_State))
   {
+    if(D3D12_Debug_RTAuditing())
+    {
+      if(NumSourceAccelerationStructures == 1)
+      {
+        RDCLOG("Emitting %s info from %llx", ToStr(pDesc->InfoType).c_str(),
+               *pSourceAccelerationStructureData);
+      }
+      else
+      {
+        RDCLOG("Emitting %s info", ToStr(pDesc->InfoType).c_str());
+        for(UINT i = 0; i < NumSourceAccelerationStructures; i++)
+        {
+          RDCLOG("  [%u]: %llx", i, pSourceAccelerationStructureData[i]);
+        }
+      }
+    }
+
     CACHE_THREAD_SERIALISER();
     SCOPED_SERIALISE_CHUNK(D3D12Chunk::List_EmitRaytracingAccelerationStructurePostbuildInfo);
     Serialise_EmitRaytracingAccelerationStructurePostbuildInfo(
@@ -1453,6 +1485,12 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyRaytracingAccelerationStruc
       {
         ID3D12GraphicsCommandList4 *list = Unwrap4(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID));
 
+        if(D3D12_Debug_RTAuditing())
+        {
+          RDCLOG("Recording copy from %llx to %llx on %s", SourceAccelerationStructureData,
+                 DestAccelerationStructureData, ToStr(m_Cmd->m_LastCmdListID).c_str());
+        }
+
         if(!D3D12_Debug_RTAuditing())
         {
           list->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
@@ -1467,6 +1505,12 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyRaytracingAccelerationStruc
         Unwrap4(pCommandList)
             ->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
                                                   SourceAccelerationStructureData, Mode);
+      }
+
+      if(D3D12_Debug_RTAuditing())
+      {
+        RDCLOG("Recording copy from %llx to %llx on %s", SourceAccelerationStructureData,
+               DestAccelerationStructureData, ToStr(m_Cmd->m_LastCmdListID).c_str());
       }
 
       m_Cmd->AddEvent();
@@ -1501,6 +1545,13 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
 
     // pre-allocate the AS ID so it can be serialised before the resource is created later on after submission
     ResourceId dstASId = ResourceIDGen::GetNewUniqueID();
+
+    if(D3D12_Debug_RTAuditing())
+    {
+      RDCLOG("%s: Copy %llx to %llx (%s), will be %s", ToStr(GetResourceID()).c_str(),
+             SourceAccelerationStructureData, DestAccelerationStructureData, ToStr(Mode).c_str(),
+             ToStr(dstASId).c_str());
+    }
 
     {
       CACHE_THREAD_SERIALISER();
