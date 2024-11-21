@@ -1686,6 +1686,8 @@ public:
 
   // only valid on replay - for auditing
   bool seenReplayBuild = false;
+  rdcarray<D3D12AccelerationStructure *> children;
+
 private:
   WrappedID3D12Resource *m_asbWrappedResource;
   D3D12BufferOffset m_asbWrappedResourceBufferOffset;

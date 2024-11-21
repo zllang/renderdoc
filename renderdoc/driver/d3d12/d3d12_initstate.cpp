@@ -1466,6 +1466,8 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
       {
         if(IsReplayingAndReading())
         {
+          D3D12AccelerationStructure *as = (D3D12AccelerationStructure *)GetLiveResource(id);
+
           // if this is a TLAS, patch the addresses of any BLASs in the instance data before uploading it
           if(buildData->NumBLAS > 0)
           {
@@ -1535,6 +1537,8 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
                 RDCLOG("%s %u: remapped from %llx to %llx", ToStr(id).c_str(), i,
                        instances[i].AccelerationStructure,
                        blasASB->GetGPUVirtualAddress() + blasOffs);
+
+                as->children.push_back(blasCheck);
               }
 
               RDCASSERTEQUAL(blasCheck->GetVirtualAddress(),
@@ -2086,14 +2090,24 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
       if(buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
       {
         desc.DestAccelerationStructureData = as->GetVirtualAddress();
-        list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
 
         if(D3D12_Debug_RTAuditing())
         {
           RDCLOG("Apply TLAS - Rebuilding %s to %llx",
                  ToStr(GetOriginalID(as->GetResourceID())).c_str(),
                  desc.DestAccelerationStructureData);
+
+          // verify that all children we intended to reference have now been built.
+          for(size_t i = 0; i < as->children.size(); i++)
+          {
+            if(!as->children[i]->seenReplayBuild)
+            {
+              RDCERR("TLAS child %u did not get built with initial contents");
+            }
+          }
         }
+
+        list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
       }
       // if we haven't cached it, build and cache the AS then copy into place
       else if(data.cachedBuiltAS == NULL)
@@ -2124,6 +2138,8 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
                  ToStr(GetOriginalID(as->GetResourceID())).c_str(),
                  desc.DestAccelerationStructureData, as->GetVirtualAddress());
         }
+
+        as->seenReplayBuild = true;
       }
       // if we have a cached AS, just copy from it
       else
