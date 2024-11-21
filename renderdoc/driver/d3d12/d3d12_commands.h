@@ -363,7 +363,7 @@ struct D3D12CommandData
   double m_TimeFrequency = 1.0f;
   SDFile *m_StructuredFile;
 
-  rdcarray<PatchedRayDispatch::Resources> m_RayDispatches;
+  rdcarray<PatchedRayDispatch> m_RayDispatches;
 
   std::map<ResourceId, rdcarray<EventUsage>> m_ResourceUses;
 

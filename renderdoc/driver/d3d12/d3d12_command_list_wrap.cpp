@@ -4195,7 +4195,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
                 ->SetPipelineState1(
                     Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
             state.ApplyComputeRootElementsUnwrapped(Unwrap(list));
-            m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
+            m_Cmd->m_RayDispatches.push_back(patchedDispatch);
           }
 
           for(uint32_t i = 0; i < countToReplay; i++)
@@ -4268,7 +4268,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
                 ->SetPipelineState1(
                     Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
             state.ApplyComputeRootElementsUnwrapped(Unwrap(list));
-            m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
+            m_Cmd->m_RayDispatches.push_back(patchedDispatch);
           }
 
           uint32_t countToReplay = actualCount;
@@ -4370,7 +4370,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             ->SetPipelineState1(
                 Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
         state.ApplyComputeRootElementsUnwrapped(Unwrap(pCommandList));
-        m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
+        m_Cmd->m_RayDispatches.push_back(patchedDispatch);
       }
 
       Unwrap(list)->ExecuteIndirect(comSig->GetReal(), MaxCommandCount, argBuffer, argOffset,

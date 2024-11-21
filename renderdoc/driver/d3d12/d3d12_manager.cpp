@@ -1006,6 +1006,7 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   PatchedRayDispatch ret = {};
 
   ret.desc = desc;
+  ret.heaps = heaps;
 
   D3D12MarkerRegion region(unwrappedCmd, "PatchRayDispatch");
 
@@ -1035,6 +1036,8 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::DefaultHeapWithUav,
                              D3D12GpuBufferHeapMemoryFlag::Default, patchDataSize,
                              D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT, &scratchBuffer);
+
+  ret.resources.readbackBuffer = NULL;
 
   RDCCOMPILE_ASSERT(WRAPPED_DESCRIPTOR_STRIDE == sizeof(D3D12Descriptor),
                     "Shader descriptor stride is wrong");

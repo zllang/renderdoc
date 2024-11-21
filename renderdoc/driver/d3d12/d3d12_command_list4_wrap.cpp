@@ -1720,7 +1720,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_DispatchRays(SerialiserType &se
             Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
         state.ApplyComputeRootElementsUnwrapped(Unwrap4(list));
 
-        m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
+        m_Cmd->m_RayDispatches.push_back(patchedDispatch);
 
         uint32_t eventId = m_Cmd->HandlePreCallback(list, ActionFlags::DispatchRay);
         Unwrap4(list)->DispatchRays(&patchedDispatch.desc);
@@ -1748,7 +1748,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_DispatchRays(SerialiserType &se
               Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
       state.ApplyComputeRootElementsUnwrapped(Unwrap4(pCommandList));
 
-      m_Cmd->m_RayDispatches.push_back(patchedDispatch.resources);
+      m_Cmd->m_RayDispatches.push_back(patchedDispatch);
 
       Unwrap4(pCommandList)->DispatchRays(&patchedDispatch.desc);
 

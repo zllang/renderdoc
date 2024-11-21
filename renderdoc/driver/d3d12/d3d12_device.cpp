@@ -5319,9 +5319,9 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
     // clear any previous ray dispatch references
     D3D12CommandData &cmd = *m_Queue->GetCommandData();
 
-    for(PatchedRayDispatch::Resources &r : cmd.m_RayDispatches)
+    for(PatchedRayDispatch &r : cmd.m_RayDispatches)
     {
-      r.Release();
+      r.resources.Release();
     }
     cmd.m_RayDispatches.clear();
 

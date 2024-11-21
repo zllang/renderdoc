@@ -1032,6 +1032,8 @@ struct PatchedRayDispatch
     // the argument buffer used for indirect executes.
     D3D12GpuBuffer *argumentBuffer;
 
+    D3D12GpuBuffer *readbackBuffer;
+
     // for convenience, when these resources are referenced in a queue they get a fence value to
     // indicate when they're safe to release. This values are unset when returned from patching or
     // referenced in the list and is set in each queue's copy of the references.
@@ -1056,6 +1058,7 @@ struct PatchedRayDispatch
 
   // the patched dispatch descriptor
   D3D12_DISPATCH_RAYS_DESC desc = {};
+  rdcarray<ResourceId> heaps;
 };
 
 struct D3D12ShaderExportDatabase;
