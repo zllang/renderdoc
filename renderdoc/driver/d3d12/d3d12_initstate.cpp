@@ -36,6 +36,8 @@ RDOC_EXTERN_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing);
 RDOC_CONFIG(bool, D3D12_Debug_DriverASSerialisation, false,
             "Use driver-side serialisation for saving and restoring ASs");
 
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+
 template <class SerialiserType>
 void DoSerialise(SerialiserType &ser, ASBuildData::RVAWithStride &el)
 {
@@ -813,6 +815,23 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
 
       // only iterate over the 'real' number of descriptors, not the number after we've patched
       desc.NumDescriptors = heap->GetNumDescriptors();
+
+      // to remove any ray query work, force AS descriptors to NULL
+      if(D3D12_Debug_RTAuditing())
+      {
+        for(uint32_t i = 0; i < RDCMIN(numElems, desc.NumDescriptors); i++)
+        {
+          if(Descriptors[i].GetType() == D3D12DescriptorType::SRV)
+          {
+            D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = Descriptors[i].GetSRV();
+            if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)
+            {
+              srvDesc.RaytracingAccelerationStructure.Location = 0;
+              Descriptors[i].Init(NULL, &srvDesc);
+            }
+          }
+        }
+      }
 
       for(uint32_t i = 0; i < RDCMIN(numElems, desc.NumDescriptors); i++)
       {

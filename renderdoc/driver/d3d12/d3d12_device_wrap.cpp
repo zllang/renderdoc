@@ -39,6 +39,8 @@ RDOC_EXTERN_CONFIG(bool, Replay_Debug_SingleThreadedCompilation);
 RDOC_DEBUG_CONFIG(bool, D3D12_Experimental_EnableRTSupport, false,
                   "Enable support for experimental DXR support");
 
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+
 static RDResult DeferredPipelineCompile(ID3D12Device *device,
                                         const D3D12_GRAPHICS_PIPELINE_STATE_DESC &Descriptor,
                                         WrappedID3D12PipelineState *wrappedPipe)
@@ -1322,6 +1324,18 @@ bool WrappedID3D12Device::Serialise_DynamicDescriptorWrite(SerialiserType &ser,
       // safe to pass an invalid heap type to Create() as these descriptors will by definition not
       // be undefined
       RDCASSERT(desc.GetType() != D3D12DescriptorType::Undefined);
+
+      // to remove any ray query work, force AS descriptors to NULL
+      if(D3D12_Debug_RTAuditing() && desc.GetType() == D3D12DescriptorType::SRV)
+      {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = desc.GetSRV();
+        if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)
+        {
+          srvDesc.RaytracingAccelerationStructure.Location = 0;
+          desc.Init(NULL, &srvDesc);
+        }
+      }
+
       desc.Create(D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES, this, *handle);
       handle->GetHeap()->MarkMutableIndex(handle->GetHeapIndex());
     }

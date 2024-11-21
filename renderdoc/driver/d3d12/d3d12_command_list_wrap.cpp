@@ -24,10 +24,13 @@
 
 #include "d3d12_command_list.h"
 #include <algorithm>
+#include "core/settings.h"
 #include "driver/dxgi/dxgi_common.h"
 #include "driver/ihv/amd/official/DXExt/AmdExtD3DCommandListMarkerApi.h"
 #include "d3d12_command_queue.h"
 #include "d3d12_debug.h"
+
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
 
 template <typename SerialiserType>
 bool WrappedID3D12GraphicsCommandList::Serialise_Close(SerialiserType &ser)
@@ -4090,10 +4093,16 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
     const D3D12RenderState &state = cmdInfo.state;
 
+    WrappedID3D12CommandSignature *comSig = (WrappedID3D12CommandSignature *)pCommandSignature;
+
+    if(D3D12_Debug_RTAuditing() && comSig->sig.raytraced)
+    {
+      // only one execute is allowed per command signature, if it's ray tracing and we're auditing then turn it off
+      MaxCommandCount = 0;
+    }
+
     if(IsActiveReplaying(m_State))
     {
-      WrappedID3D12CommandSignature *comSig = (WrappedID3D12CommandSignature *)pCommandSignature;
-
       uint32_t actualCount = MaxCommandCount;
 
       if(m_Cmd->InRerecordRange(m_Cmd->m_LastCmdListID))
@@ -4325,8 +4334,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
     }
     else
     {
-      WrappedID3D12CommandSignature *comSig = (WrappedID3D12CommandSignature *)pCommandSignature;
-
       BarrierSet barriers;
 
       barriers.Configure(pArgumentBuffer, cmdInfo.GetState(m_pDevice, GetResID(pArgumentBuffer)),

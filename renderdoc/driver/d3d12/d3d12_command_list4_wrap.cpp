@@ -23,9 +23,12 @@
  ******************************************************************************/
 
 #include "d3d12_command_list.h"
+#include "core/settings.h"
 #include "d3d12_debug.h"
 
 #include "data/hlsl/hlsl_cbuffers.h"
+
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
 
 static rdcstr ToHumanStr(const D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE &el)
 {
@@ -1015,8 +1018,11 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
           bakedCmdInfo.state.ApplyState(m_pDevice, list);
         }
 
-        Unwrap4(list)->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
-                                                            pPostbuildInfoDescs);
+        if(!D3D12_Debug_RTAuditing())
+        {
+          Unwrap4(list)->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
+                                                              pPostbuildInfoDescs);
+        }
       }
     }
     else
@@ -1047,9 +1053,12 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
         }
       }
 
-      Unwrap4(pCommandList)
-          ->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
-                                                 pPostbuildInfoDescs);
+      if(!D3D12_Debug_RTAuditing())
+      {
+        Unwrap4(pCommandList)
+            ->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
+                                                   pPostbuildInfoDescs);
+      }
 
       m_Cmd->AddEvent();
 
@@ -1398,15 +1407,21 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyRaytracingAccelerationStruc
       {
         ID3D12GraphicsCommandList4 *list = Unwrap4(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID));
 
-        list->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
-                                                  SourceAccelerationStructureData, Mode);
+        if(!D3D12_Debug_RTAuditing())
+        {
+          list->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
+                                                    SourceAccelerationStructureData, Mode);
+        }
       }
     }
     else
     {
-      Unwrap4(pCommandList)
-          ->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
-                                                SourceAccelerationStructureData, Mode);
+      if(!D3D12_Debug_RTAuditing())
+      {
+        Unwrap4(pCommandList)
+            ->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
+                                                  SourceAccelerationStructureData, Mode);
+      }
 
       m_Cmd->AddEvent();
 
@@ -1700,6 +1715,11 @@ bool WrappedID3D12GraphicsCommandList::Serialise_DispatchRays(SerialiserType &se
     m_Cmd->m_LastCmdListID = GetResourceManager()->GetOriginalID(GetResID(pCommandList));
 
     const D3D12RenderState &state = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].state;
+
+    if(D3D12_Debug_RTAuditing())
+    {
+      Desc.Width = Desc.Height = Desc.Depth = 0;
+    }
 
     if(IsActiveReplaying(m_State))
     {
