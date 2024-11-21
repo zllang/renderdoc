@@ -1418,6 +1418,23 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
   }
 }
 
+void MemoryTracking::AllocateMemoryForType(const DXIL::Type *type, Id allocId, bool global,
+                                           ShaderVariable &var)
+{
+  RDCASSERTEQUAL(type->type, Type::TypeKind::Pointer);
+  ConvertDXILTypeToShaderVariable(type->inner, var);
+
+  // Add the SSA to m_MemoryAllocs with its backing memory and size
+  size_t byteSize = ComputeDXILTypeByteSize(type->inner);
+  void *backingMem = malloc(byteSize);
+  memset(backingMem, 0, byteSize);
+  MemoryTracking::Alloc &alloc = m_Allocs[allocId];
+  alloc = {backingMem, byteSize, global};
+
+  // set the backing memory
+  m_AllocPointers[allocId] = {allocId, backingMem, byteSize};
+}
+
 ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger, const GlobalState &globalState)
     : m_Debugger(debugger), m_GlobalState(globalState), m_Program(debugger.GetProgram())
 {
@@ -1436,8 +1453,11 @@ ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger, const Glob
 
 ThreadState::~ThreadState()
 {
-  for(auto it : m_MemoryAllocs)
-    free(it.second.backingMemory);
+  for(auto it : m_Memory.m_Allocs)
+  {
+    if(!it.second.global)
+      free(it.second.backingMemory);
+  }
 }
 
 void ThreadState::InitialiseHelper(const ThreadState &activeState)
@@ -1523,6 +1543,9 @@ void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *st
 
   for(const GlobalVariable &gv : m_GlobalState.globals)
     m_Variables[gv.id] = gv.var;
+
+  // Start with the global memory allocations
+  m_Memory = m_GlobalState.memory;
 
   m_State = NULL;
 }
@@ -2987,7 +3010,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     {
       // Load(ptr)
       Id ptrId = GetArgumentId(0);
-      RDCASSERT(m_MemoryAllocPointers.count(ptrId) == 1);
+      RDCASSERT(m_Memory.m_AllocPointers.count(ptrId) == 1);
       ShaderVariable arg;
       RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, arg));
       result.value = arg.value;
@@ -3002,16 +3025,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       size_t allocSize = 0;
       void *allocMemoryBackingPtr = NULL;
       Id ptrId = GetArgumentId(0);
-      auto itPtr = m_MemoryAllocPointers.find(ptrId);
-      RDCASSERT(itPtr != m_MemoryAllocPointers.end());
+      auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
+      RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
 
-      const MemoryAllocPointer &ptr = itPtr->second;
+      const MemoryTracking::AllocPointer &ptr = itPtr->second;
       baseMemoryId = ptr.baseMemoryId;
       baseMemoryBackingPtr = ptr.backingMemory;
 
-      auto itAlloc = m_MemoryAllocs.find(baseMemoryId);
-      RDCASSERT(itAlloc != m_MemoryAllocs.end());
-      const MemoryAlloc &alloc = itAlloc->second;
+      auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
+      RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
+      const MemoryTracking::Alloc &alloc = itAlloc->second;
       allocSize = alloc.size;
       allocMemoryBackingPtr = alloc.backingMemory;
 
@@ -3044,7 +3067,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::Alloca:
     {
       result.name = DXBC::BasicDemangle(result.name);
-      AllocateMemoryForType(inst.type, resultId, result);
+      m_Memory.AllocateMemoryForType(inst.type, resultId, false, result);
       break;
     }
     case Operation::GetElementPtr:
@@ -3052,7 +3075,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       const DXIL::Type *resultType = inst.type->inner;
       Id ptrId = GetArgumentId(0);
 
-      RDCASSERT(m_MemoryAllocs.count(ptrId) == 1);
+      RDCASSERT(m_Memory.m_Allocs.count(ptrId) == 1);
       RDCASSERT(m_Variables.count(ptrId) == 1);
 
       // arg[1..] : indices 1...N
@@ -3083,13 +3106,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       size_t size = countElems * GetElementByteSize(baseType);
 
       // Copy from the backing memory to the result
-      MemoryAlloc &alloc = m_MemoryAllocs[ptrId];
+      const MemoryTracking::Alloc &alloc = m_Memory.m_Allocs[ptrId];
       uint8_t *backingMemory = (uint8_t *)alloc.backingMemory;
+
+      // Ensure global variables use global memory
+      // Ensure non-global variables do not use global memory
+      RDCASSERT(!((cast<GlobalVar>(inst.args[0]) != NULL) ^ alloc.global));
 
       result.type = baseType;
       result.rows = (uint8_t)countElems;
       backingMemory += offset;
-      m_MemoryAllocPointers[resultId] = {ptrId, backingMemory, size};
+      m_Memory.m_AllocPointers[resultId] = {ptrId, backingMemory, size};
 
       RDCASSERT(offset + size <= alloc.size);
       RDCASSERT(size < sizeof(result.value.f32v));
@@ -3930,16 +3957,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       Id baseMemoryId = DXILDebug::INVALID_ID;
       Id ptrId = GetArgumentId(0);
       {
-        auto itPtr = m_MemoryAllocPointers.find(ptrId);
-        RDCASSERT(itPtr != m_MemoryAllocPointers.end());
+        auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
+        RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
 
-        const MemoryAllocPointer &ptr = itPtr->second;
+        const MemoryTracking::AllocPointer &ptr = itPtr->second;
         baseMemoryId = ptr.baseMemoryId;
         baseMemoryBackingPtr = ptr.backingMemory;
 
-        auto itAlloc = m_MemoryAllocs.find(baseMemoryId);
-        RDCASSERT(itAlloc != m_MemoryAllocs.end());
-        const MemoryAlloc &alloc = itAlloc->second;
+        auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
+        RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
+        const MemoryTracking::Alloc &alloc = itAlloc->second;
         allocSize = alloc.size;
         allocMemoryBackingPtr = alloc.backingMemory;
       }
@@ -4406,22 +4433,6 @@ void ThreadState::MarkResourceAccess(const rdcstr &name, const ShaderBindIndex &
     accessed.push_back(bindIndex);
 }
 
-void ThreadState::AllocateMemoryForType(const DXIL::Type *type, Id allocId, ShaderVariable &var)
-{
-  RDCASSERTEQUAL(type->type, Type::TypeKind::Pointer);
-  ConvertDXILTypeToShaderVariable(type->inner, var);
-
-  // Add the SSA to m_MemoryAllocs with its backing memory and size
-  size_t byteSize = ComputeDXILTypeByteSize(type->inner);
-  void *backingMem = malloc(byteSize);
-  memset(backingMem, 0, byteSize);
-  MemoryAlloc &alloc = m_MemoryAllocs[allocId];
-  alloc = {backingMem, byteSize};
-
-  // set the backing memory
-  m_MemoryAllocPointers[allocId] = {allocId, backingMem, byteSize};
-}
-
 void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize,
                                                   const ShaderVariable &var)
 {
@@ -4858,6 +4869,15 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
   RDCASSERT(quad[index].GetLiveVariable(id, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
+}
+
+GlobalState::~GlobalState()
+{
+  for(auto it : memory.m_Allocs)
+  {
+    RDCASSERT(it.second.global);
+    free(it.second.backingMemory);
+  }
 }
 
 bool ThreadState::ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups)
@@ -6084,6 +6104,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     sourceVar.variables.push_back(ref);
   }
 
+  MemoryTracking &globalMemory = m_GlobalState.memory;
   for(const DXIL::GlobalVar *gv : m_Program->m_GlobalVars)
   {
     // Ignore DXIL global variables which start with "dx.nothing."
@@ -6095,7 +6116,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     DXIL::SanitiseName(n);
     globalVar.var.name = n;
     globalVar.id = gv->ssaId;
-    state.AllocateMemoryForType(gv->type, globalVar.id, globalVar.var);
+    globalMemory.AllocateMemoryForType(gv->type, globalVar.id, true, globalVar.var);
     if(gv->flags & GlobalFlags::IsConst)
     {
       if(gv->initialiser)
@@ -6103,9 +6124,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         const Constant *initialData = gv->initialiser;
         RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
         // Write ShaderVariable data back to memory
-        auto itAlloc = state.m_MemoryAllocs.find(globalVar.id);
-        RDCASSERT(itAlloc != state.m_MemoryAllocs.end());
-        const ThreadState::MemoryAlloc &alloc = itAlloc->second;
+        auto itAlloc = globalMemory.m_Allocs.find(globalVar.id);
+        RDCASSERT(itAlloc != globalMemory.m_Allocs.end());
+        const MemoryTracking::Alloc &alloc = itAlloc->second;
         void *allocMemoryBackingPtr = alloc.backingMemory;
         size_t allocSize = alloc.size;
         state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);

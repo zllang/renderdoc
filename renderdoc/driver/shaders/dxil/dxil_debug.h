@@ -136,6 +136,28 @@ public:
   virtual bool IsResourceBound(DXIL::ResourceClass resClass, const DXDebug::BindingSlot &slot) = 0;
 };
 
+struct MemoryTracking
+{
+  void AllocateMemoryForType(const DXIL::Type *type, Id allocId, bool global, ShaderVariable &var);
+
+  struct Alloc
+  {
+    void *backingMemory;
+    size_t size;
+    bool global;
+  };
+
+  struct AllocPointer
+  {
+    Id baseMemoryId;
+    void *backingMemory;
+    size_t size;
+  };
+
+  std::map<Id, Alloc> m_Allocs;
+  std::map<Id, AllocPointer> m_AllocPointers;
+};
+
 struct ThreadState
 {
   ThreadState(uint32_t workgroupIndex, Debugger &debugger, const GlobalState &globalState);
@@ -177,7 +199,6 @@ struct ThreadState
   bool GetPhiVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
                       ShaderVariable &var) const;
   bool GetVariableHelper(DXIL::Operation op, DXIL::DXOp dxOpCode, ShaderVariable &var) const;
-  void AllocateMemoryForType(const DXIL::Type *type, Id allocId, ShaderVariable &var);
   void UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize, const ShaderVariable &var);
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
 
@@ -199,19 +220,6 @@ struct ThreadState
 
   bool GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                                ShaderVariable &var, bool flushDenormInput, bool isLive) const;
-  struct MemoryAlloc
-  {
-    void *backingMemory;
-    size_t size;
-  };
-
-  struct MemoryAllocPointer
-  {
-    Id baseMemoryId;
-    void *backingMemory;
-    size_t size;
-  };
-
   struct AnnotationProperties
   {
     DXIL::ResourceKind resKind;
@@ -252,8 +260,7 @@ struct ThreadState
 
   // Track memory allocations
   // For stack allocations do not bother freeing when leaving functions
-  std::map<Id, MemoryAlloc> m_MemoryAllocs;
-  std::map<Id, MemoryAllocPointer> m_MemoryAllocPointers;
+  MemoryTracking m_Memory;
 
   // The instruction index within the current function
   uint32_t m_FunctionInstructionIdx = ~0U;
@@ -278,6 +285,7 @@ struct ThreadState
 struct GlobalState
 {
   GlobalState() = default;
+  ~GlobalState();
   BuiltinInputs builtinInputs;
 
   struct ViewFmt
@@ -345,6 +353,8 @@ struct GlobalState
   rdcarray<ShaderVariable> samplers;
   // Globals across workgroups including inputs (immutable) and outputs (mutable)
   rdcarray<GlobalVariable> globals;
+  // Memory created for global variables
+  MemoryTracking memory;
 };
 
 struct LocalMapping
