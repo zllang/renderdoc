@@ -205,7 +205,10 @@ struct BakedCmdListInfo
   struct PatchRaytracing
   {
     bool m_patched = false;
-    D3D12GpuBuffer *m_patchedInstanceBuffer;
+    uint32_t numDescs = 0;
+    D3D12GpuBuffer *patchedInstanceBuffer = NULL;
+    D3D12GpuBuffer *unpatchedInstanceBufferReadback = NULL;
+    ResourceId destinationAS;
   };
 
   rdcflatmap<uint32_t, PatchRaytracing> m_patchRaytracingInfo;

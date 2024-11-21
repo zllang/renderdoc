@@ -28,6 +28,7 @@
 #include "d3d12_resources.h"
 
 RDOC_EXTERN_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing);
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
 
 template <typename SerialiserType>
 bool WrappedID3D12CommandQueue::Serialise_UpdateTileMappings(
@@ -491,10 +492,92 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
 
         ID3D12CommandList *list = Unwrap(ppCommandLists[i]);
         real->ExecuteCommandLists(1, &list);
-        if(D3D12_Debug_SingleSubmitFlushing())
+        if(D3D12_Debug_SingleSubmitFlushing() || D3D12_Debug_RTAuditing())
           m_pDevice->GPUSync();
 
         BakedCmdListInfo &info = m_Cmd.m_BakedCmdListInfo[cmd];
+
+        if(D3D12_Debug_RTAuditing())
+        {
+          for(auto it = info.m_patchRaytracingInfo.begin(); it != info.m_patchRaytracingInfo.end();
+              ++it)
+          {
+            if(!it->second.unpatchedInstanceBufferReadback)
+            {
+              if(it->second.destinationAS != ResourceId())
+              {
+                D3D12AccelerationStructure *as =
+                    (D3D12AccelerationStructure *)GetResourceManager()->GetLiveResource(
+                        it->second.destinationAS);
+                as->seenReplayBuild = true;
+              }
+
+              continue;
+            }
+
+            const D3D12_RAYTRACING_INSTANCE_DESC *instances =
+                (const D3D12_RAYTRACING_INSTANCE_DESC *)
+                    it->second.unpatchedInstanceBufferReadback->Map();
+
+            ResourceId id = it->second.destinationAS;
+
+            RDCLOG("Verifying TLAS build of %s at relative %u in %s", ToStr(id).c_str(), it->first,
+                   ToStr(cmd).c_str());
+
+            for(UINT desc = 0; desc < it->second.numDescs; desc++)
+            {
+              // silently ignore NULL BLASs
+              if(instances[desc].AccelerationStructure == 0)
+                continue;
+
+              ResourceId blasId;
+              UINT64 blasOffs;
+              m_pDevice->GetResIDFromOrigAddr(instances[desc].AccelerationStructure, blasId,
+                                              blasOffs);
+
+              WrappedID3D12Resource *blas =
+                  GetResourceManager()->GetLiveAs<WrappedID3D12Resource>(blasId);
+
+              D3D12AccelerationStructure *blasCheck = NULL;
+              rdcstr invalid;
+
+              if(blasId == ResourceId() || blas == NULL)
+                invalid = StringFormat::Fmt("Address references non-existant buffer");
+              else if(!blas->GetAccStructIfExist(blasOffs, &blasCheck))
+                invalid = StringFormat::Fmt("No valid AS known at buffer location");
+              else if(blasCheck->Type() == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
+                invalid = StringFormat::Fmt("TLAS referenced by TLAS");
+
+              if(!invalid.empty())
+              {
+                RDCERR("%s[%u]: %s", ToStr(id).c_str(), desc, invalid.c_str());
+                continue;
+              }
+
+              if(id < GetResourceManager()->GetOriginalID(blasCheck->GetResourceID()))
+              {
+                RDCERR("%s[%u]: BLAS referenced by TLAS is newer than TLAS", ToStr(id).c_str(), desc);
+                continue;
+              }
+
+              if(!blasCheck->seenReplayBuild)
+              {
+                RDCERR("%s[%u]: BLAS referenced by TLAS has not been built yet on replay",
+                       ToStr(id).c_str(), desc);
+                continue;
+              }
+
+              RDCLOG("%s[%u]: valid BLAS referenced at %llx (%llx on replay)", ToStr(id).c_str(),
+                     desc, instances[desc].AccelerationStructure,
+                     blas->GetGPUVirtualAddress() + blasOffs);
+
+              RDCASSERTEQUAL(blasCheck->GetVirtualAddress(), blas->GetGPUVirtualAddress() + blasOffs);
+            }
+
+            it->second.unpatchedInstanceBufferReadback->Unmap();
+            SAFE_RELEASE(it->second.unpatchedInstanceBufferReadback);
+          }
+        }
 
         if(!info.executeEvents.empty())
         {

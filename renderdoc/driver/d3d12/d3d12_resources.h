@@ -1684,6 +1684,8 @@ public:
 
   ASBuildData *buildData = NULL;
 
+  // only valid on replay - for auditing
+  bool seenReplayBuild = false;
 private:
   WrappedID3D12Resource *m_asbWrappedResource;
   D3D12BufferOffset m_asbWrappedResourceBufferOffset;
