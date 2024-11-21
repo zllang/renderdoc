@@ -5321,9 +5321,7 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
 
     for(PatchedRayDispatch::Resources &r : cmd.m_RayDispatches)
     {
-      SAFE_RELEASE(r.lookupBuffer);
-      SAFE_RELEASE(r.patchScratchBuffer);
-      SAFE_RELEASE(r.argumentBuffer);
+      r.Release();
     }
     cmd.m_RayDispatches.clear();
 

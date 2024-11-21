@@ -671,9 +671,7 @@ void WrappedID3D12CommandQueue::CheckAndFreeRayDispatches()
   {
     if(signalled >= ray.fenceValue)
     {
-      SAFE_RELEASE(ray.patchScratchBuffer);
-      SAFE_RELEASE(ray.lookupBuffer);
-      SAFE_RELEASE(ray.argumentBuffer);
+      ray.Release();
     }
   }
 
@@ -1476,9 +1474,7 @@ void WrappedID3D12GraphicsCommandList::AddRayDispatches(rdcarray<PatchedRayDispa
   for(const PatchedRayDispatch::Resources &r : m_RayDispatches)
   {
     dispatches.push_back(r);
-    SAFE_ADDREF(r.lookupBuffer);
-    SAFE_ADDREF(r.patchScratchBuffer);
-    SAFE_ADDREF(r.argumentBuffer);
+    r.AddRef();
   }
 }
 

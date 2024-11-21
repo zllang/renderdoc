@@ -391,9 +391,7 @@ HRESULT WrappedID3D12GraphicsCommandList::ResetInternal(ID3D12CommandAllocator *
     // holding references until their fences are appropriately signalled.
     for(PatchedRayDispatch::Resources &r : m_RayDispatches)
     {
-      SAFE_RELEASE(r.lookupBuffer);
-      SAFE_RELEASE(r.patchScratchBuffer);
-      SAFE_RELEASE(r.argumentBuffer);
+      r.Release();
     }
     m_RayDispatches.clear();
 

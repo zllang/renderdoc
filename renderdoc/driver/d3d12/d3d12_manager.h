@@ -1036,6 +1036,20 @@ struct PatchedRayDispatch
     // indicate when they're safe to release. This values are unset when returned from patching or
     // referenced in the list and is set in each queue's copy of the references.
     UINT64 fenceValue = 0;
+
+    void AddRef() const
+    {
+      SAFE_ADDREF(lookupBuffer);
+      SAFE_ADDREF(patchScratchBuffer);
+      SAFE_ADDREF(argumentBuffer);
+    }
+
+    void Release()
+    {
+      SAFE_RELEASE(lookupBuffer);
+      SAFE_RELEASE(patchScratchBuffer);
+      SAFE_RELEASE(argumentBuffer);
+    }
   };
 
   Resources resources;
