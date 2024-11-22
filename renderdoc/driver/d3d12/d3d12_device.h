@@ -618,6 +618,11 @@ private:
   HANDLE m_GPUSyncHandle;
   UINT64 m_GPUSyncCounter;
 
+  ID3D12Fence *m_OverlayFence = NULL;
+  UINT64 m_OverlayFenceCounter = 1;
+
+  rdcarray<rdcpair<UINT64, ID3D12GraphicsCommandList *>> m_OverlayLists;
+
   WrappedDownlevelDevice m_WrappedDownlevel;
   WrappedDRED m_DRED;
   WrappedDREDSettings m_DREDSettings;
@@ -1037,6 +1042,9 @@ public:
 
   ID3D12GraphicsCommandListX *GetNewList();
   ID3D12GraphicsCommandListX *GetInitialStateList();
+
+  ID3D12GraphicsCommandListX *StealNewList();
+  void ReturnStolenList(ID3D12GraphicsCommandListX *list);
 
   bool IsReadOnlyResource(ResourceId id) { return m_ModResources.find(id) == m_ModResources.end(); }
   void CloseInitialStateList();

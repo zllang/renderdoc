@@ -2422,7 +2422,7 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
 
         if(!list)
         {
-          list = GetNewList();
+          list = StealNewList();
           submitlist = true;
         }
 
@@ -2489,8 +2489,25 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         {
           list->Close();
 
-          ExecuteLists(swapInfo.queue);
-          FlushLists(false, swapInfo.queue);
+          m_OverlayFenceCounter++;
+
+          ID3D12CommandList *c = list;
+          swapInfo.queue->ExecuteCommandListsInternal(1, &c, false, false);
+          swapInfo.queue->GetReal()->Signal(Unwrap(m_OverlayFence), m_OverlayFenceCounter);
+
+          m_OverlayLists.push_back({m_OverlayFenceCounter, list});
+
+          UINT64 counter = m_OverlayFence->GetCompletedValue();
+          for(size_t i = 0; i < m_OverlayLists.size();)
+          {
+            if(counter >= m_OverlayLists[i].first)
+            {
+              ReturnStolenList((ID3D12GraphicsCommandListX *)m_OverlayLists[i].second);
+              m_OverlayLists.erase(i);
+              continue;
+            }
+            i++;
+          }
         }
       }
     }
@@ -4447,6 +4464,10 @@ void WrappedID3D12Device::CreateInternalResources()
   InternalRef();
   m_GPUSyncHandle = ::CreateEvent(NULL, FALSE, FALSE, NULL);
 
+  CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&m_OverlayFence);
+  m_OverlayFence->SetName(L"m_OverlayFence");
+  InternalRef();
+
   GetResourceManager()->SetInternalResource(m_Alloc);
   GetResourceManager()->SetInternalResource(m_GPUSyncFence);
 
@@ -4535,6 +4556,7 @@ void WrappedID3D12Device::DestroyInternalResources()
 
   SAFE_RELEASE(m_Alloc);
   SAFE_RELEASE(m_GPUSyncFence);
+  SAFE_RELEASE(m_OverlayFence);
   CloseHandle(m_GPUSyncHandle);
 }
 
@@ -4653,6 +4675,18 @@ ID3D12GraphicsCommandListX *WrappedID3D12Device::GetInitialStateList()
   initStateCurBatch++;
 
   return initStateCurList;
+}
+
+ID3D12GraphicsCommandListX *WrappedID3D12Device::StealNewList()
+{
+  ID3D12GraphicsCommandListX *ret = GetNewList();
+  m_InternalCmds.pendingcmds.removeOne(ret);
+  return ret;
+}
+
+void WrappedID3D12Device::ReturnStolenList(ID3D12GraphicsCommandListX *list)
+{
+  m_InternalCmds.freecmds.push_back(list);
 }
 
 void WrappedID3D12Device::CloseInitialStateList()
