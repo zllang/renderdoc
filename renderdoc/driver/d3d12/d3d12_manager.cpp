@@ -925,6 +925,75 @@ void D3D12RTManager::VerifyRecord(const uint64_t recordSize, byte *wrappedRecord
   RDCASSERT(memcmp(record.data(), unwrappedRef, record.size()) == 0);
 }
 
+uint32_t D3D12RTManager::GetFreeQuery()
+{
+  SCOPED_LOCK(m_TimerStatsLock);
+  if(m_TimerQueryHeap == NULL)
+  {
+    D3D12_QUERY_HEAP_DESC timerQueryDesc;
+    // allow for up to 50 dispatches per frame, 500 AS builds, and assume 5 frames before we see the results
+    timerQueryDesc.Count = (50 + 500) * 5 * 2;
+    timerQueryDesc.NodeMask = 1;
+    timerQueryDesc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    HRESULT hr = m_wrappedDevice->GetReal()->CreateQueryHeap(
+        &timerQueryDesc, __uuidof(ID3D12QueryHeap), (void **)&m_TimerQueryHeap);
+    CHECK_HR(m_wrappedDevice, hr);
+    if(FAILED(hr))
+      RDCERR("Failed to create timer query heap HRESULT: %s", ToStr(hr).c_str());
+
+    m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
+                               D3D12GpuBufferHeapMemoryFlag::Default,
+                               timerQueryDesc.Count * sizeof(UINT64), 64, &m_TimerReadbackBuffer);
+
+    if(m_TimerReadbackBuffer && m_TimerQueryHeap)
+    {
+      m_Timestamps = (uint64_t *)m_TimerReadbackBuffer->Map();
+      for(uint32_t i = 0; i < timerQueryDesc.Count; i += 2)
+        m_FreeQueries.push_back(i);
+    }
+
+    m_wrappedDevice->GetQueue()->GetTimestampFrequency(&m_TimerFrequency);
+  }
+
+  if(!m_FreeQueries.empty())
+    return m_FreeQueries.takeAt(m_FreeQueries.size() - 1);
+  return ~0U;
+}
+
+void D3D12RTManager::AddDispatchTimer(uint32_t q)
+{
+  // could track this maybe, for now drop it on the floor
+  if(q == ~0U)
+    return;
+
+  uint64_t *timestamps = m_Timestamps + q;
+
+  {
+    SCOPED_LOCK(m_TimerStatsLock);
+    m_AccumulatedStats.dispatches++;
+    m_AccumulatedStats.totalDispatchesMS +=
+        ((timestamps[1] - timestamps[0]) / double(m_TimerFrequency)) * 1024.0;
+    m_FreeQueries.push_back(q);
+  }
+}
+
+void D3D12RTManager::AddBuildTimer(uint32_t q, uint64_t size)
+{
+  if(q == ~0U)
+    return;
+
+  uint64_t *timestamps = m_Timestamps + q;
+
+  {
+    SCOPED_LOCK(m_TimerStatsLock);
+    m_AccumulatedStats.builds++;
+    m_AccumulatedStats.buildBytes += size;
+    m_AccumulatedStats.totalBuildMS +=
+        ((timestamps[1] - timestamps[0]) / double(m_TimerFrequency)) * 1024.0;
+    m_FreeQueries.push_back(q);
+  }
+}
+
 void D3D12RTManager::AddPendingASBuilds(ID3D12Fence *fence, UINT64 waitValue,
                                         const rdcarray<std::function<bool()>> &callbacks)
 {
@@ -1063,9 +1132,13 @@ void D3D12RTManager::CheckPendingASBuilds()
   m_PendingASBuilds.removeIf([](const PendingASBuild &build) { return build.fence == NULL; });
 }
 
-void D3D12RTManager::GatherASAgeStatistics(ASStats &blasAges, ASStats &tlasAges)
+void D3D12RTManager::GatherRTStatistics(ASStats &blasAges, ASStats &tlasAges,
+                                        RTGPUPatchingStats &gpuStats)
 {
   double now = m_Timestamp.GetMilliseconds();
+
+  gpuStats = m_AccumulatedStats;
+  m_AccumulatedStats = {};
 
   SCOPED_LOCK(m_ASBuildDataLock);
 
@@ -1128,6 +1201,13 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   ret.heaps = heaps;
 
   D3D12MarkerRegion region(unwrappedCmd, "PatchRayDispatch");
+
+  ret.resources.query = GetFreeQuery();
+
+  if(ret.resources.query != ~0U)
+  {
+    unwrappedCmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret.resources.query);
+  }
 
   PrepareRayDispatchBuffer(NULL);
 
@@ -1343,6 +1423,15 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
   ret.resources.patchScratchBuffer = scratchBuffer;
 
   ret.resources.argumentBuffer = NULL;
+
+  if(ret.resources.query != ~0U)
+  {
+    unwrappedCmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret.resources.query + 1);
+    unwrappedCmd->ResolveQueryData(
+        m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret.resources.query, 2,
+        m_TimerReadbackBuffer->Resource(),
+        m_TimerReadbackBuffer->Offset() + sizeof(uint64_t) * ret.resources.query);
+  }
 
   return ret;
 }
@@ -1616,6 +1705,13 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   ret->Flags = inputs.Flags;
   ret->timestamp = m_Timestamp.GetMilliseconds();
   ret->rtManager = this;
+
+  ret->query = GetFreeQuery();
+
+  if(ret->query != ~0U)
+  {
+    unwrappedCmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret->query);
+  }
 
   if(inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
   {
@@ -1906,6 +2002,14 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
   {
     SCOPED_LOCK(m_ASBuildDataLock);
     m_InMemASBuildDatas.push_back(ret);
+  }
+
+  if(ret->query != ~0U)
+  {
+    unwrappedCmd->EndQuery(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret->query + 1);
+    unwrappedCmd->ResolveQueryData(m_TimerQueryHeap, D3D12_QUERY_TYPE_TIMESTAMP, ret->query, 2,
+                                   m_TimerReadbackBuffer->Resource(),
+                                   m_TimerReadbackBuffer->Offset() + sizeof(uint64_t) * ret->query);
   }
 
   return ret;
@@ -3242,6 +3346,12 @@ void D3D12GpuBuffer::Release()
 
     delete this;
   }
+}
+
+void ASBuildData::MarkWorkComplete()
+{
+  complete = true;
+  rtManager->AddBuildTimer(query, buffer ? buffer->Size() : 0);
 }
 
 void ASBuildData::AddRef()

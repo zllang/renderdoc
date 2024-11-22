@@ -2444,8 +2444,9 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         if(D3D12_Debug_RT_Overlay() && m_UsedRT)
         {
           ASStats blasStats = {}, tlasStats = {};
+          RTGPUPatchingStats gpuStats = {};
 
-          GetResourceManager()->GetRTManager()->GatherASAgeStatistics(blasStats, tlasStats);
+          GetResourceManager()->GetRTManager()->GatherRTStatistics(blasStats, tlasStats, gpuStats);
 
           overlayText += "       TLAS               BLAS\n";
 
@@ -2467,6 +2468,15 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
               float(blasStats.overheadBytes + tlasStats.overheadBytes) / 1048576.0f,
               float(blasStats.diskBytes + tlasStats.diskBytes) / 1048576.0f, blasStats.diskCached,
               tlasStats.diskCached);
+
+          overlayText += StringFormat::Fmt(
+              "%3u BLAS input copies with %9.2f KB in %5.2f ms = %9.2f MB/s\n"
+              "%2u dispatches patched in %4.2f ms\n",
+              gpuStats.builds, float(gpuStats.buildBytes) / 1024.0f, gpuStats.totalBuildMS,
+              gpuStats.totalBuildMS == 0.0
+                  ? 0.0
+                  : (float(gpuStats.buildBytes) / 1048576.0f) / (gpuStats.totalBuildMS / 1024.0f),
+              gpuStats.dispatches, gpuStats.totalDispatchesMS);
         }
 
         m_TextRenderer->RenderText(list, 0.0f, 0.0f, overlayText);

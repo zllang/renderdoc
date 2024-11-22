@@ -1034,6 +1034,8 @@ struct PatchedRayDispatch
 
     D3D12GpuBuffer *readbackBuffer;
 
+    uint32_t query;
+
     // for convenience, when these resources are referenced in a queue they get a fence value to
     // indicate when they're safe to release. This values are unset when returned from patching or
     // referenced in the list and is set in each queue's copy of the references.
@@ -1075,6 +1077,16 @@ struct ASStats
   uint64_t overheadBytes;
   uint64_t diskBytes;
   uint32_t diskCached;
+};
+
+struct RTGPUPatchingStats
+{
+  uint32_t builds;
+  uint64_t buildBytes;
+  double totalBuildMS;
+
+  uint32_t dispatches;
+  double totalDispatchesMS;
 };
 
 // this is a refcounted GPU buffer with the build data, together with the metadata
@@ -1144,7 +1156,7 @@ struct ASBuildData
   // geometry GPU addresses have been de-based to contain only offsets
   rdcarray<RTGeometryDesc> geoms;
 
-  void MarkWorkComplete() { complete = true; }
+  void MarkWorkComplete();
   bool IsWorkComplete() const { return complete; }
 
   void AddRef();
@@ -1153,6 +1165,7 @@ struct ASBuildData
   D3D12GpuBuffer *buffer = NULL;
   rdcstr filename;
   uint64_t bytesOnDisk = 0;
+  uint32_t query = 0;
 
   std::function<bool()> cleanupCallback;
 
@@ -1205,6 +1218,7 @@ public:
     SAFE_RELEASE(m_RayPatchingData.indirectComSig);
     SAFE_RELEASE(m_RayPatchingData.indirectPrepPipe);
     SAFE_RELEASE(m_RayPatchingData.indirectPrepRootSig);
+    SAFE_RELEASE(m_TimerQueryHeap);
   }
 
   void InitInternalResources();
@@ -1227,7 +1241,7 @@ public:
       m_DiskCachedASBuildDatas.removeOne(data);
   }
 
-  void GatherASAgeStatistics(ASStats &blasAges, ASStats &tlasAges);
+  void GatherRTStatistics(ASStats &blasAges, ASStats &tlasAges, RTGPUPatchingStats &gpuStats);
 
   D3D12GpuBuffer *UnrollBLASInstancesList(
       ID3D12GraphicsCommandList4 *unwrappedCmd,
@@ -1266,6 +1280,9 @@ public:
 
   void VerifyRecord(const uint64_t recordSize, byte *table, byte *ref,
                     WrappedID3D12DescriptorHeap *resHeap, WrappedID3D12DescriptorHeap *sampHeap);
+
+  void AddDispatchTimer(uint32_t q);
+  void AddBuildTimer(uint32_t q, uint64_t size);
 
 private:
   void InitRayDispatchPatchingResources();
@@ -1326,6 +1343,16 @@ private:
     ID3D12PipelineState *indirectPrepPipe = NULL;
     ID3D12CommandSignature *indirectComSig = NULL;
   } m_RayPatchingData;
+
+  ID3D12QueryHeap *m_TimerQueryHeap = NULL;
+  D3D12GpuBuffer *m_TimerReadbackBuffer = NULL;
+  uint64_t *m_Timestamps = NULL;
+  uint64_t m_TimerFrequency;
+  Threading::CriticalSection m_TimerStatsLock;
+  rdcarray<uint32_t> m_FreeQueries;
+  RTGPUPatchingStats m_AccumulatedStats = {};
+
+  uint32_t GetFreeQuery();
 
   struct PendingASBuild
   {

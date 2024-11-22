@@ -671,6 +671,7 @@ void WrappedID3D12CommandQueue::CheckAndFreeRayDispatches()
   {
     if(signalled >= ray.fenceValue)
     {
+      GetResourceManager()->GetRTManager()->AddDispatchTimer(ray.query);
       ray.Release();
     }
   }
