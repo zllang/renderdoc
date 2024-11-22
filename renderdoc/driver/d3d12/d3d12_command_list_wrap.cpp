@@ -30,7 +30,7 @@
 #include "d3d12_command_queue.h"
 #include "d3d12_debug.h"
 
-RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 template <typename SerialiserType>
 bool WrappedID3D12GraphicsCommandList::Serialise_Close(SerialiserType &ser)
@@ -4095,7 +4095,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
     WrappedID3D12CommandSignature *comSig = (WrappedID3D12CommandSignature *)pCommandSignature;
 
-    if(D3D12_Debug_RTAuditing() && comSig->sig.raytraced)
+    if(D3D12_Debug_RT_Auditing() && comSig->sig.raytraced)
     {
       // only one execute is allowed per command signature, if it's ray tracing and we're auditing then turn it off
       MaxCommandCount = 0;

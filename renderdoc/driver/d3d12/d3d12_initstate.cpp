@@ -36,7 +36,7 @@ RDOC_EXTERN_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing);
 RDOC_CONFIG(bool, D3D12_Debug_DriverASSerialisation, false,
             "Use driver-side serialisation for saving and restoring ASs");
 
-RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 template <class SerialiserType>
 void DoSerialise(SerialiserType &ser, ASBuildData::RVAWithStride &el)
@@ -817,7 +817,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
       desc.NumDescriptors = heap->GetNumDescriptors();
 
       // to remove any ray query work, force AS descriptors to NULL
-      if(D3D12_Debug_RTAuditing())
+      if(D3D12_Debug_RT_Auditing())
       {
         for(uint32_t i = 0; i < RDCMIN(numElems, desc.NumDescriptors); i++)
         {
@@ -1488,7 +1488,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
               D3D12AccelerationStructure *blasCheck = NULL;
 
               // check and log more fine-grained if we're auditing
-              if(D3D12_Debug_RTAuditing())
+              if(D3D12_Debug_RT_Auditing())
               {
                 rdcstr invalid;
 
@@ -1532,7 +1532,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
                 continue;
               }
 
-              if(D3D12_Debug_RTAuditing())
+              if(D3D12_Debug_RT_Auditing())
               {
                 RDCLOG("%s %u: remapped from %llx to %llx", ToStr(id).c_str(), i,
                        instances[i].AccelerationStructure,
@@ -2091,7 +2091,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
       {
         desc.DestAccelerationStructureData = as->GetVirtualAddress();
 
-        if(D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_RT_Auditing())
         {
           RDCLOG("Apply TLAS - Rebuilding %s to %llx",
                  ToStr(GetOriginalID(as->GetResourceID())).c_str(),
@@ -2119,7 +2119,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
         desc.DestAccelerationStructureData = data.cachedBuiltAS->Address();
         list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
 
-        if(D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_RT_Auditing())
         {
           RDCLOG("Apply BLAS - Caching %s to %llx", ToStr(GetOriginalID(as->GetResourceID())).c_str(),
                  desc.DestAccelerationStructureData);
@@ -2132,7 +2132,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
             as->GetVirtualAddress(), desc.DestAccelerationStructureData,
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
 
-        if(D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_RT_Auditing())
         {
           RDCLOG("Apply BLAS - Copying %s from %llx to %llx",
                  ToStr(GetOriginalID(as->GetResourceID())).c_str(),
@@ -2153,7 +2153,7 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
             as->GetVirtualAddress(), data.cachedBuiltAS->Address(),
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE);
 
-        if(D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_RT_Auditing())
         {
           RDCLOG("Apply BLAS - Copying %s from %llx to %llx",
                  ToStr(GetOriginalID(as->GetResourceID())).c_str(), data.cachedBuiltAS->Address(),

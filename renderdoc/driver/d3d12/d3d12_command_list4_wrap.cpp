@@ -28,7 +28,7 @@
 
 #include "data/hlsl/hlsl_cbuffers.h"
 
-RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 static rdcstr ToHumanStr(const D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE &el)
 {
@@ -884,7 +884,7 @@ bool WrappedID3D12GraphicsCommandList::PatchAccStructBlasAddress(
                                       patchRaytracing->patchedInstanceBuffer->Offset(),
                                       instanceResource, instanceResOffset, totalInstancesSize);
 
-      if(D3D12_Debug_RTAuditing())
+      if(D3D12_Debug_RT_Auditing())
       {
         GetResourceManager()->GetGPUBufferAllocator().Alloc(
             D3D12GpuBufferHeapType::ReadBackHeap, D3D12GpuBufferHeapMemoryFlag::Default,
@@ -1007,7 +1007,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
 
     D3D12AccelerationStructure *accStructAtDstOffset = NULL;
 
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       RDCLOG("Recording %s dynamic build to %llx on %s",
              AccStructDesc.Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
@@ -1065,7 +1065,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
               accStructAtDstOffset ? accStructAtDstOffset->GetResourceID() : ResourceId();
         }
 
-        if(!D3D12_Debug_RTAuditing())
+        if(!D3D12_Debug_RT_Auditing())
         {
           Unwrap4(list)->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
                                                               pPostbuildInfoDescs);
@@ -1105,7 +1105,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_BuildRaytracingAccelerationStru
         }
       }
 
-      if(!D3D12_Debug_RTAuditing())
+      if(!D3D12_Debug_RT_Auditing())
       {
         Unwrap4(pCommandList)
             ->BuildRaytracingAccelerationStructure(&AccStructDesc, NumPostbuildInfoDescs,
@@ -1206,7 +1206,7 @@ void WrappedID3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     // pre-allocate the AS ID so it can be serialised before the resource is created later on after submission
     ResourceId dstASId = ResourceIDGen::GetNewUniqueID();
 
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       RDCLOG("%s: Build to %llx, will be %s", ToStr(GetResourceID()).c_str(),
              pDesc->DestAccelerationStructureData, ToStr(dstASId).c_str());
@@ -1427,7 +1427,7 @@ void WrappedID3D12GraphicsCommandList::EmitRaytracingAccelerationStructurePostbu
 
   if(IsCaptureMode(m_State))
   {
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       if(NumSourceAccelerationStructures == 1)
       {
@@ -1485,13 +1485,13 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyRaytracingAccelerationStruc
       {
         ID3D12GraphicsCommandList4 *list = Unwrap4(m_Cmd->RerecordCmdList(m_Cmd->m_LastCmdListID));
 
-        if(D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_RT_Auditing())
         {
           RDCLOG("Recording copy from %llx to %llx on %s", SourceAccelerationStructureData,
                  DestAccelerationStructureData, ToStr(m_Cmd->m_LastCmdListID).c_str());
         }
 
-        if(!D3D12_Debug_RTAuditing())
+        if(!D3D12_Debug_RT_Auditing())
         {
           list->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
                                                     SourceAccelerationStructureData, Mode);
@@ -1500,14 +1500,14 @@ bool WrappedID3D12GraphicsCommandList::Serialise_CopyRaytracingAccelerationStruc
     }
     else
     {
-      if(!D3D12_Debug_RTAuditing())
+      if(!D3D12_Debug_RT_Auditing())
       {
         Unwrap4(pCommandList)
             ->CopyRaytracingAccelerationStructure(DestAccelerationStructureData,
                                                   SourceAccelerationStructureData, Mode);
       }
 
-      if(D3D12_Debug_RTAuditing())
+      if(D3D12_Debug_RT_Auditing())
       {
         RDCLOG("Recording copy from %llx to %llx on %s", SourceAccelerationStructureData,
                DestAccelerationStructureData, ToStr(m_Cmd->m_LastCmdListID).c_str());
@@ -1546,7 +1546,7 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     // pre-allocate the AS ID so it can be serialised before the resource is created later on after submission
     ResourceId dstASId = ResourceIDGen::GetNewUniqueID();
 
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       RDCLOG("%s: Copy %llx to %llx (%s), will be %s", ToStr(GetResourceID()).c_str(),
              SourceAccelerationStructureData, DestAccelerationStructureData, ToStr(Mode).c_str(),
@@ -1813,7 +1813,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_DispatchRays(SerialiserType &se
 
     const D3D12RenderState &state = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID].state;
 
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       Desc.Width = Desc.Height = Desc.Depth = 0;
     }

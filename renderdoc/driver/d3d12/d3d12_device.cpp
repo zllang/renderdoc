@@ -51,8 +51,8 @@ RDOC_EXTERN_CONFIG(bool, Replay_Debug_SingleThreadedCompilation);
 RDOC_DEBUG_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing, false,
                   "Every command buffer is submitted and fully flushed to the GPU, to narrow down "
                   "the source of problems.");
-RDOC_DEBUG_CONFIG(bool, D3D12_Debug_RTOverlay, false, "Add some RT tracking to the overlay.");
-RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+RDOC_DEBUG_CONFIG(bool, D3D12_Debug_RT_Overlay, false, "Add some RT tracking to the overlay.");
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 WRAPPED_POOL_INST(WrappedID3D12Device);
 
@@ -2441,7 +2441,7 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         rdcstr overlayText =
             RenderDoc::Inst().GetOverlayText(RDCDriver::D3D12, devWnd, m_FrameCounter, 0);
 
-        if(D3D12_Debug_RTOverlay() && m_UsedRT)
+        if(D3D12_Debug_RT_Overlay() && m_UsedRT)
         {
           ASStats blasStats = {}, tlasStats = {};
 
@@ -3952,7 +3952,7 @@ bool WrappedID3D12Device::Serialise_CreateAS(SerialiserType &ser, ID3D12Resource
     {
       GetResourceManager()->AddLiveResource(asId, accStructAtOffset);
 
-      if(D3D12_Debug_RTAuditing())
+      if(D3D12_Debug_RT_Auditing())
       {
         RDCLOG("Creating %s AS %s at %s + %llu (%llu bytes): %llx remapped to %llx",
                type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ? "blas" : "tlas",
@@ -4011,7 +4011,7 @@ void WrappedID3D12Device::CreateAS(ID3D12Resource *pResource, UINT64 resourceOff
   {
     D3D12ResourceRecord *record = as->GetResourceRecord();
 
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       RDCLOG("Creating %s at %s + %llx (%llx)", ToStr(as->GetResourceID()).c_str(),
              ToStr(GetResID(pResource)).c_str(), resourceOffset, as->GetVirtualAddress());

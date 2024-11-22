@@ -39,7 +39,7 @@ RDOC_EXTERN_CONFIG(bool, Replay_Debug_SingleThreadedCompilation);
 RDOC_DEBUG_CONFIG(bool, D3D12_Experimental_EnableRTSupport, false,
                   "Enable support for experimental DXR support");
 
-RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 static RDResult DeferredPipelineCompile(ID3D12Device *device,
                                         const D3D12_GRAPHICS_PIPELINE_STATE_DESC &Descriptor,
@@ -1326,7 +1326,7 @@ bool WrappedID3D12Device::Serialise_DynamicDescriptorWrite(SerialiserType &ser,
       RDCASSERT(desc.GetType() != D3D12DescriptorType::Undefined);
 
       // to remove any ray query work, force AS descriptors to NULL
-      if(D3D12_Debug_RTAuditing() && desc.GetType() == D3D12DescriptorType::SRV)
+      if(D3D12_Debug_RT_Auditing() && desc.GetType() == D3D12DescriptorType::SRV)
       {
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = desc.GetSRV();
         if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE)

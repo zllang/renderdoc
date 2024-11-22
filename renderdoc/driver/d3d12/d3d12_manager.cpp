@@ -37,23 +37,23 @@
 
 #include "data/hlsl/hlsl_cbuffers.h"
 
-RDOC_CONFIG(uint32_t, D3D12_Debug_RTIndirectEstimateOverride, 0,
+RDOC_CONFIG(uint32_t, D3D12_Debug_RT_IndirectEstimateOverride, 0,
             "Override how many bytes are reserved for shader tables in each indirect ray dispatch");
-RDOC_CONFIG(uint32_t, D3D12_Debug_RTMaxVertexIncrement, 1000,
+RDOC_CONFIG(uint32_t, D3D12_Debug_RT_MaxVertexIncrement, 1000,
             "Amount to add to the API-provided max vertex when building a BLAS with an index "
             "buffer, to account for incorrectly set values by application.");
 RDOC_CONFIG(
-    uint32_t, D3D12_Debug_RTMaxVertexPercentIncrease, 10,
+    uint32_t, D3D12_Debug_RT_MaxVertexPercentIncrease, 10,
     "Percentage increase for the API-provided max vertex when building a BLAS with an index "
     "buffer, to account for incorrectly set values by application.");
-RDOC_CONFIG(uint32_t, D3D12_Debug_RTASCacheThreshold, 5000,
+RDOC_CONFIG(uint32_t, D3D12_Debug_RT_ASCacheThreshold, 5000,
             "How many milliseconds to wait before caching an AS to disk if it has been unmodified "
             "for that long");
-RDOC_CONFIG(bool, D3D12_Debug_RTAuditing, false, "Audit RT work during capture and replay.");
+RDOC_CONFIG(bool, D3D12_Debug_RT_Auditing, false, "Audit RT work during capture and replay.");
 
 // batch 50 at a time, if we have one check per frame this would cache 5000 BLASs in 100 frames
 // which is a reasonable background pace
-RDOC_CONFIG(uint32_t, D3D12_Debug_RTASCacheBatchSize, 50,
+RDOC_CONFIG(uint32_t, D3D12_Debug_RT_ASCacheBatchSize, 50,
             "The maximum number of ASs to cache to disk in a single batch (batch processing "
             "happens at indeterminate intervals but no more than once per submission");
 
@@ -1006,8 +1006,8 @@ void D3D12RTManager::CheckASCaching()
 
   SCOPED_LOCK(m_ASBuildDataLock);
 
-  const uint32_t ageThreshold = D3D12_Debug_RTASCacheThreshold();
-  const size_t maxCacheBatch = D3D12_Debug_RTASCacheBatchSize();
+  const uint32_t ageThreshold = D3D12_Debug_RT_ASCacheThreshold();
+  const size_t maxCacheBatch = D3D12_Debug_RT_ASCacheBatchSize();
 
   // see if any AS builds are finished and old enough that we should flush them to disk.
   // to avoid doing too much work at a time we do these in batches of up to N. They're pushed in
@@ -1068,7 +1068,7 @@ void D3D12RTManager::CheckASCaching()
   {
     ASBuildData *buildData = m_InMemASBuildDatas[i];
 
-    if(D3D12_Debug_RTAuditing())
+    if(D3D12_Debug_RT_Auditing())
     {
       RDCDEBUG("Flushing AS build data of size %llu to disk", buildData->buffer->Size());
     }
@@ -1216,7 +1216,7 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
 
   ret.resources.readbackBuffer = NULL;
 
-  if(IsReplayMode(m_wrappedDevice->GetState()) && D3D12_Debug_RTAuditing())
+  if(IsReplayMode(m_wrappedDevice->GetState()) && D3D12_Debug_RT_Auditing())
   {
     m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
                                D3D12GpuBufferHeapMemoryFlag::Default, patchDataSize * 2,
@@ -1423,8 +1423,8 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   // in the largest TLAS, multiplied by the largest local root signature size.
   uint32_t patchDataSize = 20 * 1024 * 1024 * MaxCommandCount;
 
-  if(D3D12_Debug_RTIndirectEstimateOverride() > 0)
-    patchDataSize = RDCMAX(patchDataSize, D3D12_Debug_RTIndirectEstimateOverride());
+  if(D3D12_Debug_RT_IndirectEstimateOverride() > 0)
+    patchDataSize = RDCMAX(patchDataSize, D3D12_Debug_RT_IndirectEstimateOverride());
 
   m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::DefaultHeapWithUav,
                              D3D12GpuBufferHeapMemoryFlag::Default, patchDataSize,
@@ -1803,8 +1803,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           uint32_t untrustedVertexCount = desc.Triangles.VertexCount;
           uint32_t estimatedVertexCount =
               untrustedVertexCount +
-              (untrustedVertexCount / 100) * D3D12_Debug_RTMaxVertexPercentIncrease() +
-              D3D12_Debug_RTMaxVertexIncrement();
+              (untrustedVertexCount / 100) * D3D12_Debug_RT_MaxVertexPercentIncrease() +
+              D3D12_Debug_RT_MaxVertexIncrement();
 
           RDCASSERT(vbSize >= desc.Triangles.VertexBuffer.StrideInBytes * untrustedVertexCount);
 
@@ -1922,8 +1922,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           uint32_t untrustedVertexCount = desc.Triangles.VertexCount;
           uint32_t estimatedVertexCount =
               untrustedVertexCount +
-              (untrustedVertexCount / 100) * D3D12_Debug_RTMaxVertexPercentIncrease() +
-              D3D12_Debug_RTMaxVertexIncrement();
+              (untrustedVertexCount / 100) * D3D12_Debug_RT_MaxVertexPercentIncrease() +
+              D3D12_Debug_RT_MaxVertexIncrement();
 
           vbSize = RDCMIN(vbSize, desc.Triangles.VertexBuffer.StrideInBytes * estimatedVertexCount);
 

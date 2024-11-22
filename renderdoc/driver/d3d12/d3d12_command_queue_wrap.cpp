@@ -28,7 +28,7 @@
 #include "d3d12_resources.h"
 
 RDOC_EXTERN_CONFIG(bool, D3D12_Debug_SingleSubmitFlushing);
-RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RTAuditing);
+RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 template <typename SerialiserType>
 bool WrappedID3D12CommandQueue::Serialise_UpdateTileMappings(
@@ -492,12 +492,12 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
 
         ID3D12CommandList *list = Unwrap(ppCommandLists[i]);
         real->ExecuteCommandLists(1, &list);
-        if(D3D12_Debug_SingleSubmitFlushing() || D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_SingleSubmitFlushing() || D3D12_Debug_RT_Auditing())
           m_pDevice->GPUSync();
 
         BakedCmdListInfo &info = m_Cmd.m_BakedCmdListInfo[cmd];
 
-        if(D3D12_Debug_RTAuditing())
+        if(D3D12_Debug_RT_Auditing())
         {
           for(auto it = info.m_patchRaytracingInfo.begin(); it != info.m_patchRaytracingInfo.end();
               ++it)
@@ -843,7 +843,7 @@ void WrappedID3D12CommandQueue::ExecuteCommandListsInternal(UINT NumCommandLists
       WrappedID3D12GraphicsCommandList *wrapped =
           (WrappedID3D12GraphicsCommandList *)(ppCommandLists[i]);
 
-      if(D3D12_Debug_RTAuditing())
+      if(D3D12_Debug_RT_Auditing())
       {
         RDCLOG("Submit-callbacks for %s", ToStr(wrapped->GetResourceID()).c_str());
       }
