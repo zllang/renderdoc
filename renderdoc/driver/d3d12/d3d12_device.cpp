@@ -3346,7 +3346,7 @@ void WrappedID3D12Device::AddForcedReference(D3D12ResourceRecord *record)
 {
   {
     SCOPED_LOCK(m_ForcedReferencesLock);
-    m_ForcedReferences.push_back(record);
+    m_ForcedReferences.insert(record);
   }
 
   // in case we're currently capturing, immediately consider the resource as referenced. If we're
@@ -3368,7 +3368,7 @@ void WrappedID3D12Device::ReleaseResource(ID3D12DeviceChild *res)
 
   {
     SCOPED_LOCK(m_ForcedReferencesLock);
-    m_ForcedReferences.removeOne(GetRecord(res));
+    m_ForcedReferences.erase(GetRecord(res));
   }
 
   {

@@ -585,7 +585,7 @@ private:
   rdcarray<WrappedID3D12CommandQueue *> m_RefQueues;
   rdcarray<ID3D12Resource *> m_RefBuffers;
 
-  rdcarray<D3D12ResourceRecord *> m_ForcedReferences;
+  std::unordered_set<D3D12ResourceRecord *> m_ForcedReferences;
   Threading::CriticalSection m_ForcedReferencesLock;
   bool m_HaveSeenASBuild = false;
   Intervals<ResourceId> m_ASDebugTracking;
@@ -598,7 +598,9 @@ private:
 
     {
       SCOPED_LOCK(m_ForcedReferencesLock);
-      ret = m_ForcedReferences;
+      ret.reserve(m_ForcedReferences.size());
+      for(auto it = m_ForcedReferences.begin(); it != m_ForcedReferences.end(); ++it)
+        ret.push_back(*it);
     }
 
     return ret;
