@@ -711,14 +711,7 @@ D3D12Descriptor *DescriptorFromPortableHandle(D3D12ResourceManager *manager, Por
 
 D3D12RTManager::D3D12RTManager(WrappedID3D12Device *device,
                                D3D12GpuBufferAllocator &gpuBufferAllocator)
-    : m_wrappedDevice(device),
-      m_cmdList(NULL),
-      m_cmdAlloc(NULL),
-      m_cmdQueue(NULL),
-      m_gpuFence(NULL),
-      m_gpuSyncHandle(NULL),
-      m_gpuSyncCounter(0u),
-      m_GPUBufferAllocator(gpuBufferAllocator)
+    : m_wrappedDevice(device), m_GPUBufferAllocator(gpuBufferAllocator)
 {
 }
 
@@ -726,67 +719,9 @@ void D3D12RTManager::CreateInternalResources()
 {
   if(m_wrappedDevice)
   {
-    ID3D12Device *realDevice = m_wrappedDevice->GetReal();
-
-    if(realDevice)
-    {
-      HRESULT result = realDevice->CreateCommandAllocator(
-          D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator), (void **)&m_cmdAlloc);
-
-      if(!SUCCEEDED(result))
-        RDCERR("D3D12 Command allocator creation failed with error %s", ToStr(result).c_str());
-
-      if(m_cmdAlloc != NULL)
-      {
-        ID3D12GraphicsCommandList *cmd = NULL;
-        result = realDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_cmdAlloc, NULL,
-                                               __uuidof(ID3D12GraphicsCommandList), (void **)(&cmd));
-
-        if(!SUCCEEDED(result))
-          RDCERR("D3D12 Command list creation failed with error %s", ToStr(result).c_str());
-
-        m_cmdList = (ID3D12GraphicsCommandListX *)cmd;
-        m_cmdList->Close();
-      }
-
-      D3D12_COMMAND_QUEUE_DESC cmdQueueDesc;
-      cmdQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-      cmdQueueDesc.NodeMask = 0;
-      cmdQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-      cmdQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-      result = realDevice->CreateCommandQueue(&cmdQueueDesc, __uuidof(ID3D12CommandQueue),
-                                              (void **)&m_cmdQueue);
-
-      if(!SUCCEEDED(result))
-        RDCERR("D3D12 Command queue creation failed with error %s", ToStr(result).c_str());
-
-      result = realDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence),
-                                       (void **)&m_gpuFence);
-
-      if(!SUCCEEDED(result))
-        RDCERR("D3D12 fence creation failed with error %s", ToStr(result).c_str());
-
-      m_gpuSyncHandle = ::CreateEvent(NULL, FALSE, FALSE, NULL);
-    }
-
     m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::CustomHeapWithUavCpuAccess,
                                D3D12GpuBufferHeapMemoryFlag::Default, 16, 256, &ASQueryBuffer);
   }
-}
-
-void D3D12RTManager::SyncGpuForRtWork()
-{
-  m_gpuSyncCounter++;
-
-  HRESULT hr = m_cmdQueue->Signal(m_gpuFence, m_gpuSyncCounter);
-  if(!SUCCEEDED(hr))
-    RDCERR("Command queue fence signaling failed with error %s ", ToStr(hr).c_str());
-
-  hr = m_gpuFence->SetEventOnCompletion(m_gpuSyncCounter, m_gpuSyncHandle);
-  if(!SUCCEEDED(hr))
-    RDCERR("Fence completion event signaling failed with error %s ", ToStr(hr).c_str());
-
-  WaitForSingleObject(m_gpuSyncHandle, 10000);
 }
 
 void D3D12RTManager::InitInternalResources()

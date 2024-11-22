@@ -1188,20 +1188,11 @@ public:
 
   void CreateInternalResources();
 
-  ID3D12GraphicsCommandListX *GetCmd() const { return m_cmdList; }
-  ID3D12CommandAllocator *GetCmdAlloc() const { return m_cmdAlloc; }
-  ID3D12CommandQueue *GetCmdQueue() const { return m_cmdQueue; }
-  ID3D12Fence *GetFence() const { return m_gpuFence; }
   D3D12AccStructPatchInfo GetAccStructPatchInfo() const { return m_accStructPatchInfo; }
-  void SyncGpuForRtWork();
 
   ~D3D12RTManager()
   {
     SAFE_RELEASE(ASSerialiseBuffer);
-    SAFE_RELEASE(m_cmdList);
-    SAFE_RELEASE(m_cmdAlloc);
-    SAFE_RELEASE(m_cmdQueue);
-    SAFE_RELEASE(m_gpuFence);
     SAFE_RELEASE(m_accStructPatchInfo.m_rootSignature);
     SAFE_RELEASE(m_accStructPatchInfo.m_pipeline);
     SAFE_RELEASE(m_TLASCopyingData.ArgsBuffer);
@@ -1289,12 +1280,6 @@ private:
 
   PerformanceTimer m_Timestamp;
 
-  ID3D12GraphicsCommandListX *m_cmdList;
-  ID3D12CommandAllocator *m_cmdAlloc;
-  ID3D12CommandQueue *m_cmdQueue;
-  ID3D12Fence *m_gpuFence;
-  HANDLE m_gpuSyncHandle;
-  UINT64 m_gpuSyncCounter;
   D3D12AccStructPatchInfo m_accStructPatchInfo;
 
   Threading::CriticalSection m_LookupBufferLock;
