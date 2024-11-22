@@ -249,9 +249,12 @@ QString ReplayManager::GetCurrentProcessingTag()
 
 void ReplayManager::AsyncInvoke(const rdcstr &tag, ReplayManager::InvokeCallback m)
 {
-  QString qtag(tag);
+  QString qtag;
 
+  if(!tag.empty())
   {
+    qtag = tag;
+
     QMutexLocker autolock(&m_RenderLock);
     for(int i = 0; i < m_RenderQueue.count();)
     {
