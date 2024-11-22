@@ -1530,8 +1530,12 @@ void WrappedID3D12GraphicsCommandList::CopyRaytracingAccelerationStructure(
     _In_ D3D12_GPU_VIRTUAL_ADDRESS SourceAccelerationStructureData,
     _In_ D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE Mode)
 {
+  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE compactBlockedMode = Mode;
+  if(compactBlockedMode == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT)
+    compactBlockedMode = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE_CLONE;
+
   SERIALISE_TIME_CALL(m_pList4->CopyRaytracingAccelerationStructure(
-      DestAccelerationStructureData, SourceAccelerationStructureData, Mode));
+      DestAccelerationStructureData, SourceAccelerationStructureData, compactBlockedMode));
 
   if(IsCaptureMode(m_State))
   {
