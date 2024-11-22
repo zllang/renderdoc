@@ -721,6 +721,13 @@ void D3D12RTManager::CreateInternalResources()
   {
     m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::CustomHeapWithUavCpuAccess,
                                D3D12GpuBufferHeapMemoryFlag::Default, 16, 256, &ASQueryBuffer);
+
+    if(D3D12_Debug_RT_Auditing())
+    {
+      m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
+                                 D3D12GpuBufferHeapMemoryFlag::Default, 256, 256,
+                                 &PostbuildReadbackBuffer);
+    }
   }
 }
 

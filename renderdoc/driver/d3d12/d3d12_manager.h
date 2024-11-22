@@ -1257,6 +1257,9 @@ public:
   // temp buffer for AS serialise copies
   D3D12GpuBuffer *ASSerialiseBuffer = NULL;
 
+  // readback buffer during auditing for evaluating postbuild information
+  D3D12GpuBuffer *PostbuildReadbackBuffer = NULL;
+
   double GetCurrentASTimestamp() { return m_Timestamp.GetMilliseconds(); }
 
   void Verify(PatchedRayDispatch &r);

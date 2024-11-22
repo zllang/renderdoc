@@ -2091,6 +2091,17 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
       {
         desc.DestAccelerationStructureData = as->GetVirtualAddress();
 
+        UINT numPostBuilds = 0;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postDesc = {};
+        if(GetRTManager()->PostbuildReadbackBuffer)
+        {
+          postDesc.DestBuffer = GetRTManager()->PostbuildReadbackBuffer->Address();
+          postDesc.InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+          numPostBuilds++;
+        }
+
+        list->BuildRaytracingAccelerationStructure(&desc, numPostBuilds, &postDesc);
+
         if(D3D12_Debug_RT_Auditing())
         {
           RDCLOG("Apply TLAS - Rebuilding %s to %llx",
@@ -2105,9 +2116,25 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
               RDCERR("TLAS child %u did not get built with initial contents");
             }
           }
-        }
 
-        list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
+          if(GetRTManager()->PostbuildReadbackBuffer)
+          {
+            m_Device->CloseInitialStateList();
+            m_Device->ExecuteLists(NULL, true);
+            m_Device->FlushLists(true);
+
+            uint64_t *curSize = (uint64_t *)GetRTManager()->PostbuildReadbackBuffer->Map();
+
+            if(*curSize > as->Size())
+            {
+              RDCERR("BLAS built larger than recorded size - overlap checks will be incorrect");
+            }
+
+            GetRTManager()->PostbuildReadbackBuffer->Unmap();
+
+            list = m_Device->GetInitialStateList();
+          }
+        }
       }
       // if we haven't cached it, build and cache the AS then copy into place
       else if(data.cachedBuiltAS == NULL)
@@ -2116,14 +2143,23 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
                                    D3D12GpuBufferHeapMemoryFlag::Default,
                                    prebuild.ResultDataMaxSizeInBytes, 256, &data.cachedBuiltAS);
 
-        desc.DestAccelerationStructureData = data.cachedBuiltAS->Address();
-        list->BuildRaytracingAccelerationStructure(&desc, 0, NULL);
+        ResourceId origId = GetOriginalID(as->GetResourceID());
 
-        if(D3D12_Debug_RT_Auditing())
+        UINT numPostBuilds = 0;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC postDesc[2] = {};
+        if(GetRTManager()->PostbuildReadbackBuffer)
         {
-          RDCLOG("Apply BLAS - Caching %s to %llx", ToStr(GetOriginalID(as->GetResourceID())).c_str(),
-                 desc.DestAccelerationStructureData);
+          postDesc[0].DestBuffer = GetRTManager()->PostbuildReadbackBuffer->Address();
+          postDesc[0].InfoType = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;
+          numPostBuilds++;
+          postDesc[1].DestBuffer = GetRTManager()->PostbuildReadbackBuffer->Address() + 8;
+          postDesc[1].InfoType =
+              D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_COMPACTED_SIZE;
+          numPostBuilds++;
         }
+
+        desc.DestAccelerationStructureData = data.cachedBuiltAS->Address();
+        list->BuildRaytracingAccelerationStructure(&desc, numPostBuilds, postDesc);
 
         list->ResourceBarrier(1, &barrier);
 
@@ -2134,9 +2170,29 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
 
         if(D3D12_Debug_RT_Auditing())
         {
-          RDCLOG("Apply BLAS - Copying %s from %llx to %llx",
-                 ToStr(GetOriginalID(as->GetResourceID())).c_str(),
+          RDCLOG("Apply BLAS - Caching %s to %llx then copying to %llx", ToStr(origId).c_str(),
                  desc.DestAccelerationStructureData, as->GetVirtualAddress());
+
+          if(GetRTManager()->PostbuildReadbackBuffer)
+          {
+            m_Device->CloseInitialStateList();
+            m_Device->ExecuteLists(NULL, true);
+            m_Device->FlushLists(true);
+
+            uint64_t *curSize = (uint64_t *)GetRTManager()->PostbuildReadbackBuffer->Map();
+
+            if(*curSize > as->Size())
+            {
+              RDCERR(
+                  "BLAS built is %llu which is larger than recorded size %llu (compacted size is "
+                  "%llu) - overlap checks will be incorrect",
+                  curSize[0], as->Size(), curSize[1]);
+            }
+
+            GetRTManager()->PostbuildReadbackBuffer->Unmap();
+
+            list = m_Device->GetInitialStateList();
+          }
         }
 
         as->seenReplayBuild = true;
