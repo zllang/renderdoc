@@ -2,7 +2,9 @@ set(sources
     nv_counter_enumerator.cpp
     nv_counter_enumerator.h
     nv_gl_counters.h
-    nv_vk_counters.h)
+    nv_vk_counters.h
+    nv_aftermath.h
+    nv_aftermath.cpp)
 
 if(ENABLE_GL OR ENABLE_GLES)
     set(sources_gl nv_gl_counters.cpp)
