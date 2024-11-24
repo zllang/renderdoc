@@ -3,7 +3,7 @@ set(sources
     nv_aftermath.cpp)
 
 # only include counters on normal windows/linux platforms, others just get aftermath stubs
-if(NOT ANDROID AND NOT ENABLE_APPLE)
+if(NOT ANDROID AND NOT APPLE)
     list(APPEND sources
         nv_counter_enumerator.cpp
         nv_counter_enumerator.h
