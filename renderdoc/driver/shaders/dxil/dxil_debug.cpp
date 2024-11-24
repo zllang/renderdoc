@@ -4988,6 +4988,7 @@ void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
   if(!ThreadState::ThreadsAreDiverged(m_Workgroups))
     return;
 
+  bool anyActive = false;
   for(size_t i = 0; i < m_Workgroups.size(); i++)
   {
     if(!activeMask[i])
@@ -4995,6 +4996,13 @@ void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
     // Run any thread that is not in a uniform block
     // Stop any thread that is not in a uniform block
     activeMask[i] = !m_Workgroups[i].InUniformBlock();
+    anyActive |= activeMask[i];
+  }
+  if(!anyActive)
+  {
+    RDCERR("No active threads, forcing all unfinished threads to run");
+    for(size_t i = 0; i < m_Workgroups.size(); i++)
+      activeMask[i] = !m_Workgroups[i].Finished();
   }
   return;
 }
