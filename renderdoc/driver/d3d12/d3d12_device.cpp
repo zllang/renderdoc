@@ -2726,6 +2726,7 @@ void WrappedID3D12Device::StartFrameCapture(DeviceOwnedWindow devWnd)
 
     // wait until we've synced all queues to check for these
     GetResourceManager()->GetRTManager()->TickASManagement();
+    GetResourceManager()->GetRTManager()->FlushDiskCacheThread();
 
     GetResourceManager()->PrepareInitialContents();
 
@@ -4422,8 +4423,6 @@ void WrappedID3D12Device::CreateInternalResources()
       }
     }
   }
-
-  GetResourceManager()->GetRTManager()->CreateInternalResources();
 
   // we don't want replay-only shaders added in WrappedID3D12Shader to pollute the list of resources
   WrappedID3D12Shader::InternalResources(true);

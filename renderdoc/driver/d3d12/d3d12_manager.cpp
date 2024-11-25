@@ -715,24 +715,46 @@ D3D12RTManager::D3D12RTManager(WrappedID3D12Device *device,
 {
 }
 
-void D3D12RTManager::CreateInternalResources()
+D3D12RTManager::~D3D12RTManager()
 {
-  if(m_wrappedDevice)
-  {
-    m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::CustomHeapWithUavCpuAccess,
-                               D3D12GpuBufferHeapMemoryFlag::Default, 16, 256, &ASQueryBuffer);
+  SAFE_RELEASE(ASSerialiseBuffer);
+  SAFE_RELEASE(m_accStructPatchInfo.m_rootSignature);
+  SAFE_RELEASE(m_accStructPatchInfo.m_pipeline);
+  SAFE_RELEASE(m_TLASCopyingData.ArgsBuffer);
+  SAFE_RELEASE(m_TLASCopyingData.PreparePipe);
+  SAFE_RELEASE(m_TLASCopyingData.CopyPipe);
+  SAFE_RELEASE(m_TLASCopyingData.RootSig);
+  SAFE_RELEASE(m_TLASCopyingData.IndirectSig);
+  SAFE_RELEASE(m_RayPatchingData.descPatchRootSig);
+  SAFE_RELEASE(m_RayPatchingData.descPatchPipe);
+  SAFE_RELEASE(m_RayPatchingData.indirectComSig);
+  SAFE_RELEASE(m_RayPatchingData.indirectPrepPipe);
+  SAFE_RELEASE(m_RayPatchingData.indirectPrepRootSig);
+  SAFE_RELEASE(m_TimerQueryHeap);
 
-    if(D3D12_Debug_RT_Auditing())
-    {
-      m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
-                                 D3D12GpuBufferHeapMemoryFlag::Default, 256, 256,
-                                 &PostbuildReadbackBuffer);
-    }
+  if(m_ASCacheThread)
+  {
+    Atomic::Dec32(&m_ASCacheThreadRunning);
+    // wake the thread so it can notice that the running flag is zero'd
+    m_ASCacheThreadSemaphore->Wake(1);
+    Threading::JoinThread(m_ASCacheThread);
+    Threading::CloseThread(m_ASCacheThread);
+    m_ASCacheThreadSemaphore->Destroy();
   }
 }
 
 void D3D12RTManager::InitInternalResources()
 {
+  m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::CustomHeapWithUavCpuAccess,
+                             D3D12GpuBufferHeapMemoryFlag::Default, 16, 256, &ASQueryBuffer);
+
+  if(D3D12_Debug_RT_Auditing())
+  {
+    m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::ReadBackHeap,
+                               D3D12GpuBufferHeapMemoryFlag::Default, 256, 256,
+                               &PostbuildReadbackBuffer);
+  }
+
   if(IsReplayMode(m_wrappedDevice->GetState()))
   {
     InitReplayBlasPatchingResources();
@@ -1011,6 +1033,75 @@ void D3D12RTManager::TickASManagement()
   CheckASCaching();
 }
 
+void D3D12RTManager::PushDiskCacheTask(std::function<void()> task)
+{
+  {
+    SCOPED_LOCK(m_ASCacheThreadLock);
+
+    // create thread lazily if we need it and it's not already here
+    if(!m_ASCacheThread)
+    {
+      m_ASCacheThreadRunning = 1;
+      m_ASCacheThreadSemaphore = Threading::Semaphore::Create();
+
+      m_ASCacheThread = Threading::CreateThread([this]() {
+        // loop until we shut down
+        while(Atomic::CmpExch32(&m_ASCacheThreadRunning, 1, 1) == 1)
+        {
+          // wait until there's a work item (may be multiple, we process one per loop and may not
+          // actually block here if there's more work waiting)
+          m_ASCacheThreadSemaphore->WaitForWake();
+
+          // grab a task
+          std::function<void()> task;
+          {
+            SCOPED_LOCK(m_ASCacheThreadLock);
+            if(!m_ASCacheTasks.empty())
+            {
+              task = m_ASCacheTasks.front();
+              m_ASCacheTasks.erase(0);
+
+              // consider ourselves active as soon as we have the task before releasing the lock so
+              // there is no period where both the queue is empty and we're not active, but a task is in flight
+              Atomic::Inc32(&m_ASCacheThreadActive);
+            }
+          }
+
+          // run it if we got one
+          if(task)
+          {
+            task();
+            Atomic::Dec32(&m_ASCacheThreadActive);
+          }
+        }
+      });
+    }
+
+    // push a task
+    m_ASCacheTasks.push_back(task);
+  }
+
+  // wake the thread to do one bit of work
+  m_ASCacheThreadSemaphore->Wake(1);
+}
+
+void D3D12RTManager::FlushDiskCacheThread()
+{
+  if(!m_ASCacheThread)
+    return;
+
+  m_ASCacheThreadSemaphore->Wake(1);
+
+  // just spin until the thread is done
+  while(true)
+  {
+    SCOPED_LOCK(m_ASCacheThreadLock);
+    // there may be a task running on the thread even if the queue is empty, ensure the active flag is not set
+    if(m_ASCacheTasks.empty() && Atomic::CmpExch32(&m_ASCacheThreadActive, 0, 0) == 0)
+      return;
+  }
+}
+
 void D3D12RTManager::CheckASCaching()
 {
   double now = m_Timestamp.GetMilliseconds();
@@ -1079,25 +1170,40 @@ void D3D12RTManager::CheckASCaching()
   {
     ASBuildData *buildData = m_InMemASBuildDatas[i];
 
-    if(D3D12_Debug_RT_Auditing())
-    {
-      RDCDEBUG("Flushing AS build data of size %llu to disk", buildData->buffer->Size());
-    }
-
-    // de-interleave positions in geoms here if their stride is greater than vertex format?
-    buildData->filename = StringFormat::Fmt(
+    // grab parameters for the task
+    D3D12GpuBuffer *buf = buildData->buffer;
+    rdcstr filename = StringFormat::Fmt(
         "%s/rdoc_as_%llu_%llu.bin", get_dirname(RenderDoc::Inst().GetCaptureFileTemplate()).c_str(),
         Timing::GetTick(), Threading::GetCurrentID());
-    buildData->bytesOnDisk = buildData->buffer->Size();
-    FileIO::CreateParentDirectory(buildData->filename);
 
+    // immediately update the build data as if the cache has completed. We flush the thread
+    buildData->bytesOnDisk = buildData->buffer->Size();
+    buildData->buffer = NULL;
+    buildData->filename = filename;
+
+    if(D3D12_Debug_RT_Auditing())
     {
-      StreamWriter writer(FileIO::fopen(buildData->filename, FileIO::WriteBinary), Ownership::Stream);
-      writer.Write(buildData->buffer->Map(), buildData->buffer->Size());
+      RDCDEBUG("Flushing AS build data of size %llu to disk", buf->Size());
     }
 
-    buildData->buffer->Unmap();
-    SAFE_RELEASE(buildData->buffer);
+    PushDiskCacheTask([buf, filename]() {
+      FILE *f = FileIO::fopen(filename, FileIO::WriteBinary);
+
+      if(!f)
+      {
+        FileIO::CreateParentDirectory(filename);
+        f = FileIO::fopen(filename, FileIO::WriteBinary);
+      }
+
+      {
+        StreamWriter writer(f, Ownership::Stream);
+        // de-interleave positions in geoms here if their stride is greater than vertex format to save space?
+        writer.Write(buf->Map(), buf->Size());
+      }
+
+      buf->Unmap();
+      buf->Release();
+    });
 
     m_DiskCachedASBuildDatas.push_back(buildData);
   }
@@ -3374,7 +3480,13 @@ void ASBuildData::Release()
     SAFE_RELEASE(buffer);
 
     if(!filename.empty())
-      FileIO::Delete(filename);
+    {
+      if(rtManager)
+      {
+        rdcstr fileToDelete = filename;
+        rtManager->PushDiskCacheTask([fileToDelete]() { FileIO::Delete(fileToDelete); });
+      }
+    }
 
     delete this;
   }

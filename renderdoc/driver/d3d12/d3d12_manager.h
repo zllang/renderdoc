@@ -1213,30 +1213,11 @@ class D3D12RTManager
 {
 public:
   D3D12RTManager(WrappedID3D12Device *device, D3D12GpuBufferAllocator &gpuBufferAllocator);
-
-  void CreateInternalResources();
-
-  D3D12AccStructPatchInfo GetAccStructPatchInfo() const { return m_accStructPatchInfo; }
-
-  ~D3D12RTManager()
-  {
-    SAFE_RELEASE(ASSerialiseBuffer);
-    SAFE_RELEASE(m_accStructPatchInfo.m_rootSignature);
-    SAFE_RELEASE(m_accStructPatchInfo.m_pipeline);
-    SAFE_RELEASE(m_TLASCopyingData.ArgsBuffer);
-    SAFE_RELEASE(m_TLASCopyingData.PreparePipe);
-    SAFE_RELEASE(m_TLASCopyingData.CopyPipe);
-    SAFE_RELEASE(m_TLASCopyingData.RootSig);
-    SAFE_RELEASE(m_TLASCopyingData.IndirectSig);
-    SAFE_RELEASE(m_RayPatchingData.descPatchRootSig);
-    SAFE_RELEASE(m_RayPatchingData.descPatchPipe);
-    SAFE_RELEASE(m_RayPatchingData.indirectComSig);
-    SAFE_RELEASE(m_RayPatchingData.indirectPrepPipe);
-    SAFE_RELEASE(m_RayPatchingData.indirectPrepRootSig);
-    SAFE_RELEASE(m_TimerQueryHeap);
-  }
+  ~D3D12RTManager();
 
   void InitInternalResources();
+
+  D3D12AccStructPatchInfo GetAccStructPatchInfo() const { return m_accStructPatchInfo; }
 
   uint32_t RegisterLocalRootSig(const D3D12RootSignature &sig);
 
@@ -1277,6 +1258,8 @@ public:
   void AddPendingASBuilds(ID3D12Fence *fence, UINT64 waitValue,
                           const rdcarray<std::function<bool()>> &callbacks);
   void TickASManagement();
+  void PushDiskCacheTask(std::function<void()> task);
+  void FlushDiskCacheThread();
 
   void ResizeSerialisationBuffer(UINT64 ScratchDataSizeInBytes);
 
@@ -1358,6 +1341,13 @@ private:
     ID3D12PipelineState *indirectPrepPipe = NULL;
     ID3D12CommandSignature *indirectComSig = NULL;
   } m_RayPatchingData;
+
+  Threading::CriticalSection m_ASCacheThreadLock;
+  int32_t m_ASCacheThreadRunning = 0;
+  int32_t m_ASCacheThreadActive = 0;
+  Threading::Semaphore *m_ASCacheThreadSemaphore = NULL;
+  Threading::ThreadHandle m_ASCacheThread = {};
+  rdcarray<std::function<void()>> m_ASCacheTasks;
 
   ID3D12QueryHeap *m_TimerQueryHeap = NULL;
   D3D12GpuBuffer *m_TimerReadbackBuffer = NULL;
