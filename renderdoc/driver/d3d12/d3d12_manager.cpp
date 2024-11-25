@@ -3437,6 +3437,13 @@ rdcarray<ResourceId> D3D12ResourceManager::InitialContentResources()
     if(aData.buildData && bData.buildData)
       return aData.buildData->Type > bData.buildData->Type;
 
+    // serialise ASs first to allow reallocation.
+    // since the enum is serialised we couldn't change the order so we do this by hand
+    int aASSort = aData.resourceType == Resource_AccelerationStructure ? 0 : 1;
+    int bASSort = bData.resourceType == Resource_AccelerationStructure ? 0 : 1;
+    if(aASSort != bASSort)
+      return aASSort < bASSort;
+
     return aData.resourceType < bData.resourceType;
   });
   return resources;

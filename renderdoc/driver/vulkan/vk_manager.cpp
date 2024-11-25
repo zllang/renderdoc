@@ -1054,6 +1054,13 @@ rdcarray<ResourceId> VulkanResourceManager::InitialContentResources()
         return true;
     }
 
+    // serialise ASs first to allow reallocation.
+    // since the enum is serialised we couldn't change the order so we do this by hand
+    int aASSort = aData.type == eResAccelerationStructureKHR ? 0 : 1;
+    int bASSort = bData.type == eResAccelerationStructureKHR ? 0 : 1;
+    if(aASSort != bASSort)
+      return aASSort < bASSort;
+
     return aData.type < bData.type;
   });
   return resources;
