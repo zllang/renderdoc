@@ -859,28 +859,37 @@ private:
 
     bool SubAllocationInRange(D3D12_GPU_VIRTUAL_ADDRESS gpuAddress) const
     {
-      if(m_resourceGpuAddressRange.start <= gpuAddress &&
-         gpuAddress < m_resourceGpuAddressRange.realEnd)
-
-      {
-        return true;
-      }
-
-      return false;
+      return (m_resourceGpuAddressRange.start <= gpuAddress &&
+              gpuAddress < m_resourceGpuAddressRange.realEnd);
     }
 
-    bool Free(D3D12_GPU_VIRTUAL_ADDRESS gpuAddress)
+    bool Free(D3D12_GPU_VIRTUAL_ADDRESS gpuAddress, uint64_t size, uint64_t alignment)
     {
       uint64_t offset = gpuAddress - m_resourceGpuAddressRange.start;
       auto iter = m_subRanges.find(offset);
       if(iter != m_subRanges.end() && iter->value() == D3D12SubRangeFlag::Used)
       {
+        uint64_t iterOffset = iter->start();
+        uint64_t alignedOffset = iterOffset;
+        if(alignment)
+          alignedOffset = AlignUp(m_resourceGpuAddressRange.start + alignedOffset, alignment) -
+                          m_resourceGpuAddressRange.start;
+
+        uint64_t padding = alignedOffset - iterOffset;
+
+        m_bytesFree += size + padding;
         iter->setValue(D3D12SubRangeFlag::Free);
         // Merging will only occur if the adjacent sub-ranges are also free
         iter->mergeLeft();
+        m_lastFree = iter;
+
         ++iter;
         if(iter != m_subRanges.end())
+        {
           iter->mergeLeft();
+          m_lastFree = iter;
+        }
+
         return true;
       }
       return false;
@@ -890,31 +899,35 @@ private:
     {
       uint64_t resourceWidth = m_resourceGpuAddressRange.realEnd - m_resourceGpuAddressRange.start;
 
-      for(auto iter = m_subRanges.begin(); iter != m_subRanges.end(); ++iter)
+      for(auto iter = m_lastFree; iter != m_subRanges.end(); ++iter)
       {
         if(iter->value() == D3D12SubRangeFlag::Free)
         {
-          uint64_t addr = iter->start() + m_resourceGpuAddressRange.start;
-          uint64_t end = RDCMIN(iter->finish(), resourceWidth) + m_resourceGpuAddressRange.start;
-          uint64_t alignedAddr = alignment != 0 ? AlignUp(addr, alignment) : addr;
+          uint64_t freeRangeStart = iter->start();
+          uint64_t freeRangeEnd = RDCMIN(iter->finish(), resourceWidth);
+          uint64_t alignedStart = freeRangeStart;
 
-          if(alignedAddr < end && size <= (end - alignedAddr))
+          if(alignment)
+            alignedStart = AlignUp(m_resourceGpuAddressRange.start + alignedStart, alignment) -
+                           m_resourceGpuAddressRange.start;
+
+          uint64_t padding = alignedStart - freeRangeStart;
+
+          if(alignedStart < freeRangeEnd && alignedStart + size <= freeRangeEnd)
           {
-            uint64_t offset = alignedAddr - m_resourceGpuAddressRange.start;
-            // Free the extra space from aligning
-            if(alignedAddr > addr)
-            {
-              iter->split(offset);
-            }
-
             iter->setValue(D3D12SubRangeFlag::Used);
-            address = alignedAddr;
+            address = m_resourceGpuAddressRange.start + alignedStart;
             // Split the sub-range if there's extra space beyond this allocation
-            if(size < (end - alignedAddr))
+            if(alignedStart + size < freeRangeEnd)
             {
-              iter->split(offset + size);
+              iter->split(alignedStart + size);
               iter->setValue(D3D12SubRangeFlag::Free);
             }
+
+            m_bytesFree -= size + padding;
+
+            m_lastFree = iter;
+
             return true;
           }
         }
@@ -929,10 +942,12 @@ private:
     };
 
     Intervals<D3D12SubRangeFlag> m_subRanges;
+    Intervals<D3D12SubRangeFlag>::iterator m_lastFree;
     GPUAddressRange m_resourceGpuAddressRange;
     ID3D12Resource *m_resource;
     D3D12_RESOURCE_DESC m_resDesc;
     D3D12_HEAP_TYPE m_heapType;
+    uint64_t m_bytesFree;
   };
 
   class D3D12GpuBufferPool

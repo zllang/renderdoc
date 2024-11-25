@@ -2747,7 +2747,7 @@ bool D3D12GpuBufferAllocator::D3D12GpuBufferResource::ReleaseGpuBufferResource(
 
 D3D12GpuBufferAllocator::D3D12GpuBufferResource::D3D12GpuBufferResource(ID3D12Resource *resource,
                                                                         D3D12_HEAP_TYPE heapType)
-    : m_resource(resource), m_heapType(heapType)
+    : m_resource(resource), m_heapType(heapType), m_subRanges(), m_lastFree(m_subRanges.begin())
 
 {
   if(m_resource)
@@ -2755,6 +2755,7 @@ D3D12GpuBufferAllocator::D3D12GpuBufferResource::D3D12GpuBufferResource(ID3D12Re
     m_resDesc = m_resource->GetDesc();
     m_resourceGpuAddressRange.start = resource->GetGPUVirtualAddress();
     m_resourceGpuAddressRange.realEnd = m_resourceGpuAddressRange.start + m_resDesc.Width;
+    m_bytesFree = m_resDesc.Width;
   }
 }
 
@@ -2774,6 +2775,9 @@ bool D3D12GpuBufferAllocator::D3D12GpuBufferPool::Alloc(WrappedID3D12Device *wra
     D3D12_GPU_VIRTUAL_ADDRESS gpuAddress = 0;
     for(D3D12GpuBufferResource *bufferRes : m_bufferResourceList)
     {
+      if(size > bufferRes->m_bytesFree)
+        continue;
+
       if(bufferRes->SubAlloc(size, alignment, gpuAddress))
       {
         *gpuBuffer = new D3D12GpuBuffer(allocator, m_bufferPoolHeapType,
@@ -2836,7 +2840,7 @@ void D3D12GpuBufferAllocator::D3D12GpuBufferPool::Free(const D3D12GpuBuffer &gpu
       {
         if(bufferRes->SubAllocationInRange(gpuBuffer.Address()))
         {
-          if(!bufferRes->Free(gpuBuffer.Address()))
+          if(!bufferRes->Free(gpuBuffer.Address(), gpuBuffer.Size(), gpuBuffer.Alignment()))
           {
             RDCERR("Invalid address when freeing buffer");
           }
