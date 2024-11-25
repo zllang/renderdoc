@@ -2356,7 +2356,7 @@ HRESULT WrappedID3D12Device::CheckFeatureSupport(D3D12_FEATURE Feature, void *pF
   }
 
   if(dolog)
-    RDCLOG("Checking feature support for %d", Feature);
+    RDCLOG("Checking feature support for %s", ToStr(Feature).c_str());
   HRESULT hr = m_pDevice->CheckFeatureSupport(Feature, pFeatureSupportData, FeatureSupportDataSize);
 
   if(FAILED(hr))
