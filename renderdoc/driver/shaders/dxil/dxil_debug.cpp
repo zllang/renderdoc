@@ -2271,14 +2271,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               const bytebuf &cbufferData = m_GlobalState.constantBlocksData[cbufferIndex];
               const uint32_t bufferSize = (uint32_t)cbufferData.size();
-              const uint32_t maxIndex = bufferSize / 16;
+              const uint32_t maxIndex = AlignUp16(bufferSize) / 16;
               RDCASSERTMSG("Out of bounds cbuffer load", regIndex < maxIndex, regIndex, maxIndex);
               if(regIndex < maxIndex)
               {
-                const byte *data = cbufferData.data() + regIndex * 16;
+                const uint32_t dataOffset = regIndex * 16;
+                const uint32_t byteWidth = 4;
+                const byte *data = cbufferData.data() + dataOffset;
+                const uint32_t numComps = RDCMIN(4U, (bufferSize - dataOffset) / byteWidth);
                 GlobalState::ViewFmt cbufferFmt;
-                cbufferFmt.byteWidth = 4;
-                cbufferFmt.numComps = 4;
+                cbufferFmt.byteWidth = byteWidth;
+                cbufferFmt.numComps = numComps;
                 cbufferFmt.fmt = CompType::Float;
                 cbufferFmt.stride = 16;
 
