@@ -22,8 +22,8 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#include <map>
-#include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "dxil_controlflow.h"
 
@@ -70,12 +70,12 @@ private:
 
   const uint32_t PATH_END = ~0U;
 
-  std::set<uint32_t> m_Blocks;
-  std::map<uint32_t, BlockPath> m_BlockLinks;
+  std::unordered_set<uint32_t> m_Blocks;
+  std::unordered_map<uint32_t, BlockPath> m_BlockLinks;
 
-  std::map<uint32_t, rdcarray<uint32_t>> m_BlockPathLinks;
-  std::set<uint32_t> m_TracedBlocks;
-  std::set<uint32_t> m_CheckedPaths;
+  std::unordered_map<uint32_t, rdcarray<uint32_t>> m_BlockPathLinks;
+  std::unordered_set<uint32_t> m_TracedBlocks;
+  std::unordered_set<uint32_t> m_CheckedPaths;
   rdcarray<BlockPath> m_Paths;
 };
 
@@ -134,8 +134,8 @@ bool ControlFlow::TraceBlockFlow(const uint32_t from, BlockPath &path)
     return true;
   }
   m_TracedBlocks.insert(from);
-  rdcarray<uint32_t> newPath = path;
-  const BlockPath &gotos = m_BlockLinks.at(from);
+  BlockPath newPath = path;
+  const rdcarray<uint32_t> &gotos = m_BlockLinks.at(from);
   for(uint32_t to : gotos)
   {
     newPath.push_back(to);
@@ -147,7 +147,7 @@ bool ControlFlow::TraceBlockFlow(const uint32_t from, BlockPath &path)
 
 bool ControlFlow::BlockInAnyPath(uint32_t block, uint32_t pathIdx, uint32_t startIdx)
 {
-  const rdcarray<uint32_t> &path = m_Paths[pathIdx];
+  const BlockPath &path = m_Paths[pathIdx];
   if(path.size() == 0)
     return false;
 
@@ -172,12 +172,15 @@ bool ControlFlow::BlockInAnyPath(uint32_t block, uint32_t pathIdx, uint32_t star
       continue;
 
     m_CheckedPaths.insert(childPathIdx);
-    const rdcarray<uint32_t> &childPath = m_Paths[childPathIdx];
+    const BlockPath &childPath = m_Paths[childPathIdx];
     uint32_t childPartStartIdx = ~0U;
-    for(childPartStartIdx = 0; childPartStartIdx < childPath.size(); ++childPartStartIdx)
+    for(uint32_t i = 0; i < childPath.size(); ++i)
     {
-      if(childPath[childPartStartIdx] == endNode)
+      if(childPath[i] == endNode)
+      {
+        childPartStartIdx = i;
         break;
+      }
     }
     if(childPartStartIdx != ~0U)
     {
@@ -190,7 +193,7 @@ bool ControlFlow::BlockInAnyPath(uint32_t block, uint32_t pathIdx, uint32_t star
 
 bool ControlFlow::BlockInAllPaths(uint32_t block, uint32_t pathIdx, uint32_t startIdx)
 {
-  const rdcarray<uint32_t> &path = m_Paths[pathIdx];
+  const BlockPath &path = m_Paths[pathIdx];
   if(path.size() == 0)
     return false;
 
@@ -214,13 +217,17 @@ bool ControlFlow::BlockInAllPaths(uint32_t block, uint32_t pathIdx, uint32_t sta
       continue;
 
     m_CheckedPaths.insert(childPathIdx);
-    const rdcarray<uint32_t> &childPath = m_Paths[childPathIdx];
+    const BlockPath &childPath = m_Paths[childPathIdx];
     uint32_t childPartStartIdx = ~0U;
-    for(childPartStartIdx = 0; childPartStartIdx < childPath.size(); ++childPartStartIdx)
+    for(uint32_t i = 0; i < childPath.size(); ++i)
     {
-      if(childPath[childPartStartIdx] == endNode)
+      if(childPath[i] == endNode)
+      {
+        childPartStartIdx = i;
         break;
+      }
     }
+    RDCASSERTNOTEQUAL(childPartStartIdx, ~0U);
     if(!BlockInAllPaths(block, childPathIdx, childPartStartIdx))
       return false;
   }
@@ -241,6 +248,26 @@ void ControlFlow::FindUniformBlocks(rdcarray<uint32_t> &uniformBlocks)
       if(block == PATH_END)
         break;
       m_BlockPathLinks[block].push_back(pathIdx);
+    }
+  }
+
+  // For each path that does not end with PATH_END
+  // append the child path nodes which only have a single path and are not already in the path
+  // This is an optimisation to reduce the amount of recursion required when tracing paths
+  // In particular to help the speed of BlockInAnyPath()
+  for(uint32_t p = 0; p < m_Paths.size(); ++p)
+  {
+    BlockPath &path = m_Paths[p];
+    uint32_t endNode = path[path.size() - 1];
+    while(endNode != PATH_END)
+    {
+      const rdcarray<uint32_t> &gotos = m_BlockLinks.at(endNode);
+      if(gotos.size() > 1)
+        break;
+      endNode = gotos[0];
+      if(path.contains(endNode))
+        break;
+      path.push_back(endNode);
     }
   }
 
