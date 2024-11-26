@@ -4933,10 +4933,18 @@ GlobalState::~GlobalState()
 
 bool ThreadState::ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups)
 {
-  const uint32_t block0 = workgroups[0].m_Block;
-  const uint32_t instr0 = workgroups[0].m_ActiveGlobalInstructionIdx;
-  for(size_t i = 1; i < workgroups.size(); i++)
+  uint32_t block0 = ~0U;
+  uint32_t instr0 = ~0U;
+  for(size_t i = 0; i < workgroups.size(); i++)
   {
+    if(workgroups[i].Finished())
+      continue;
+    if(block0 == ~0U)
+    {
+      block0 = workgroups[i].m_Block;
+      instr0 = workgroups[i].m_ActiveGlobalInstructionIdx;
+      continue;
+    }
     // not in the same basic block
     if(workgroups[i].m_Block != block0)
       return true;
