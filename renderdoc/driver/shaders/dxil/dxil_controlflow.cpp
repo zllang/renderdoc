@@ -359,6 +359,27 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
     }
 
     {
+      // Simple branch
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 2
+      // 2 -> 3
+      // 2 -> 4
+      // 3 -> 4
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 4});
+      DXIL::FindUniformBlocks(inputs, outputs);
+      REQUIRE(3 == outputs.count());
+      REQUIRE(outputs.contains(0U));
+      REQUIRE(outputs.contains(2U));
+      REQUIRE(outputs.contains(4U));
+    }
+    {
       // Finite loop (3 -> 4 -> 5 -> 3)
       // 0 -> 1 -> 3
       // 0 -> 2 -> 3
