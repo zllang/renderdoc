@@ -73,6 +73,9 @@ void CacheSearchDirDebugPaths()
   if(!cachedDebugFilesLookup.empty())
     return;
 
+  if(!RenderDoc::Inst().IsReplayApp())
+    return;
+
   rdcarray<rdcstr> searchPaths = DXBC_Debug_SearchDirPaths();
 
   for(const rdcstr &base : searchPaths)
@@ -1459,7 +1462,8 @@ DXBCContainer::DXBCContainer(const bytebuf &ByteCode, const rdcstr &debugInfoPat
 
   m_ShaderBlob = ByteCode;
 
-  TryFetchSeparateDebugInfo(m_ShaderBlob, debugInfoPath);
+  if(RenderDoc::Inst().IsReplayApp())
+    TryFetchSeparateDebugInfo(m_ShaderBlob, debugInfoPath);
 
   // just for convenience
   byte *data = (byte *)m_ShaderBlob.data();
