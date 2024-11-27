@@ -90,7 +90,7 @@
 #include "d3d12_shader_cache.h"
 
 const uint32_t D3D12_PIXEL_HISTORY_MIN_EVENTS_TO_STORE = 128;
-const uint32_t D3D12_PIXEL_HISTORY_MIN_FRAGMENTS_TO_STORE = 256;
+const uint32_t D3D12_PIXEL_HISTORY_AVG_FRAGMENTS_PER_EVENT = 8;
 
 struct D3D12CopyPixelParams
 {
@@ -2736,7 +2736,7 @@ bool D3D12DebugManager::PixelHistorySetupResources(D3D12PixelHistoryResources &r
   numEvents = RDCMAX(numEvents, D3D12_PIXEL_HISTORY_MIN_EVENTS_TO_STORE);
   uint32_t bufferEventsSize = numEvents * sizeof(D3D12EventInfo);
 
-  uint32_t numFragments = D3D12_PIXEL_HISTORY_MIN_FRAGMENTS_TO_STORE;
+  uint32_t numFragments = numEvents * D3D12_PIXEL_HISTORY_AVG_FRAGMENTS_PER_EVENT;
   uint32_t bufferFragmentsSize = numFragments * sizeof(D3D12PerFragmentInfo);
 
   uint32_t bufferSize = RDCMAX(bufferEventsSize, bufferFragmentsSize);
