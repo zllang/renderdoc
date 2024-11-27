@@ -1439,6 +1439,18 @@ static void AddResourceBind(DXBC::Reflection *refl, const TypeInfo &typeInfo, co
     refl->UAVs.push_back(bind);
 }
 
+const DXIL::EntryPointInterface *Program::GetEntryPointInterface() const
+{
+  RDCASSERT(!m_EntryPointInterfaces.isEmpty());
+  for(size_t e = 0; e < m_EntryPointInterfaces.size(); ++e)
+  {
+    if(m_EntryPoint == m_EntryPointInterfaces[e].name)
+      return &m_EntryPointInterfaces[e];
+  }
+  RDCERR("Couldn't find entry point interface for %s", m_EntryPoint.c_str());
+  return NULL;
+}
+
 rdcarray<ShaderEntryPoint> Program::GetEntryPoints()
 {
   rdcarray<ShaderEntryPoint> ret;

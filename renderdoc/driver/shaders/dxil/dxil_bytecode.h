@@ -1579,6 +1579,7 @@ public:
   void FetchEntryPoint();
   DXBC::Reflection *BuildReflection();
   rdcstr GetDebugStatus();
+  const DXIL::EntryPointInterface *GetEntryPointInterface() const;
   rdcarray<ShaderEntryPoint> GetEntryPoints();
   void FillEntryPointInterfaces();
   size_t GetInstructionCount() const;
