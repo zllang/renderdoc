@@ -2416,6 +2416,7 @@ struct D3D12PixelHistoryPerFragmentCallback : D3D12PixelHistoryCallback
   void PreCloseCommandList(ID3D12GraphicsCommandListX *cmd) {}
   void AliasEvent(uint32_t primary, uint32_t alias) {}
 
+  bool ContainsEvent(uint32_t eid) { return (m_EventIndices.count(eid) > 0); }
   uint32_t GetEventOffset(uint32_t eid)
   {
     auto it = m_EventIndices.find(eid);
@@ -3107,14 +3108,22 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
       uint32_t eid = history[h].eventId;
       if(eventsWithFrags.find(eid) == eventsWithFrags.end())
         continue;
-      uint32_t f = history[h].fragIndex;
-      bool someFragsClipped = (history[h].primitiveID == 1);
-      int32_t primId = fragInfo[perFragmentCB.GetEventOffset(eid) + f].primitiveID;
-      history[h].primitiveID = primId;
-      if(someFragsClipped)
+      if(perFragmentCB.ContainsEvent(eid))
       {
-        discardedPrimsEvents[eid].push_back(primId);
-        primitivesToCheck++;
+        uint32_t f = history[h].fragIndex;
+        bool someFragsClipped = (history[h].primitiveID == 1);
+        int32_t primId = fragInfo[perFragmentCB.GetEventOffset(eid) + f].primitiveID;
+        history[h].primitiveID = primId;
+        if(someFragsClipped)
+        {
+          discardedPrimsEvents[eid].push_back(primId);
+          primitivesToCheck++;
+        }
+      }
+      else
+      {
+        RDCWARN("Failed to find fragment data for event %d", eid);
+        eventsWithFrags.erase(eid);
       }
     }
 
@@ -3167,37 +3176,45 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
             history[h].postMod = history[h - 1].postMod;
           continue;
         }
-        uint32_t offset = perFragmentCB.GetEventOffset(eid) + f - discardOffset;
-        if(multisampled)
-          memcpy(history[h].shaderOut.col.floatValue.data(), &fragInfo[offset].shaderOut.color[0],
-                 history[h].shaderOut.col.floatValue.byteSize());
-        else
-          FillInColor(shaderOutFormat, fragInfo[offset].shaderOut, history[h].shaderOut);
-
-        if(multisampled)
-          history[h].shaderOut.depth = fragInfo[offset].shaderOut.depth.fdepth;
-        else
-          history[h].shaderOut.depth =
-              GetDepthValue(DXGI_FORMAT_D32_FLOAT_S8X24_UINT, fragInfo[offset].shaderOut);
-
-        if((h < history.size() - 1) && (history[h].eventId == history[h + 1].eventId))
+        if(perFragmentCB.ContainsEvent(eid))
         {
-          // Get post-modification value if this is not the last fragment for the event.
-          ConvertAndFillInColor(shaderOutFormat, fragInfo[offset].postMod, fmt, history[h].postMod);
-
-          // MSAA depth is expanded out to floats in the compute shader
+          uint32_t offset = perFragmentCB.GetEventOffset(eid) + f - discardOffset;
           if(multisampled)
-            history[h].postMod.depth = fragInfo[offset].postMod.depth.fdepth;
+            memcpy(history[h].shaderOut.col.floatValue.data(), &fragInfo[offset].shaderOut.color[0],
+                   history[h].shaderOut.col.floatValue.byteSize());
           else
-            history[h].postMod.depth =
-                GetDepthValue(DXGI_FORMAT_D32_FLOAT_S8X24_UINT, fragInfo[offset].postMod);
-          history[h].postMod.stencil = -2;
+            FillInColor(shaderOutFormat, fragInfo[offset].shaderOut, history[h].shaderOut);
+
+          if(multisampled)
+            history[h].shaderOut.depth = fragInfo[offset].shaderOut.depth.fdepth;
+          else
+            history[h].shaderOut.depth =
+                GetDepthValue(DXGI_FORMAT_D32_FLOAT_S8X24_UINT, fragInfo[offset].shaderOut);
+
+          if((h < history.size() - 1) && (history[h].eventId == history[h + 1].eventId))
+          {
+            // Get post-modification value if this is not the last fragment for the event.
+            ConvertAndFillInColor(shaderOutFormat, fragInfo[offset].postMod, fmt, history[h].postMod);
+
+            // MSAA depth is expanded out to floats in the compute shader
+            if(multisampled)
+              history[h].postMod.depth = fragInfo[offset].postMod.depth.fdepth;
+            else
+              history[h].postMod.depth =
+                  GetDepthValue(DXGI_FORMAT_D32_FLOAT_S8X24_UINT, fragInfo[offset].postMod);
+            history[h].postMod.stencil = -2;
+          }
+          // If it is not the first fragment for the event, set the preMod to the
+          // postMod of the previous fragment.
+          if(h > 0 && (history[h].eventId == history[h - 1].eventId))
+          {
+            history[h].preMod = history[h - 1].postMod;
+          }
         }
-        // If it is not the first fragment for the event, set the preMod to the
-        // postMod of the previous fragment.
-        if(h > 0 && (history[h].eventId == history[h - 1].eventId))
+        else
         {
-          history[h].preMod = history[h - 1].postMod;
+          RDCWARN("Failed to find fragment data for event %d", eid);
+          eventsWithFrags.erase(eid);
         }
       }
 
