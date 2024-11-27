@@ -411,6 +411,13 @@ FILE *fopen(const rdcstr &filename, FileMode mode)
   return ::fopen(filename.c_str(), modeString[mode]);
 }
 
+FILE *OpenTransientFileHandle(const rdcstr &filename, FileMode mode)
+{
+  FILE *ret = ::fopen(filename.c_str(), modeString[mode]);
+  ::unlink(filename.c_str());
+  return ret;
+}
+
 rdcstr ErrorString()
 {
   return strerror(errno);

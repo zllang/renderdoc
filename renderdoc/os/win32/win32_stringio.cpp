@@ -605,6 +605,44 @@ FILE *fopen(const rdcstr &filename, FileMode mode)
   return ret;
 }
 
+FILE *FileIO::OpenTransientFileHandle(const rdcstr &filename, FileMode mode)
+{
+  rdcwstr wfn = StringFormat::UTF82Wide(filename);
+
+  // specify the handle as non-inheriting
+  SECURITY_ATTRIBUTES security = {};
+  security.nLength = sizeof(security);
+  security.bInheritHandle = FALSE;
+
+  HANDLE handle = CreateFileW(wfn.c_str(), GENERIC_READ | GENERIC_WRITE, 0, &security, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+
+  if(!handle || handle == INVALID_HANDLE_VALUE)
+  {
+    return NULL;
+  }
+
+  int fd = _open_osfhandle((intptr_t)handle, 0);
+
+  if(fd < 0)
+  {
+    CloseHandle(handle);
+    RDCERR("Failed to convert handle to fd: %d", errno);
+    return NULL;
+  }
+
+  FILE *ret = _wfdopen(fd, modeString[mode]);
+
+  if(!ret)
+  {
+    RDCERR("Failed to open fd as FILE: %d", errno);
+    _close(fd);
+    return NULL;
+  }
+
+  return ret;
+}
+
 bool IsUntrustedFile(const rdcstr &filename)
 {
   IPersistFile *file = NULL;

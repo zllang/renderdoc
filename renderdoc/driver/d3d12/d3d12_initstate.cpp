@@ -618,7 +618,7 @@ uint64_t D3D12ResourceManager::GetSize_InitialState(ResourceId id, const D3D12In
       if(buildData->buffer)
         ret += 64 + buildData->buffer->Size();
 
-      ret += 64 + buildData->bytesOnDisk;
+      ret += 64 + buildData->diskCache.size;
 
       return ret;
     }
@@ -1385,9 +1385,9 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
             ret = false;
           }
         }
-        else if(!initial->buildData->filename.empty())
+        else if(initial->buildData->diskCache.Valid())
         {
-          ContentsLength = initial->buildData->bytesOnDisk;
+          ContentsLength = initial->buildData->diskCache.size;
         }
 
         buildData = initial->buildData;
@@ -1447,11 +1447,9 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
           BufferContents = tempAlloc = new byte[(size_t)ContentsLength];
       }
 
-      if(!buildData->filename.empty() && ser.IsWriting())
+      if(buildData->diskCache.Valid() && ser.IsWriting())
       {
-        StreamReader reader(FileIO::fopen(buildData->filename, FileIO::ReadBinary));
-
-        ser.SerialiseStream("BufferContents"_lit, reader);
+        GetRTManager()->ReadDiskCache(ser, "BufferContents"_lit, buildData->diskCache);
       }
       else
       {

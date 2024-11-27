@@ -1104,6 +1104,15 @@ struct RTGPUPatchingStats
   double totalDispatchesMS;
 };
 
+struct DiskCachedAS
+{
+  size_t fileIndex = ~0U;
+  uint64_t offset = 0;
+  uint64_t size = 0;
+
+  bool Valid() const { return fileIndex != ~0U; }
+};
+
 // this is a refcounted GPU buffer with the build data, together with the metadata
 struct ASBuildData
 {
@@ -1178,8 +1187,7 @@ struct ASBuildData
   void Release();
 
   D3D12GpuBuffer *buffer = NULL;
-  rdcstr filename;
-  uint64_t bytesOnDisk = 0;
+  DiskCachedAS diskCache;
   uint32_t query = 0;
 
   std::function<bool()> cleanupCallback;
@@ -1258,6 +1266,54 @@ public:
   void AddPendingASBuilds(ID3D12Fence *fence, UINT64 waitValue,
                           const rdcarray<std::function<bool()>> &callbacks);
   void TickASManagement();
+
+  // this disk cache is primarily single threaded - either the disk cache thread owns
+  // seeking/writing to the files, or during initial states that thread owns seeking/reading.
+  // we lock around this access only for allocating from blocks
+  struct DiskCacheFile
+  {
+    FILE *file = NULL;
+
+    // each block is 1kB to split the difference between caching lots of tiny ASs and wasting space,
+    // vs tracking many blocks
+    static const uint64_t blockSize = 1 * 1024;
+    static const uint64_t blocksInFile = 64 * 1024;
+
+    // one per block
+    bool blocksUsed[blocksInFile] = {};
+  };
+  Threading::CriticalSection m_DiskCacheLock;
+  rdcarray<DiskCacheFile> m_DiskCache;
+
+  DiskCachedAS AllocDiskCache(uint64_t byteSize);
+  void FillDiskCache(DiskCachedAS diskCache, void *data);
+  void ReleaseDiskCache(DiskCachedAS diskCache);
+  template <typename SerialiserType>
+  void ReadDiskCache(SerialiserType &ser, rdcliteral name, DiskCachedAS diskCache)
+  {
+    if(!diskCache.Valid())
+      return;
+
+    // this lock should have no contention, we should only be doing this during initial state
+    // serialisation when nothing is allocating and the disk cache thread has been flushed
+    SCOPED_LOCK(m_DiskCacheLock);
+
+    if(diskCache.fileIndex >= m_DiskCache.size())
+    {
+      RDCERR("Invalid disk cache file %zu vs %zu", diskCache.fileIndex, m_DiskCache.size());
+      return;
+    }
+
+    FILE *f = m_DiskCache[diskCache.fileIndex].file;
+
+    FileIO::fseek64(f, diskCache.offset, SEEK_SET);
+
+    {
+      StreamReader reader(f, diskCache.size, Ownership::Nothing);
+      ser.SerialiseStream(name, reader);
+    }
+  }
+
   void PushDiskCacheTask(std::function<void()> task);
   void FlushDiskCacheThread();
 

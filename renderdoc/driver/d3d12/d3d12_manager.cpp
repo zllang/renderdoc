@@ -1033,6 +1033,126 @@ void D3D12RTManager::TickASManagement()
   CheckASCaching();
 }
 
+FILE *OpenCacheFile()
+{
+  rdcstr filename = StringFormat::Fmt(
+      "%s/rdoc_as_%llu_%llu.bin", get_dirname(RenderDoc::Inst().GetCaptureFileTemplate()).c_str(),
+      Timing::GetTick(), Threading::GetCurrentID());
+  FILE *file = FileIO::OpenTransientFileHandle(filename, FileIO::OverwriteBinary);
+  if(!file)
+  {
+    FileIO::CreateParentDirectory(filename);
+    file = FileIO::OpenTransientFileHandle(filename, FileIO::OverwriteBinary);
+  }
+
+  return file;
+}
+
+DiskCachedAS D3D12RTManager::AllocDiskCache(uint64_t byteSize)
+{
+  DiskCachedAS ret;
+  ret.size = byteSize;
+
+  uint64_t blocksNeeded = AlignUp(byteSize, DiskCacheFile::blockSize) / DiskCacheFile::blockSize;
+
+  if(blocksNeeded >= DiskCacheFile::blocksInFile)
+    RDCWARN("disk cache sized insufficiently for allocation %llu, allocating dedicated file",
+            byteSize);
+
+  if(blocksNeeded < DiskCacheFile::blocksInFile)
+  {
+    SCOPED_LOCK(m_DiskCacheLock);
+
+    for(size_t i = 0; i < m_DiskCache.size(); i++)
+    {
+      DiskCacheFile &diskCache = m_DiskCache[i];
+
+      uint64_t firstBlock = ~0U;
+      uint64_t blocksFree = 0;
+      for(uint64_t b = 0; b < (uint64_t)ARRAY_COUNT(DiskCacheFile::blocksUsed); b++)
+      {
+        if(b + blocksNeeded > ARRAY_COUNT(DiskCacheFile::blocksUsed))
+          break;
+
+        if(diskCache.blocksUsed[b])
+        {
+          blocksFree = 0;
+          firstBlock = ~0U;
+        }
+        else
+        {
+          blocksFree++;
+          if(firstBlock == ~0U)
+            firstBlock = b;
+
+          if(blocksFree == blocksNeeded)
+            break;
+        }
+      }
+
+      if(blocksFree == blocksNeeded)
+      {
+        ret.fileIndex = i;
+        ret.offset = firstBlock * DiskCacheFile::blockSize;
+        memset(&m_DiskCache[i].blocksUsed[firstBlock], 1, blocksNeeded * sizeof(bool));
+        return ret;
+      }
+    }
+  }
+
+  // if this was oversized it will allow silent writing off the end by the user
+  {
+    SCOPED_LOCK(m_DiskCacheLock);
+    FILE *f = OpenCacheFile();
+    DiskCacheFile cache;
+    cache.file = f;
+
+    // if this was an outsized file, only reset the first N blocks for our tracking. The file will
+    // be larger forever, but that's fine
+    if(blocksNeeded > DiskCacheFile::blocksInFile)
+      blocksNeeded = DiskCacheFile::blocksInFile;
+
+    memset(cache.blocksUsed, 1, blocksNeeded * sizeof(bool));
+
+    {
+      SCOPED_LOCK(m_DiskCacheLock);
+      ret.fileIndex = m_DiskCache.size();
+      m_DiskCache.push_back(cache);
+    }
+
+    return ret;
+  }
+}
+
+void D3D12RTManager::ReleaseDiskCache(DiskCachedAS diskCache)
+{
+  uint64_t blocksNeeded =
+      AlignUp(diskCache.size, DiskCacheFile::blockSize) / DiskCacheFile::blockSize;
+  uint64_t blockOffset = diskCache.offset / DiskCacheFile::blockSize;
+
+  // if this was an outsized file, only reset the first N blocks for our tracking. The file will be
+  // larger forever, but that's fine
+  if(blocksNeeded > DiskCacheFile::blocksInFile)
+    blocksNeeded = DiskCacheFile::blocksInFile;
+
+  if(diskCache.fileIndex >= m_DiskCache.size())
+  {
+    RDCERR("Invalid disk cache file %zu vs %zu", diskCache.fileIndex, m_DiskCache.size());
+    return;
+  }
+
+  memset(&m_DiskCache[diskCache.fileIndex].blocksUsed[blockOffset], 0, blocksNeeded * sizeof(bool));
+}
+
+void D3D12RTManager::FillDiskCache(DiskCachedAS diskCache, void *data)
+{
+  FileIO::fseek64(m_DiskCache[diskCache.fileIndex].file, diskCache.offset, SEEK_SET);
+
+  StreamWriter writer(m_DiskCache[diskCache.fileIndex].file, Ownership::Nothing);
+  // de-interleave positions in geoms here if their stride is greater than vertex format to save space?
+  writer.Write(data, diskCache.size);
+}
+
 void D3D12RTManager::PushDiskCacheTask(std::function<void()> task)
 {
   {
@@ -1172,34 +1292,20 @@ void D3D12RTManager::CheckASCaching()
 
     // grab parameters for the task
     D3D12GpuBuffer *buf = buildData->buffer;
-    rdcstr filename = StringFormat::Fmt(
-        "%s/rdoc_as_%llu_%llu.bin", get_dirname(RenderDoc::Inst().GetCaptureFileTemplate()).c_str(),
-        Timing::GetTick(), Threading::GetCurrentID());
 
     // immediately update the build data as if the cache has completed. We flush the thread
-    buildData->bytesOnDisk = buildData->buffer->Size();
+    DiskCachedAS diskCache = buildData->diskCache = AllocDiskCache(buildData->buffer->Size());
     buildData->buffer = NULL;
-    buildData->filename = filename;
 
     if(D3D12_Debug_RT_Auditing())
     {
       RDCDEBUG("Flushing AS build data of size %llu to disk", buf->Size());
     }
 
-    PushDiskCacheTask([buf, filename]() {
-      FILE *f = FileIO::fopen(filename, FileIO::WriteBinary);
+    PushDiskCacheTask([this, diskCache, buf]() {
+      // de-interleave positions in geoms here if their stride is greater than vertex format to save space?
 
-      if(!f)
-      {
-        FileIO::CreateParentDirectory(filename);
-        f = FileIO::fopen(filename, FileIO::WriteBinary);
-      }
-
-      {
-        StreamWriter writer(f, Ownership::Stream);
-        // de-interleave positions in geoms here if their stride is greater than vertex format to save space?
-        writer.Write(buf->Map(), buf->Size());
-      }
+      FillDiskCache(diskCache, buf->Map());
 
       buf->Unmap();
       buf->Release();
@@ -1255,13 +1361,13 @@ void D3D12RTManager::GatherRTStatistics(ASStats &blasAges, ASStats &tlasAges,
 
   for(ASBuildData *buildData : m_DiskCachedASBuildDatas)
   {
-    if(buildData && !buildData->filename.empty())
+    if(buildData && buildData->diskCache.Valid())
     {
       ASStats &ages = buildData->Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL
                           ? tlasAges
                           : blasAges;
 
-      ages.diskBytes += buildData->bytesOnDisk;
+      ages.diskBytes += buildData->diskCache.size;
       ages.diskCached++;
     }
   }
@@ -1277,7 +1383,7 @@ void D3D12RTManager::GatherRTStatistics(ASStats &blasAges, ASStats &tlasAges,
                           : blasAges;
 
       // should never encounter this
-      if(!buildData->filename.empty())
+      if(buildData->diskCache.Valid())
         continue;
 
       uint64_t size = buildData->buffer ? buildData->buffer->Size() : 0;
@@ -3486,13 +3592,9 @@ void ASBuildData::Release()
 
     SAFE_RELEASE(buffer);
 
-    if(!filename.empty())
+    if(diskCache.size && rtManager)
     {
-      if(rtManager)
-      {
-        rdcstr fileToDelete = filename;
-        rtManager->PushDiskCacheTask([fileToDelete]() { FileIO::Delete(fileToDelete); });
-      }
+      rtManager->ReleaseDiskCache(diskCache);
     }
 
     delete this;
