@@ -456,26 +456,38 @@ InterpolationMode GetInterpolationModeForInputParam(const SigParameter &sig,
         return DXBC::InterpolationMode::INTERPOLATION_CONSTANT;
     }
 
-    InterpolationMode interpolation = DXBC::InterpolationMode::INTERPOLATION_UNDEFINED;
-
-    // TODO SEARCH THE DXIL PROGRAM INPUTS FOR THE INTERPOLATION MODE
-#if 0
-    if(program)
+    if(!program)
     {
-      for(size_t d = 0; d < program->GetNumDeclarations(); d++)
+      RDCERR("No DXIL program");
+      return DXBC::InterpolationMode::INTERPOLATION_UNDEFINED;
+    }
+    // Search the DXIL shader meta data to get the interpolation mode
+    const DXIL::EntryPointInterface *entryPoint = program->GetEntryPointInterface();
+    if(!entryPoint)
+    {
+      RDCERR("No entry point interface found in DXIL program");
+      return DXBC::InterpolationMode::INTERPOLATION_UNDEFINED;
+    }
+    for(size_t j = 0; j < entryPoint->inputs.size(); ++j)
+    {
+      const EntryPointInterface::Signature &dxilSig = entryPoint->inputs[j];
+      if(dxilSig.startRow == (int32_t)sig.regIndex)
       {
-        const DXBCBytecode::Declaration &decl = program->GetDeclaration(d);
-
-        if(decl.declaration == DXBCBytecode::OPCODE_DCL_INPUT_PS &&
-           decl.operand.indices[0].absolute && decl.operand.indices[0].index == sig.regIndex)
+        const int firstElem = sig.regChannelMask & 0x1   ? 0
+                              : sig.regChannelMask & 0x2 ? 1
+                              : sig.regChannelMask & 0x4 ? 2
+                              : sig.regChannelMask & 0x8 ? 3
+                                                         : -1;
+        if(dxilSig.startCol == firstElem)
         {
-          interpolation = decl.inputOutput.inputInterpolation;
-          break;
+          if(sig.semanticName == dxilSig.name)
+          {
+            return (InterpolationMode)dxilSig.interpolation;
+          }
         }
       }
     }
-#endif
-    return interpolation;
+    return DXBC::InterpolationMode::INTERPOLATION_UNDEFINED;
   }
 
   RDCERR("Unexpected input signature type: %s", ToStr(sig.varType).c_str());
