@@ -2917,6 +2917,11 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             m_Disassembly += "  ";
 
             EntryPointInterface::Signature &sig = entryPoint.inputs[j];
+
+            if(sig.interpolation != D3D_INTERPOLATION_MODE::D3D_INTERPOLATION_UNDEFINED &&
+               sig.interpolation != D3D_INTERPOLATION_MODE::D3D_INTERPOLATION_LINEAR)
+              m_Disassembly += ToStr((DXBC::InterpolationMode)sig.interpolation) + " ";
+
             ComponentType compType = sig.type;
 
             m_Disassembly += ProcessNormCompType(compType);
@@ -2985,6 +2990,10 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             EntryPointInterface::Signature &sig = entryPoint.outputs[j];
 
             m_Disassembly += "  ";
+
+            if(sig.interpolation != D3D_INTERPOLATION_MODE::D3D_INTERPOLATION_UNDEFINED &&
+               sig.interpolation != D3D_INTERPOLATION_MODE::D3D_INTERPOLATION_LINEAR)
+              m_Disassembly += ToStr((DXBC::InterpolationMode)sig.interpolation) + " ";
 
             ComponentType compType = sig.type;
 
