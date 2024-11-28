@@ -31,6 +31,7 @@
 #include "common/threading.h"
 #include "core/settings.h"
 #include "hooks/hooks.h"
+#include "jpeg-compressor/jpge.h"
 #include "maths/formatpacking.h"
 #include "replay/replay_driver.h"
 #include "serialise/rdcfile.h"
@@ -50,6 +51,9 @@ extern "C" const rdcstr VulkanLayerJSONBasename = STRINGIZE(RDOC_BASE_NAME);
 
 RDOC_DEBUG_CONFIG(bool, Capture_Debug_SnapshotDiagnosticLog, false,
                   "Snapshot the diagnostic log at capture time and embed in the capture.");
+
+RDOC_CONFIG(bool, Capture_IncludeExtendedThumbnail, false,
+            "Save the thumbnail unresized and losslessly encoded during capture.");
 
 RDOC_CONFIG(bool, Replay_Debug_PrintChunkTimings, false, "Print stats of chunk processing times");
 
@@ -1484,7 +1488,7 @@ void RenderDoc::ResamplePixels(const FramePixels &in, RDCThumb &out)
   }
 }
 
-void RenderDoc::EncodePixelsPNG(const RDCThumb &in, RDCThumb &out)
+void RenderDoc::EncodeThumbPixels(const RDCThumb &in, RDCThumb &out)
 {
   if(in.width == 0 || in.height == 0)
   {
@@ -1503,13 +1507,33 @@ void RenderDoc::EncodePixelsPNG(const RDCThumb &in, RDCThumb &out)
     }
   };
 
-  WriteCallbackData callbackData;
-  stbi_write_png_to_func(&WriteCallbackData::writeData, &callbackData, in.width, in.height, 3,
-                         in.pixels.data(), 0);
-  out.width = in.width;
-  out.height = in.height;
-  out.pixels.swap(callbackData.buffer);
-  out.format = FileType::PNG;
+  if(out.format == FileType::PNG)
+  {
+    WriteCallbackData callbackData;
+    stbi_write_png_to_func(&WriteCallbackData::writeData, &callbackData, in.width, in.height, 3,
+                           in.pixels.data(), 0);
+    out.width = in.width;
+    out.height = in.height;
+    out.pixels.swap(callbackData.buffer);
+  }
+  else
+  {
+    // should be JPG if not PNG
+    RDCASSERTEQUAL(out.format, FileType::JPG);
+
+    out.width = in.width;
+    out.height = in.height;
+    out.format = FileType::JPG;
+
+    const int comp = 3;
+    int len = in.width * in.height * comp;
+    out.pixels.resize(len);
+    jpge::params p;
+    p.m_quality = 90;
+    jpge::compress_image_to_jpeg_file_in_memory(out.pixels.data(), len, in.width, in.height, comp,
+                                                in.pixels.data(), p);
+    out.pixels.resize(len);
+  }
 }
 
 RDCFile *RenderDoc::CreateRDC(RDCDriver driver, uint32_t frameNum, const FramePixels &fp)
@@ -1537,15 +1561,21 @@ RDCFile *RenderDoc::CreateRDC(RDCDriver driver, uint32_t frameNum, const FramePi
     }
   }
 
-  RDCThumb outRaw, outPng;
+  RDCThumb outRaw, outThumb;
   if(fp.data)
   {
     // point sample info into raw buffer
     ResamplePixels(fp, outRaw);
-    EncodePixelsPNG(outRaw, outPng);
+
+    if(Capture_IncludeExtendedThumbnail())
+      outThumb.format = FileType::PNG;
+    else
+      outThumb.format = FileType::JPG;
+
+    EncodeThumbPixels(outRaw, outThumb);
   }
 
-  ret->SetData(driver, ToStr(driver).c_str(), OSUtility::GetMachineIdent(), &outPng, m_TimeBase,
+  ret->SetData(driver, ToStr(driver).c_str(), OSUtility::GetMachineIdent(), &outThumb, m_TimeBase,
                m_TimeFrequency);
 
   FileIO::CreateParentDirectory(m_CurrentLogFile);

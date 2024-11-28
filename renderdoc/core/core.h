@@ -478,7 +478,7 @@ public:
   void RegisterMemoryRegion(void *mem, size_t size);
   void UnregisterMemoryRegion(void *mem);
   void ResamplePixels(const FramePixels &in, RDCThumb &out);
-  void EncodePixelsPNG(const RDCThumb &in, RDCThumb &out);
+  void EncodeThumbPixels(const RDCThumb &in, RDCThumb &out);
   RDCFile *CreateRDC(RDCDriver driver, uint32_t frameNum, const FramePixels &fp);
   void FinishCaptureWriting(RDCFile *rdc, uint32_t frameNumber);
 
