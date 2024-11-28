@@ -1326,8 +1326,10 @@ void D3D12RTManager::CheckPendingASBuilds()
   if(m_PendingASBuilds.empty())
     return;
 
-  for(PendingASBuild &build : m_PendingASBuilds)
+  for(size_t i = 0; i < m_PendingASBuilds.size(); i++)
   {
+    PendingASBuild &build = m_PendingASBuilds[i];
+
     // first time we see each fence, get the completed value
     if(fenceValues[build.fence] == 0)
       fenceValues[build.fence] = build.fence->GetCompletedValue();
@@ -1337,11 +1339,13 @@ void D3D12RTManager::CheckPendingASBuilds()
     {
       SAFE_RELEASE(build.fence);
       build.callback();
+
+      // swap with last if this isn't already last - we don't need to keep order
+      if(i < m_PendingASBuilds.size() - 1)
+        std::swap(build, m_PendingASBuilds.back());
+      m_PendingASBuilds.pop_back();
     }
   }
-
-  // remove any builds that completed
-  m_PendingASBuilds.removeIf([](const PendingASBuild &build) { return build.fence == NULL; });
 }
 
 void D3D12RTManager::GatherRTStatistics(ASStats &blasAges, ASStats &tlasAges,
