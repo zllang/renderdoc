@@ -77,7 +77,7 @@ private:
   ID3D12DescriptorHeap *descHeap = NULL;
 
   size_t CharOffset = 0;
-  const UINT ConstRingSize = 32;
+  const UINT ConstRingSize = 128;
   UINT ConstRingIdx = 0;
 
   float CharAspect = 1.0f;
