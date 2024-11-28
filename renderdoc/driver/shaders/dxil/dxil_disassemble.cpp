@@ -1054,6 +1054,17 @@ static rdcstr GetResourceTypeName(const Type *type)
     rdcstr compType = "int";
     if(resType->scalarType == Type::Float)
       compType = resType->bitWidth > 32 ? "double" : "float";
+    else if(resType->scalarType == Type::Int)
+    {
+      if(resType->bitWidth == 64)
+        compType = "long";
+      else if(resType->bitWidth == 32)
+        compType = "int";
+      else if(resType->bitWidth == 16)
+        compType = "short";
+      else if(resType->bitWidth == 8)
+        compType = "int8";
+    }
 
     if(compCount > 1)
       compType += ToStr(compCount);
