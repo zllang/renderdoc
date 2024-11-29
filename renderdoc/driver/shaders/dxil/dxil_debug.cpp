@@ -461,6 +461,21 @@ static bool OperationFlushing(const Operation op, DXOp dxOpCode)
   return false;
 }
 
+static void ClearAnnotatedHandle(ShaderVariable &var)
+{
+  var.value.u32v[15] = 0;
+}
+
+static void SetAnnotatedHandle(ShaderVariable &var)
+{
+  var.value.u32v[15] = 1;
+}
+
+static bool IsAnnotatedHandle(const ShaderVariable &var)
+{
+  return (var.value.u32v[15] == 1);
+}
+
 static ShaderEvents AssignValue(ShaderVariable &result, const ShaderVariable &src, bool flushDenorm)
 {
   RDCASSERTEQUAL(result.type, src.type);
@@ -2129,7 +2144,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                     result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
                     result.name = baseResource;
                     // Default to unannotated handle
-                    result.value.u32v[3] = 0;
+                    ClearAnnotatedHandle(result);
                   }
                   else
                   {
@@ -2152,7 +2167,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 if((resRef->resourceBase.resClass == ResourceClass::SRV) ||
                    (resRef->resourceBase.resClass == ResourceClass::UAV))
                 {
-                  result.value.u32v[3] = 1;
+                  SetAnnotatedHandle(result);
                 }
                 ShaderVariable props;
                 RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, props));
@@ -4811,7 +4826,7 @@ const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindI
     {
       rdcstr alias = m_Program.GetHandleAlias(resRef->handleID);
       bindIndex = var.GetBindIndex();
-      annotatedHandle = var.value.u32v[3] != 0;
+      annotatedHandle = IsAnnotatedHandle(var);
       RDCASSERT(!annotatedHandle || (m_AnnotatedProperties.count(handleId) == 1));
       MarkResourceAccess(alias, bindIndex);
       return resRef;
