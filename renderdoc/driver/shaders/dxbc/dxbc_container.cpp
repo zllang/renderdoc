@@ -647,6 +647,35 @@ const rdcstr &DXBCContainer::GetDisassembly(bool dxcStyle)
         globalFlagsString += commentString + "       Raytracing tier 1.1 features\n";
       if(m_GlobalFlags & GlobalShaderFlags::SamplerFeedback)
         globalFlagsString += commentString + "       Sampler feedback\n";
+      if(m_GlobalFlags & GlobalShaderFlags::AtomicInt64OnTypedResource)
+        globalFlagsString += commentString + "       64-bit Atomics on Typed Resources\n";
+      if(m_GlobalFlags & GlobalShaderFlags::AtomicInt64OnGroupShared)
+        globalFlagsString += commentString + "       64-bit Atomics on Group Shared\n";
+      if(m_GlobalFlags & GlobalShaderFlags::DerivativesInMeshAndAmpShaders)
+        globalFlagsString +=
+            commentString + "       Derivatives in mesh and amplification shaders\n";
+      if(m_GlobalFlags & GlobalShaderFlags::ResourceDescriptorHeapIndexing)
+        globalFlagsString += commentString + "       Resource descriptor heap indexing\n";
+      if(m_GlobalFlags & GlobalShaderFlags::SamplerDescriptorHeapIndexing)
+        globalFlagsString += commentString + "       Sampler descriptor heap indexing\n";
+      if(m_GlobalFlags & GlobalShaderFlags::Reserved)
+        globalFlagsString += commentString + "       Wave Matrix\n";
+      if(m_GlobalFlags & GlobalShaderFlags::AtomicInt64OnHeapResource)
+        globalFlagsString += commentString + "       64-bit Atomics on Heap Resources\n";
+      if(m_GlobalFlags & GlobalShaderFlags::AdvancedTextureOps)
+        globalFlagsString += commentString + "       Advanced Texture Ops\n";
+      if(m_GlobalFlags & GlobalShaderFlags::WriteableMSAATextures)
+        globalFlagsString += commentString + "       Writeable MSAA Textures\n";
+      if(m_GlobalFlags & GlobalShaderFlags::SampleCmpGradientOrBias)
+        globalFlagsString += commentString + "       SampleCmp with gradient or bias\n";
+      if(m_GlobalFlags & GlobalShaderFlags::ShaderFeatureInfo_ExtendedCommandInfo)
+        globalFlagsString += commentString + "       Extended command info\n";
+      if(m_GlobalFlags & ~GlobalShaderFlags::KNOWN_FLAGS_MASK)
+        globalFlagsString +=
+            commentString + StringFormat::Fmt("       Unknown shader flags 0x%X\n",
+                                              (uint64_t)m_GlobalFlags -
+                                                  ((uint64_t)m_GlobalFlags &
+                                                   (uint64_t)GlobalShaderFlags::KNOWN_FLAGS_MASK));
       globalFlagsString += commentString + "\n";
     }
 
@@ -707,7 +736,16 @@ void DXBCContainer::FillTraceLineInfo(ShaderDebugTrace &trace) const
     extraLines++;
 
   if(m_GlobalFlags != GlobalShaderFlags::None)
-    extraLines += (uint32_t)Bits::CountOnes((uint32_t)m_GlobalFlags) + 2;
+  {
+    extraLines += 2;
+    uint64_t knownFlags = (uint64_t)m_GlobalFlags & (uint64_t)GlobalShaderFlags::KNOWN_FLAGS_MASK;
+    uint32_t upperBits = knownFlags >> 32;
+    uint32_t lowerBits = knownFlags & 0xFFFFFFFF;
+    extraLines += (uint32_t)Bits::CountOnes(upperBits);
+    extraLines += (uint32_t)Bits::CountOnes(lowerBits);
+    if(m_GlobalFlags & ~GlobalShaderFlags::KNOWN_FLAGS_MASK)
+      extraLines += 1;
+  }
 
   if(m_DXBCByteCode)
   {

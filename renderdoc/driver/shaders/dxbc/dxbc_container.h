@@ -133,6 +133,19 @@ enum class GlobalShaderFlags : int64_t
   ShadingRate = 0x080000,
   Raytracing1_1 = 0x100000,
   SamplerFeedback = 0x200000,
+  AtomicInt64OnTypedResource = 0x400000,
+  AtomicInt64OnGroupShared = 0x800000,
+  DerivativesInMeshAndAmpShaders = 0x1000000,
+  ResourceDescriptorHeapIndexing = 0x2000000,
+  SamplerDescriptorHeapIndexing = 0x4000000,
+  Reserved = 0x8000000,
+  AtomicInt64OnHeapResource = 0x10000000,
+  AdvancedTextureOps = 0x20000000,
+  WriteableMSAATextures = 0x40000000,
+  SampleCmpGradientOrBias = 0x80000000,
+  ShaderFeatureInfo_ExtendedCommandInfo = 0x100000000,
+  KNOWN_FLAGS_MASK =
+      ShaderFeatureInfo_ExtendedCommandInfo + (ShaderFeatureInfo_ExtendedCommandInfo - 1),
 };
 
 BITMASK_OPERATORS(GlobalShaderFlags);
