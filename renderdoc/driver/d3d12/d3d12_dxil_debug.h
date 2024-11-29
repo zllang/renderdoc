@@ -60,12 +60,8 @@ public:
   ShaderVariable GetSampleInfo(DXIL::ResourceClass resClass, const DXDebug::BindingSlot &slot,
                                const DXBC::ShaderType shaderType, const char *opString);
   ShaderVariable GetRenderTargetSampleInfo(const DXBC::ShaderType shaderType, const char *opString);
-  bool IsResourceBound(DXIL::ResourceClass resClass, const DXDebug::BindingSlot &slot);
 
 private:
-  bool IsSRVBound(const BindingSlot &slot);
-  bool IsUAVBound(const BindingSlot &slot);
-
   WrappedID3D12Device *m_Device;
   const DXIL::EntryPointInterface *m_EntryPointInterface;
   GlobalState &m_GlobalState;

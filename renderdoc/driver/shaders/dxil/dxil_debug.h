@@ -133,7 +133,6 @@ public:
                                        const DXBC::ShaderType shaderType, const char *opString) = 0;
   virtual ShaderVariable GetRenderTargetSampleInfo(const DXBC::ShaderType shaderType,
                                                    const char *opString) = 0;
-  virtual bool IsResourceBound(DXIL::ResourceClass resClass, const DXDebug::BindingSlot &slot) = 0;
 };
 
 struct MemoryTracking
