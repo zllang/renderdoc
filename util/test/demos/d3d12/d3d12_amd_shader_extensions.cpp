@@ -340,8 +340,10 @@ void main(uint3 threadID : SV_DispatchThreadID)
       valid[i] = true;
 
       // can't skip optimising and still have the extensions work, sadly
-      psblob[i] = Compile(ags_header + BaryCentricPixel, "main", "ps" + profilesuffix[i], false);
-      csblob[i] = Compile(ags_header + MaxCompute, "main", "cs" + profilesuffix[i], false);
+      psblob[i] = Compile(ags_header + BaryCentricPixel, "main", "ps" + profilesuffix[i],
+                          CompileOptionFlags::None);
+      csblob[i] = Compile(ags_header + MaxCompute, "main", "cs" + profilesuffix[i],
+                          CompileOptionFlags::None);
 
       pso[i] = MakePSO().RootSig(sig).InputLayout().VS(vsblob[i]).PS(psblob[i]);
       cso[i] = MakePSO().RootSig(sig).CS(csblob[i]);

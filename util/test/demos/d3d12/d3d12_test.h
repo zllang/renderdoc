@@ -77,8 +77,15 @@ struct D3D12GraphicsTest : public GraphicsTest
     BufUAVType = 0xf00,
   };
 
+  enum CompileOptionFlags
+  {
+    None = 0,
+    SkipOptimise = 1 << 0,
+    Enable16BitTypes = 1 << 1,
+  };
+
   ID3DBlobPtr Compile(std::string src, std::string entry, std::string profile,
-                      bool skipoptimise = true);
+                      uint32_t compileOptions = CompileOptionFlags::SkipOptimise);
   void WriteBlob(std::string name, ID3DBlobPtr blob, bool compress);
 
   void SetBlobPath(std::string name, ID3DBlobPtr &blob);

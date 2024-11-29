@@ -1332,9 +1332,11 @@ COM_SMARTPTR(IDxcOperationResult);
 COM_SMARTPTR(IDxcBlob);
 
 ID3DBlobPtr D3D12GraphicsTest::Compile(std::string src, std::string entry, std::string profile,
-                                       bool skipoptimise)
+                                       uint32_t compileOptions)
 {
   ID3DBlobPtr blob = NULL;
+  bool skipoptimise = (compileOptions && CompileOptionFlags::SkipOptimise);
+  bool enable16BitTypes = (compileOptions && CompileOptionFlags::Enable16BitTypes);
 
   if(profile[3] >= '6')
   {
@@ -1389,6 +1391,8 @@ ID3DBlobPtr D3D12GraphicsTest::Compile(std::string src, std::string entry, std::
     }
     argStorage.push_back(L"-Zi");
     argStorage.push_back(L"-Qembed_debug");
+    if(enable16BitTypes)
+      argStorage.push_back(L"-enable-16bit-types");
 
     for(size_t i = 0; i < argStorage.size(); i++)
       args[0].push_back(argStorage[i].c_str());
