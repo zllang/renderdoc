@@ -178,6 +178,11 @@ SamplerState linearclamp : register(s0);
 StructuredBuffer<MyStruct> rootsrv : register(t20);
 StructuredBuffer<MyStruct> appendsrv : register(t40);
 Texture2D<float> dimtex_edge : register(t41);
+#if SM_6_2 || SM_6_6
+StructuredBuffer<int16_t> int16srv : register(t42);
+#else
+StructuredBuffer<int> int16srv : register(t42);
+#endif
 
 float4 main(v2f IN) : SV_Target0
 {
@@ -193,7 +198,11 @@ float4 main(v2f IN) : SV_Target0
   int intval = IN.intval;
 
   if(IN.tri == 0)
+#if SM_6_2
+    return float4(int16srv[0].x, int16srv[1].x, int16srv[2].x, int16srv[3].x);
+#else
     return float4(log(negone), log(zero), log(posone), 1.0f);
+#endif
   if(IN.tri == 1)
     return float4(log(posinf), log(neginf), log(nan), 1.0f);
   if(IN.tri == 2)
@@ -749,6 +758,10 @@ float4 main(v2f IN) : SV_Target0
     uint f16_two = f32tof16(posone*2.0);
     return float4(f16tof32(f16_half), f16tof32(f16_one), f16tof32(f16_two), 0.0f);
   }
+#if SM_6_2 || SM_6_6
+  if(IN.tri == 83)
+    return float4(int16srv[0].x, int16srv[1].x, int16srv[2].x, int16srv[3].x);
+#endif
 
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
@@ -816,8 +829,10 @@ void main()
       return 3;
 
     bool supportSM60 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_0) && m_DXILSupport;
+    bool supportSM62 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_2) && m_DXILSupport;
     bool supportSM66 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_6) && m_DXILSupport;
-    TEST_ASSERT(!supportSM66 || supportSM60, "SM 6.6 requires SM 6.0 support");
+    TEST_ASSERT(!supportSM62 || supportSM60, "SM 6.2 requires SM 6.0 support");
+    TEST_ASSERT(!supportSM66 || supportSM62, "SM 6.6 requires SM 6.2 support");
 
     size_t lastTest = pixel.rfind("IN.tri == ");
     lastTest += sizeof("IN.tri == ") - 1;
@@ -885,7 +900,7 @@ void main()
     staticSamp.AddressU = staticSamp.AddressV = staticSamp.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     staticSamp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-    D3D12_DESCRIPTOR_RANGE1 multiRanges[3] = {
+    D3D12_DESCRIPTOR_RANGE1 multiRanges[4] = {
         {
             D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
             2,
@@ -912,6 +927,15 @@ void main()
             D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE |
                 D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE,
             D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+        },
+        {
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            1,
+            42,
+            0,
+            D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE |
+                D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE,
+            42,
         },
     };
     D3D12_ROOT_PARAMETER1 multiRangeParam;
@@ -948,32 +972,46 @@ void main()
                                          .PS(psblob)
                                          .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
 
-    ID3D12PipelineStatePtr psos[4] = {pso_5_0, pso_5_1, NULL, NULL};
+    ID3D12PipelineStatePtr pso_6_0 = NULL;
+    ID3D12PipelineStatePtr pso_6_2 = NULL;
+    ID3D12PipelineStatePtr pso_6_6 = NULL;
 
-    // Recompile with SM 6.0 and SM 6.6
+    // Recompile with SM 6.0, SM 6.2 and SM 6.6
+    uint32_t compileOptions = CompileOptionFlags::SkipOptimise | CompileOptionFlags::Enable16BitTypes;
     if(supportSM60)
     {
       vsblob = Compile(common + vertex, "main", "vs_6_0");
       psblob = Compile(common + "\n#define SM_6_0 1\n" + pixel, "main", "ps_6_0");
-      psos[2] = MakePSO()
+      pso_6_0 = MakePSO()
                     .RootSig(sig)
                     .InputLayout(inputLayout)
                     .VS(vsblob)
                     .PS(psblob)
                     .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
     }
-
+    if(supportSM62)
+    {
+      vsblob = Compile(common + vertex, "main", "vs_6_2");
+      psblob = Compile(common + "\n#define SM_6_2 1\n" + pixel, "main", "ps_6_2", compileOptions);
+      pso_6_2 = MakePSO()
+                    .RootSig(sig)
+                    .InputLayout(inputLayout)
+                    .VS(vsblob)
+                    .PS(psblob)
+                    .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
+    }
     if(supportSM66)
     {
       vsblob = Compile(common + vertex, "main", "vs_6_6");
-      psblob = Compile(common + "\n#define SM_6_6 1\n" + pixel, "main", "ps_6_6");
-      psos[3] = MakePSO()
+      psblob = Compile(common + "\n#define SM_6_6 1\n" + pixel, "main", "ps_6_6", compileOptions);
+      pso_6_6 = MakePSO()
                     .RootSig(sig)
                     .InputLayout(inputLayout)
                     .VS(vsblob)
                     .PS(psblob)
                     .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
     }
+    ID3D12PipelineStatePtr psos[5] = {pso_5_0, pso_5_1, pso_6_0, pso_6_2, pso_6_6};
 
     static const uint32_t texDim = AlignUp(numTests, 64U) * 4;
 
@@ -1009,6 +1047,13 @@ void main()
 
     ID3D12ResourcePtr srvBuf = MakeBuffer().Data(testdata);
     MakeSRV(srvBuf).Format(DXGI_FORMAT_R32_FLOAT).CreateGPU(0);
+
+    int16_t test16data[] = {
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    };
+
+    ID3D12ResourcePtr srv16Buf = MakeBuffer().Data(test16data);
+    MakeSRV(srv16Buf).Format(DXGI_FORMAT_R16_SINT).CreateGPU(42);
 
     ID3D12ResourcePtr testTex = MakeTexture(DXGI_FORMAT_R32G32B32A32_FLOAT, 16, 16).Mips(3);
 
@@ -1352,17 +1397,21 @@ void main()
 
       setMarker(cmd, undefined_tests);
 
-      float blitOffsets[4] = {0.0f, 4.0f, 8.0f, 12.0f};
-      D3D12_RECT scissors[4] = {
-          {0, 0, (int)texDim, 4},
-          {0, 4, (int)texDim, 8},
-          {0, 8, (int)texDim, 12},
-          {0, 12, (int)texDim, 16},
+      float blitOffsets[5] = {0.0f, 4.0f, 8.0f, 12.0f, 16.0f};
+      D3D12_RECT scissors[5] = {
+          {0, 0, (int)texDim, 4},   {0, 4, (int)texDim, 8},   {0, 8, (int)texDim, 12},
+          {0, 12, (int)texDim, 16}, {0, 16, (int)texDim, 20},
       };
-      const char *markers[4] = {"sm_5_0", "sm_5_1", "sm_6_0", "sm_6_6"};
+      const char *markers[5] = {"sm_5_0", "sm_5_1", "sm_6_0", "sm_6_2", "sm_6_6"};
 
-      // Clear, draw, and blit to backbuffer twice - once for each SM 5.0, 5.1, 6.0, 6.6
-      size_t countGraphicsPasses = supportSM66 ? 4 : (supportSM60 ? 3 : 2);
+      // Clear, draw, and blit to backbuffer - once for each SM 5.0, 5.1, 6.0, 6.2, 6.6
+      size_t countGraphicsPasses = 2;
+      if(supportSM60)
+        countGraphicsPasses++;
+      if(supportSM62)
+        countGraphicsPasses++;
+      if(supportSM66)
+        countGraphicsPasses++;
       TEST_ASSERT(countGraphicsPasses <= ARRAY_COUNT(psos), "More graphic passes than psos");
       for(size_t i = 0; i < countGraphicsPasses; ++i)
       {
@@ -1394,7 +1443,8 @@ void main()
 
         // Add a marker so we can easily locate this draw
         setMarker(cmd, markers[i]);
-        cmd->DrawInstanced(3, numTests, 0, 0);
+        uint32_t instanceCount = (strcmp(markers[i], "sm_6_2") == 0) ? 1 : numTests;
+        cmd->DrawInstanced(3, instanceCount, 0, 0);
 
         ResourceBarrier(cmd, fltTex, D3D12_RESOURCE_STATE_RENDER_TARGET,
                         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);

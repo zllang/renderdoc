@@ -15,7 +15,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
 
         failed = False
 
-        shaderModels = ["sm_5_0", "sm_5_1", "sm_6_0", "sm_6_6"]
+        shaderModels = ["sm_5_0", "sm_5_1", "sm_6_0", "sm_6_2", "sm_6_6"]
         for sm in range(len(shaderModels)):
             rdtest.log.begin_section(shaderModels[sm] + " tests")
 
