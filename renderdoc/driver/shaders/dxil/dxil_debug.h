@@ -108,6 +108,34 @@ struct GlobalVariable
   ShaderVariable var;
 };
 
+struct ResourceReferenceInfo
+{
+  ResourceReferenceInfo() : resClass(DXIL::ResourceClass::Invalid) {}
+  void Create(const DXIL::ResourceReference *resRef, uint32_t arrayIndex);
+  bool Valid() const { return resClass != DXIL::ResourceClass::Invalid; }
+
+  DXIL::ResourceClass resClass;
+  BindingSlot binding;
+  DescriptorCategory category;
+  VarType type;
+
+  struct SRVData
+  {
+    DXDebug::ResourceDimension dim;
+    uint32_t sampleCount;
+    DXDebug::ResourceRetType compType;
+  };
+  struct SamplerData
+  {
+    SamplerMode samplerMode;
+  };
+  union
+  {
+    SRVData srvData;
+    SamplerData samplerData;
+  };
+};
+
 class DebugAPIWrapper
 {
 public:
@@ -178,8 +206,7 @@ struct ThreadState
                  ShaderEvents flags);
   rdcstr GetArgumentName(uint32_t i) const;
   Id GetArgumentId(uint32_t i) const;
-  const DXIL::ResourceReference *GetResource(Id handleId, ShaderBindIndex &bindIndex,
-                                             bool &annotatedHandle);
+  ResourceReferenceInfo GetResource(Id handleId, bool &annotatedHandle);
 
   bool GetShaderVariable(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                          ShaderVariable &var, bool flushDenormInput = true) const
@@ -202,9 +229,9 @@ struct ThreadState
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
 
   void PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, DXIL::Operation opCode,
-                            DXIL::DXOp dxOpCode, const DXIL::ResourceReference *resRef,
-                            const ShaderBindIndex &bindIndex, DebugAPIWrapper *apiWrapper,
-                            const DXIL::Instruction &inst, ShaderVariable &result);
+                            DXIL::DXOp dxOpCode, const ResourceReferenceInfo &resRef,
+                            DebugAPIWrapper *apiWrapper, const DXIL::Instruction &inst,
+                            ShaderVariable &result);
   void Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderValue &ret) const;
 
   ShaderValue DDX(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,

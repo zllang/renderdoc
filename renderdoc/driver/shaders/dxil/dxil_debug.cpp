@@ -1437,6 +1437,47 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
   }
 }
 
+void ResourceReferenceInfo::Create(const DXIL::ResourceReference *resRef, uint32_t arrayIndex)
+{
+  resClass = resRef->resourceBase.resClass;
+  binding = BindingSlot(resRef->resourceBase.regBase + arrayIndex, resRef->resourceBase.space);
+  switch(resClass)
+  {
+    case DXIL::ResourceClass::SRV:
+    {
+      srvData.dim = (DXDebug::ResourceDimension)ConvertResourceKindToResourceDimension(
+          resRef->resourceBase.srvData.shape);
+      srvData.sampleCount = resRef->resourceBase.srvData.sampleCount;
+      srvData.compType = (DXDebug::ResourceRetType)ConvertComponentTypeToResourceRetType(
+          resRef->resourceBase.srvData.compType);
+      type = VarType::ReadOnlyResource;
+      category = DescriptorCategory::ReadOnlyResource;
+      break;
+    }
+    case DXIL::ResourceClass::UAV:
+    {
+      type = VarType::ReadWriteResource;
+      category = DescriptorCategory::ReadWriteResource;
+      break;
+    }
+    case DXIL::ResourceClass::CBuffer:
+    {
+      type = VarType::ConstantBlock;
+      category = DescriptorCategory::ConstantBlock;
+      break;
+    }
+    case DXIL::ResourceClass::Sampler:
+    {
+      samplerData.samplerMode =
+          ConvertSamplerKindToSamplerMode(resRef->resourceBase.samplerData.samplerType);
+      type = VarType::Sampler;
+      category = DescriptorCategory::Sampler;
+      break;
+    }
+    default: RDCERR("Unexpected resource class %s", ToStr(resClass).c_str()); break;
+  }
+}
+
 void MemoryTracking::AllocateMemoryForType(const DXIL::Type *type, Id allocId, bool global,
                                            ShaderVariable &var)
 {
@@ -1695,14 +1736,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             // GetDimensions(handle,mipLevel)
             Id handleId = GetArgumentId(1);
-            ShaderBindIndex bindIndex;
             bool annotatedHandle;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
-            if(!resRef)
+            ResourceReferenceInfo resRefInfo = GetResource(handleId, annotatedHandle);
+            if(!resRefInfo.Valid())
               break;
 
-            BindingSlot binding(resRef->resourceBase.regBase + bindIndex.arrayElement,
-                                resRef->resourceBase.space);
+            BindingSlot binding(resRefInfo.binding);
             ShaderVariable data;
             uint32_t mipLevel = 0;
             if(!isUndef(inst.args[2]))
@@ -1712,8 +1751,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               mipLevel = arg.value.u32v[0];
             }
             int dim;
-            data = apiWrapper->GetResourceInfo(resRef->resourceBase.resClass, binding, mipLevel,
-                                               m_ShaderType, dim);
+            data = apiWrapper->GetResourceInfo(resRefInfo.resClass, binding, mipLevel, m_ShaderType,
+                                               dim);
             // Returns a vector with: w, h, d, numLevels
             result.value = data.value;
             // DXIL reports the vector result as a struct of 4 x int.
@@ -1731,18 +1770,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             // Texture2DMSGetSamplePosition(srv,index)
             Id handleId = GetArgumentId(1);
-            ShaderBindIndex bindIndex;
             bool annotatedHandle;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
-            if(!resRef)
+            ResourceReferenceInfo resRefInfo = GetResource(handleId, annotatedHandle);
+            if(!resRefInfo.Valid())
               break;
 
-            BindingSlot binding(resRef->resourceBase.regBase + bindIndex.arrayElement,
-                                resRef->resourceBase.space);
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
             const char *opString = ToStr(dxOpCode).c_str();
-            ShaderVariable data = apiWrapper->GetSampleInfo(resRef->resourceBase.resClass, binding,
+            ShaderVariable data = apiWrapper->GetSampleInfo(resRefInfo.resClass, resRefInfo.binding,
                                                             m_ShaderType, opString);
 
             uint32_t sampleCount = data.value.u32v[0];
@@ -1802,14 +1838,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::TextureGatherCmp:
           {
             Id handleId = GetArgumentId(1);
-            ShaderBindIndex bindIndex;
             bool annotatedHandle;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
-            if(!resRef)
+            ResourceReferenceInfo resRefInfo = GetResource(handleId, annotatedHandle);
+            if(!resRefInfo.Valid())
               break;
 
-            PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRef, bindIndex, apiWrapper, inst,
-                                 result);
+            PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRefInfo, apiWrapper, inst, result);
             eventFlags |= ShaderEvents::SampleLoadGather;
             break;
           }
@@ -1828,17 +1862,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
             const Id handleId = GetArgumentId(1);
             bool annotatedHandle;
-            ShaderBindIndex bindIndex;
-            const DXIL::ResourceReference *resRef = GetResource(handleId, bindIndex, annotatedHandle);
-            if(!resRef)
+            ResourceReferenceInfo resRefInfo = GetResource(handleId, annotatedHandle);
+            if(!resRefInfo.Valid())
               break;
 
-            ResourceClass resClass = resRef->resourceBase.resClass;
+            ResourceClass resClass = resRefInfo.resClass;
             // SRV TextureLoad is done on the GPU
             if((dxOpCode == DXOp::TextureLoad) && (resClass == ResourceClass::SRV))
             {
-              PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRef, bindIndex, apiWrapper,
-                                   inst, result);
+              PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRefInfo, apiWrapper, inst,
+                                   result);
               eventFlags |= ShaderEvents::SampleLoadGather;
               break;
             }
@@ -1887,18 +1920,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint32_t numElems = 0;
             GlobalState::ViewFmt fmt;
 
-            BindingSlot resourceBinding(resRef->resourceBase.regBase, resRef->resourceBase.space);
             RDCASSERT((resClass == ResourceClass::SRV || resClass == ResourceClass::UAV), resClass);
             GlobalState::ResourceInfo resInfo;
             switch(resClass)
             {
               case ResourceClass::UAV:
               {
-                GlobalState::UAVIterator uavIter = m_GlobalState.uavs.find(resourceBinding);
+                GlobalState::UAVIterator uavIter = m_GlobalState.uavs.find(resRefInfo.binding);
                 if(uavIter == m_GlobalState.uavs.end())
                 {
-                  apiWrapper->FetchUAV(resourceBinding);
-                  uavIter = m_GlobalState.uavs.find(resourceBinding);
+                  apiWrapper->FetchUAV(resRefInfo.binding);
+                  uavIter = m_GlobalState.uavs.find(resRefInfo.binding);
                 }
                 const GlobalState::UAVData &uav = uavIter->second;
                 resInfo = uav.resInfo;
@@ -1911,11 +1943,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               }
               case ResourceClass::SRV:
               {
-                GlobalState::SRVIterator srvIter = m_GlobalState.srvs.find(resourceBinding);
+                GlobalState::SRVIterator srvIter = m_GlobalState.srvs.find(resRefInfo.binding);
                 if(srvIter == m_GlobalState.srvs.end())
                 {
-                  apiWrapper->FetchSRV(resourceBinding);
-                  srvIter = m_GlobalState.srvs.find(resourceBinding);
+                  apiWrapper->FetchSRV(resRefInfo.binding);
+                  srvIter = m_GlobalState.srvs.find(resRefInfo.binding);
                 }
                 const GlobalState::SRVData &srv = srvIter->second;
                 resInfo = srv.resInfo;
@@ -4530,9 +4562,9 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
 }
 
 void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, Operation opCode,
-                                       DXOp dxOpCode, const DXIL::ResourceReference *resRef,
-                                       const ShaderBindIndex &bindIndex, DebugAPIWrapper *apiWrapper,
-                                       const DXIL::Instruction &inst, ShaderVariable &result)
+                                       DXOp dxOpCode, const ResourceReferenceInfo &resRefInfo,
+                                       DebugAPIWrapper *apiWrapper, const DXIL::Instruction &inst,
+                                       ShaderVariable &result)
 {
   // TextureLoad(srv,mipLevelOrSampleCount,coord0,coord1,coord2,offset0,offset1,offset2)
   // Sample(srv,sampler,coord0,coord1,coord2,coord3,offset0,offset1,offset2,clamp)
@@ -4558,20 +4590,17 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
   result.columns = (uint8_t)(retType->members.size() - 1);
 
   // CalculateSampleGather is only valid for SRV resources
-  ResourceClass resClass = resRef->resourceBase.resClass;
+  ResourceClass resClass = resRefInfo.resClass;
   RDCASSERTEQUAL(resClass, ResourceClass::SRV);
 
-  // resRef->resourceBase must be an SRV
-  const DXIL::EntryPointInterface::SRV &srv = resRef->resourceBase.srvData;
+  // Resource reference must be an SRV
+  const ResourceReferenceInfo::SRVData &srv = resRefInfo.srvData;
 
   SampleGatherResourceData resourceData;
-  resourceData.dim = (DXDebug::ResourceDimension)ConvertResourceKindToResourceDimension(srv.shape);
-  resourceData.retType =
-      (DXDebug::ResourceRetType)ConvertComponentTypeToResourceRetType(srv.compType);
+  resourceData.dim = srv.dim;
+  resourceData.retType = srv.compType;
   resourceData.sampleCount = srv.sampleCount;
-
-  resourceData.binding.registerSpace = resRef->resourceBase.space;
-  resourceData.binding.shaderRegister = resRef->resourceBase.regBase + bindIndex.arrayElement;
+  resourceData.binding = resRefInfo.binding;
 
   ShaderVariable uv;
   int8_t texelOffsets[3] = {0, 0, 0};
@@ -4594,13 +4623,23 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
       uint32_t mipLevelOrSampleCount = arg.value.u32v[0];
       // The debug shader uses arrays of resources for 1D, 2D textures
       // mipLevel goes into UV[N] : N = 1D: 2, 2D: 3, 3D: 3
-      switch(srv.shape)
+      switch(srv.dim)
       {
-        case DXIL::ResourceKind::Texture1D: uv.value.u32v[2] = mipLevelOrSampleCount; break;
-        case DXIL::ResourceKind::Texture2D: uv.value.u32v[3] = mipLevelOrSampleCount; break;
-        case DXIL::ResourceKind::Texture3D: uv.value.u32v[3] = mipLevelOrSampleCount; break;
-        case DXIL::ResourceKind::Texture2DMS: msIndex = mipLevelOrSampleCount; break;
-        case DXIL::ResourceKind::Texture2DMSArray: msIndex = mipLevelOrSampleCount; break;
+        case DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE1D:
+          uv.value.u32v[2] = mipLevelOrSampleCount;
+          break;
+        case DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2D:
+          uv.value.u32v[3] = mipLevelOrSampleCount;
+          break;
+        case DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE3D:
+          uv.value.u32v[3] = mipLevelOrSampleCount;
+          break;
+        case DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2DMS:
+          msIndex = mipLevelOrSampleCount;
+          break;
+        case DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2DMSARRAY:
+          msIndex = mipLevelOrSampleCount;
+          break;
         default: break;
       }
     }
@@ -4619,21 +4658,17 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
   {
     // Sampler is in arg 2
     Id samplerId = GetArgumentId(2);
-    ShaderBindIndex samplerBindIndex;
     bool annotatedHandle;
-    const DXIL::ResourceReference *samplerRef =
-        GetResource(samplerId, samplerBindIndex, annotatedHandle);
-    if(!samplerRef)
+    ResourceReferenceInfo samplerRef = GetResource(samplerId, annotatedHandle);
+    if(!samplerRef.Valid())
       return;
 
-    RDCASSERTEQUAL(samplerRef->resourceBase.resClass, ResourceClass::Sampler);
+    RDCASSERTEQUAL(samplerRef.resClass, ResourceClass::Sampler);
     // samplerRef->resourceBase must be a Sampler
-    const DXIL::EntryPointInterface::Sampler &sampler = samplerRef->resourceBase.samplerData;
+    const ResourceReferenceInfo::SamplerData &sampler = samplerRef.samplerData;
     samplerData.bias = 0.0f;
-    samplerData.binding.registerSpace = samplerRef->resourceBase.space;
-    samplerData.binding.shaderRegister =
-        samplerRef->resourceBase.regBase + samplerBindIndex.arrayElement;
-    samplerData.mode = ConvertSamplerKindToSamplerMode(sampler.samplerType);
+    samplerData.binding = samplerRef.binding;
+    samplerData.mode = sampler.samplerMode;
 
     int32_t biasArg = -1;
     int32_t lodArg = -1;
@@ -4816,28 +4851,31 @@ DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
   return GetSSAId(arg);
 }
 
-const DXIL::ResourceReference *ThreadState::GetResource(Id handleId, ShaderBindIndex &bindIndex,
-                                                        bool &annotatedHandle)
+ResourceReferenceInfo ThreadState::GetResource(Id handleId, bool &annotatedHandle)
 {
+  ResourceReferenceInfo resRefInfo;
   RDCASSERT(m_Live.contains(handleId));
   auto it = m_Variables.find(handleId);
   if(it != m_Variables.end())
   {
     const ShaderVariable &var = m_Variables.at(handleId);
-    const DXIL::ResourceReference *resRef = m_Program.GetResourceReference(handleId);
+    ShaderBindIndex bindIndex = var.GetBindIndex();
+    annotatedHandle = IsAnnotatedHandle(var);
+    RDCASSERT(!annotatedHandle || (m_AnnotatedProperties.count(handleId) == 1));
+    const DXIL::ResourceReference *resRef = NULL;
+    rdcstr alias = var.name;
+    resRef = m_Program.GetResourceReference(handleId);
     if(resRef)
     {
-      rdcstr alias = m_Program.GetHandleAlias(resRef->handleID);
-      bindIndex = var.GetBindIndex();
-      annotatedHandle = IsAnnotatedHandle(var);
-      RDCASSERT(!annotatedHandle || (m_AnnotatedProperties.count(handleId) == 1));
-      MarkResourceAccess(alias, bindIndex);
-      return resRef;
+      alias = m_Program.GetHandleAlias(resRef->handleID);
+      resRefInfo.Create(resRef, bindIndex.arrayElement);
     }
+    MarkResourceAccess(alias, bindIndex);
+    return resRefInfo;
   }
 
   RDCERR("Unknown resource handle %u", handleId);
-  return NULL;
+  return resRefInfo;
 }
 
 void ThreadState::Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderValue &ret) const
