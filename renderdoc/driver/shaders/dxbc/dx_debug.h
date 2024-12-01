@@ -80,21 +80,52 @@ enum class GatherChannel : uint8_t
   Alpha = 3,
 };
 
+enum class HeapDescriptorType : uint8_t
+{
+  NoHeap = 0,
+  CBV_SRV_UAV,
+  Sampler,
+};
+
 struct BindingSlot
 {
-  BindingSlot() : shaderRegister(UINT32_MAX), registerSpace(UINT32_MAX) {}
+  BindingSlot()
+      : shaderRegister(UINT32_MAX),
+        registerSpace(UINT32_MAX),
+        heapType(HeapDescriptorType::NoHeap),
+        descriptorIndex(UINT32_MAX)
+  {
+  }
   BindingSlot(uint32_t shaderReg, uint32_t regSpace)
-      : shaderRegister(shaderReg), registerSpace(regSpace)
+      : shaderRegister(shaderReg),
+        registerSpace(regSpace),
+        heapType(HeapDescriptorType::NoHeap),
+        descriptorIndex(UINT32_MAX)
+  {
+  }
+  BindingSlot(HeapDescriptorType type, uint32_t index)
+      : shaderRegister(UINT32_MAX), registerSpace(UINT32_MAX), heapType(type), descriptorIndex(index)
   {
   }
   bool operator<(const BindingSlot &o) const
   {
     if(registerSpace != o.registerSpace)
       return registerSpace < o.registerSpace;
-    return shaderRegister < o.shaderRegister;
+    if(shaderRegister != o.shaderRegister)
+      return shaderRegister < o.shaderRegister;
+    if(heapType != o.heapType)
+      return heapType < o.heapType;
+    return descriptorIndex < o.descriptorIndex;
+  }
+  bool operator==(const BindingSlot &o) const
+  {
+    return registerSpace == o.registerSpace && shaderRegister == o.shaderRegister &&
+           heapType == o.heapType && descriptorIndex == o.descriptorIndex;
   }
   uint32_t shaderRegister;
   uint32_t registerSpace;
+  HeapDescriptorType heapType;
+  uint32_t descriptorIndex;
 };
 
 struct SampleGatherResourceData
