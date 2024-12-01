@@ -2743,10 +2743,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.f32v[0] = ConvertFromHalf(arg.value.u16v[0]);
             break;
           }
-          case DXOp::TempRegLoad:
-          case DXOp::TempRegStore:
-          case DXOp::MinPrecXRegLoad:
-          case DXOp::MinPrecXRegStore:
+          // Likely to implement when required
+          case DXOp::CreateHandleFromHeap:
           case DXOp::UAddc:
           case DXOp::USubb:
           case DXOp::Fma:
@@ -2756,31 +2754,68 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::Ibfe:
           case DXOp::Ubfe:
           case DXOp::Bfi:
-          case DXOp::CBufferLoad:
-          case DXOp::BufferUpdateCounter:
-          case DXOp::CheckAccessFullyMapped:
           case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
           case DXOp::CalculateLOD:
-          case DXOp::EvalSnapped:
-          case DXOp::EvalSampleIndex:
-          case DXOp::EvalCentroid:
           case DXOp::SampleIndex:
           case DXOp::Coverage:
           case DXOp::InnerCoverage:
+          case DXOp::MakeDouble:
+          case DXOp::SplitDouble:
+          case DXOp::PrimitiveID:
+          case DXOp::BitcastI16toF16:
+          case DXOp::BitcastF16toI16:
+          case DXOp::BitcastI32toF32:
+          case DXOp::BitcastF32toI32:
+          case DXOp::BitcastI64toF64:
+          case DXOp::BitcastF64toI64:
+          case DXOp::LegacyDoubleToFloat:
+          case DXOp::LegacyDoubleToSInt32:
+          case DXOp::LegacyDoubleToUInt32:
+          case DXOp::AttributeAtVertex:
+          case DXOp::ViewID:
+          case DXOp::InstanceID:
+          case DXOp::InstanceIndex:
+          case DXOp::PrimitiveIndex:
+          case DXOp::Dot2AddHalf:
+          case DXOp::Dot4AddI8Packed:
+          case DXOp::Dot4AddU8Packed:
+          case DXOp::Unpack4x8:
+          case DXOp::Pack4x8:
+          case DXOp::TextureGatherRaw:
+          case DXOp::TextureStoreSample:
+          // Don't know if needs to be implemented
+          case DXOp::CBufferLoad:
+          case DXOp::TempRegLoad:
+          case DXOp::TempRegStore:
+          case DXOp::MinPrecXRegLoad:
+          case DXOp::MinPrecXRegStore:
+          case DXOp::BufferUpdateCounter:
+          case DXOp::CheckAccessFullyMapped:
+          case DXOp::EvalSnapped:
+          case DXOp::EvalSampleIndex:
+          case DXOp::EvalCentroid:
+          case DXOp::CycleCounterLegacy:
+          case DXOp::WriteSamplerFeedback:
+          case DXOp::WriteSamplerFeedbackBias:
+          case DXOp::WriteSamplerFeedbackLevel:
+          case DXOp::WriteSamplerFeedbackGrad:
+          case DXOp::IsHelperLane:
+          case DXOp::BarrierByMemoryType:
+          case DXOp::BarrierByMemoryHandle:
+          case DXOp::BarrierByNodeRecordHandle:
+          case DXOp::StartVertexLocation:
+          case DXOp::StartInstanceLocation:
+          // No plans to implement
           case DXOp::EmitStream:
           case DXOp::CutStream:
           case DXOp::EmitThenCutStream:
           case DXOp::GSInstanceID:
-          case DXOp::MakeDouble:
-          case DXOp::SplitDouble:
           case DXOp::LoadOutputControlPoint:
           case DXOp::LoadPatchConstant:
           case DXOp::DomainLocation:
           case DXOp::StorePatchConstant:
           case DXOp::OutputControlPointID:
-          case DXOp::PrimitiveID:
-          case DXOp::CycleCounterLegacy:
           case DXOp::WaveIsFirstLane:
           case DXOp::WaveGetLaneIndex:
           case DXOp::WaveGetLaneCount:
@@ -2795,21 +2830,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::WavePrefixOp:
           case DXOp::QuadReadLaneAt:
           case DXOp::QuadOp:
-          case DXOp::BitcastI16toF16:
-          case DXOp::BitcastF16toI16:
-          case DXOp::BitcastI32toF32:
-          case DXOp::BitcastF32toI32:
-          case DXOp::BitcastI64toF64:
-          case DXOp::BitcastF64toI64:
-          case DXOp::LegacyDoubleToFloat:
-          case DXOp::LegacyDoubleToSInt32:
-          case DXOp::LegacyDoubleToUInt32:
           case DXOp::WaveAllBitCount:
           case DXOp::WavePrefixBitCount:
-          case DXOp::AttributeAtVertex:
-          case DXOp::ViewID:
-          case DXOp::InstanceID:
-          case DXOp::InstanceIndex:
           case DXOp::HitKind:
           case DXOp::RayFlags:
           case DXOp::DispatchRaysIndex:
@@ -2828,10 +2850,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::ReportHit:
           case DXOp::CallShader:
           case DXOp::CreateHandleForLib:
-          case DXOp::PrimitiveIndex:
-          case DXOp::Dot2AddHalf:
-          case DXOp::Dot4AddI8Packed:
-          case DXOp::Dot4AddU8Packed:
           case DXOp::WaveMatch:
           case DXOp::WaveMultiPrefixOp:
           case DXOp::WaveMultiPrefixBitCount:
@@ -2841,10 +2859,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::StoreVertexOutput:
           case DXOp::StorePrimitiveOutput:
           case DXOp::DispatchMesh:
-          case DXOp::WriteSamplerFeedback:
-          case DXOp::WriteSamplerFeedbackBias:
-          case DXOp::WriteSamplerFeedbackLevel:
-          case DXOp::WriteSamplerFeedbackGrad:
           case DXOp::AllocateRayQuery:
           case DXOp::RayQuery_TraceRayInline:
           case DXOp::RayQuery_Proceed:
@@ -2883,13 +2897,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::GeometryIndex:
           case DXOp::RayQuery_CandidateInstanceContributionToHitGroupIndex:
           case DXOp::RayQuery_CommittedInstanceContributionToHitGroupIndex:
-          case DXOp::CreateHandleFromHeap:
-          case DXOp::Unpack4x8:
-          case DXOp::Pack4x8:
-          case DXOp::IsHelperLane:
           case DXOp::QuadVote:
-          case DXOp::TextureGatherRaw:
-          case DXOp::TextureStoreSample:
           case DXOp::WaveMatrix_Annotate:
           case DXOp::WaveMatrix_Depth:
           case DXOp::WaveMatrix_Fill:
@@ -2908,9 +2916,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::OutputComplete:
           case DXOp::GetInputRecordCount:
           case DXOp::FinishedCrossGroupSharing:
-          case DXOp::BarrierByMemoryType:
-          case DXOp::BarrierByMemoryHandle:
-          case DXOp::BarrierByNodeRecordHandle:
           case DXOp::CreateNodeOutputHandle:
           case DXOp::IndexNodeHandle:
           case DXOp::AnnotateNodeHandle:
@@ -2918,8 +2923,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::AnnotateNodeRecordHandle:
           case DXOp::NodeOutputIsValid:
           case DXOp::GetRemainingRecursionLevels:
-          case DXOp::StartVertexLocation:
-          case DXOp::StartInstanceLocation:
           case DXOp::NumOpCodes:
             RDCERR("Unhandled dx.op method `%s` %s", callFunc->name.c_str(), ToStr(dxOpCode).c_str());
             break;
