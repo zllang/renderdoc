@@ -863,8 +863,8 @@ void D3D12RTManager::VerifyRecord(const uint64_t recordSize, byte *wrappedRecord
 {
   bytebuf record;
 
-  record.resize(recordSize);
-  memcpy(record.data(), wrappedRecord, recordSize);
+  record.resize((size_t)recordSize);
+  memcpy(record.data(), wrappedRecord, (size_t)recordSize);
 
   struct ShaderIdentifier
   {
@@ -1107,7 +1107,7 @@ DiskCachedAS D3D12RTManager::AllocDiskCache(uint64_t byteSize)
       {
         ret.fileIndex = i;
         ret.offset = firstBlock * DiskCacheFile::blockSize;
-        memset(&m_DiskCache[i].blocksUsed[firstBlock], 1, blocksNeeded * sizeof(bool));
+        memset(&m_DiskCache[i].blocksUsed[firstBlock], 1, size_t(blocksNeeded * sizeof(bool)));
         return ret;
       }
     }
@@ -1125,7 +1125,7 @@ DiskCachedAS D3D12RTManager::AllocDiskCache(uint64_t byteSize)
     if(blocksNeeded > DiskCacheFile::blocksInFile)
       blocksNeeded = DiskCacheFile::blocksInFile;
 
-    memset(cache.blocksUsed, 1, blocksNeeded * sizeof(bool));
+    memset(cache.blocksUsed, 1, size_t(blocksNeeded * sizeof(bool)));
 
     {
       SCOPED_LOCK(m_DiskCacheLock);
@@ -1154,7 +1154,8 @@ void D3D12RTManager::ReleaseDiskCache(DiskCachedAS diskCache)
     return;
   }
 
-  memset(&m_DiskCache[diskCache.fileIndex].blocksUsed[blockOffset], 0, blocksNeeded * sizeof(bool));
+  memset(&m_DiskCache[diskCache.fileIndex].blocksUsed[blockOffset], 0,
+         size_t(blocksNeeded * sizeof(bool)));
 }
 
 void D3D12RTManager::FillDiskCache(DiskCachedAS diskCache, void *data)
