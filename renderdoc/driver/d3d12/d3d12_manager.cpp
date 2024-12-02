@@ -841,6 +841,19 @@ void D3D12RTManager::Verify(PatchedRayDispatch &r)
                    resHeap, sampHeap);
   }
 
+  if(r.desc.CallableShaderTable.StartAddress)
+  {
+    if(r.desc.CallableShaderTable.StrideInBytes == 0)
+      r.desc.CallableShaderTable.StrideInBytes = r.desc.CallableShaderTable.SizeInBytes;
+    for(UINT64 i = 0;
+        i < r.desc.CallableShaderTable.SizeInBytes / r.desc.CallableShaderTable.StrideInBytes; i++)
+      VerifyRecord(r.desc.CallableShaderTable.StrideInBytes,
+                   data + callOffs + r.desc.CallableShaderTable.StrideInBytes * i,
+                   data + r.resources.patchScratchBuffer->Size() + callOffs +
+                       r.desc.CallableShaderTable.StrideInBytes * i,
+                   resHeap, sampHeap);
+  }
+
   r.resources.readbackBuffer->Unmap();
 }
 
