@@ -95,6 +95,10 @@ class Iter_Test(rdtest.TestCase):
 
             idx = indices[0]
 
+            if idx is None:
+                rdtest.log.print("Index buffer out of bounds for idx 0, skipping")
+                return
+
             striprestart_index = pipe.GetRestartIndex() & ((1 << (ib.byteStride*8)) - 1)
 
             if pipe.IsRestartEnabled() and idx == striprestart_index:
