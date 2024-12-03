@@ -38,6 +38,80 @@ using namespace DXILDebug;
 
 namespace DXILDebug
 {
+static DXBC::ResourceRetType ConvertCompTypeToResourceRetType(const CompType compType)
+{
+  switch(compType)
+  {
+    case CompType::Float: return DXBC::ResourceRetType::RETURN_TYPE_FLOAT;
+    case CompType::UNormSRGB:
+    case CompType::UNorm: return DXBC::ResourceRetType::RETURN_TYPE_UNORM;
+    case CompType::SNorm: return DXBC::ResourceRetType::RETURN_TYPE_SNORM;
+    case CompType::UInt: return DXBC::ResourceRetType::RETURN_TYPE_UINT;
+    case CompType::SInt: return DXBC::ResourceRetType::RETURN_TYPE_SINT;
+    case CompType::Typeless:
+    case CompType::UScaled:
+    case CompType::SScaled:
+    case CompType::Depth:
+    default:
+      RDCERR("Unexpected component type %s", ToStr(compType).c_str());
+      return DXBC::ResourceRetType ::RETURN_TYPE_UNKNOWN;
+  }
+}
+
+static DXBCBytecode::ResourceDimension ConvertSRVResourceDimensionToResourceDimension(
+    D3D12_SRV_DIMENSION dim)
+{
+  switch(dim)
+  {
+    case D3D12_SRV_DIMENSION_UNKNOWN:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_UNKNOWN;
+    case D3D12_SRV_DIMENSION_BUFFER:
+      return DXBCBytecode::ResourceDimension ::RESOURCE_DIMENSION_BUFFER;
+    case D3D12_SRV_DIMENSION_TEXTURE1D:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE1D;
+    case D3D12_SRV_DIMENSION_TEXTURE1DARRAY:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE1DARRAY;
+    case D3D12_SRV_DIMENSION_TEXTURE2D:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2D;
+    case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2DARRAY;
+    case D3D12_SRV_DIMENSION_TEXTURE2DMS:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2DMS;
+    case D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE2DMSARRAY;
+    case D3D12_SRV_DIMENSION_TEXTURE3D:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURE3D;
+    case D3D12_SRV_DIMENSION_TEXTURECUBE:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURECUBE;
+    case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY:
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_TEXTURECUBEARRAY;
+    default:
+      RDCERR("Unexpected SRV dimension %s", ToStr(dim).c_str());
+      return DXBCBytecode::ResourceDimension::RESOURCE_DIMENSION_UNKNOWN;
+  }
+}
+
+static DXDebug::SamplerMode ConvertSamplerFilterToSamplerMode(D3D12_FILTER filter)
+{
+  switch(filter)
+  {
+    case D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT:
+    case D3D12_FILTER_COMPARISON_MIN_MAG_POINT_MIP_LINEAR:
+    case D3D12_FILTER_COMPARISON_MIN_POINT_MAG_LINEAR_MIP_POINT:
+    case D3D12_FILTER_COMPARISON_MIN_POINT_MAG_MIP_LINEAR:
+    case D3D12_FILTER_COMPARISON_MIN_LINEAR_MAG_MIP_POINT:
+    case D3D12_FILTER_COMPARISON_MIN_LINEAR_MAG_POINT_MIP_LINEAR:
+    case D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT:
+    case D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR:
+    case D3D12_FILTER_COMPARISON_MIN_MAG_ANISOTROPIC_MIP_POINT:
+    case D3D12_FILTER_COMPARISON_ANISOTROPIC:
+      return DXBCBytecode::SamplerMode::SAMPLER_MODE_COMPARISON;
+      break;
+    default: break;
+  }
+  return DXBCBytecode::SamplerMode::SAMPLER_MODE_DEFAULT;
+}
+
 static bool IsShaderParameterVisible(DXBC::ShaderType shaderType,
                                      D3D12_SHADER_VISIBILITY shaderVisibility)
 {
@@ -984,4 +1058,84 @@ ShaderVariable D3D12APIWrapper::GetRenderTargetSampleInfo(const DXBC::ShaderType
   return D3D12ShaderDebug::GetRenderTargetSampleInfo(m_Device, shaderType, opString);
 }
 
+ResourceReferenceInfo D3D12APIWrapper::GetResourceReferenceInfo(const DXDebug::BindingSlot &slot)
+{
+  const HeapDescriptorType heapType = slot.heapType;
+  RDCASSERT(heapType != HeapDescriptorType::NoHeap);
+  const uint32_t descriptorIndex = slot.descriptorIndex;
+  D3D12Descriptor desc = D3D12ShaderDebug::FindDescriptor(m_Device, heapType, descriptorIndex);
+
+  D3D12ResourceManager *rm = m_Device->GetResourceManager();
+
+  ResourceReferenceInfo resRefInfo;
+  resRefInfo.binding.heapType = heapType;
+  resRefInfo.binding.descriptorIndex = descriptorIndex;
+
+  switch(desc.GetType())
+  {
+    case D3D12DescriptorType::CBV:
+    {
+      resRefInfo.resClass = DXIL::ResourceClass::CBuffer;
+      resRefInfo.category = DescriptorCategory::ConstantBlock;
+      resRefInfo.type = VarType::ConstantBlock;
+    }
+    case D3D12DescriptorType::SRV:
+    {
+      ResourceId srvId = desc.GetResResourceId();
+      ID3D12Resource *pResource = rm->GetCurrentAs<ID3D12Resource>(srvId);
+      if(pResource)
+      {
+        resRefInfo.resClass = DXIL::ResourceClass::SRV;
+        resRefInfo.category = DescriptorCategory::ReadOnlyResource;
+        resRefInfo.type = VarType::ReadOnlyResource;
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = desc.GetSRV();
+        if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_UNKNOWN)
+          srvDesc = MakeSRVDesc(pResource->GetDesc());
+
+        GlobalState::ViewFmt viewFmt;
+        if(srvDesc.Format != DXGI_FORMAT_UNKNOWN)
+        {
+          resRefInfo.srvData.dim =
+              (DXDebug::ResourceDimension)ConvertSRVResourceDimensionToResourceDimension(
+                  srvDesc.ViewDimension);
+
+          DXILDebug::FillViewFmtFromResourceFormat(srvDesc.Format, viewFmt);
+          resRefInfo.srvData.compType =
+              (DXDebug::ResourceRetType)ConvertCompTypeToResourceRetType(viewFmt.compType);
+
+          D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
+          resRefInfo.srvData.sampleCount = resDesc.SampleDesc.Count;
+        }
+      }
+      else
+      {
+        RDCERR("Unknown SRV resource at Descriptor Index %s", descriptorIndex);
+        return ResourceReferenceInfo();
+      }
+      break;
+    }
+    case D3D12DescriptorType::UAV:
+    {
+      resRefInfo.resClass = DXIL::ResourceClass::UAV;
+      resRefInfo.category = DescriptorCategory::ReadWriteResource;
+      resRefInfo.type = VarType::ReadWriteResource;
+      break;
+    }
+    case D3D12DescriptorType::Sampler:
+    {
+      resRefInfo.resClass = DXIL::ResourceClass::Sampler;
+      resRefInfo.category = DescriptorCategory::Sampler;
+      resRefInfo.type = VarType::Sampler;
+      D3D12_SAMPLER_DESC2 samplerDesc = desc.GetSampler();
+      // Don't think SAMPLER_MODE_MONO is supported in D3D12 (set for filter mode D3D10_FILTER_TEXT_1BIT)
+      resRefInfo.samplerData.samplerMode =
+          (DXDebug::SamplerMode)ConvertSamplerFilterToSamplerMode(samplerDesc.Filter);
+      break;
+    }
+    default:
+      RDCERR("Unhandled Descriptor Type %s", ToStr(desc.GetType()).c_str());
+      return ResourceReferenceInfo();
+  }
+  return resRefInfo;
+}
 };

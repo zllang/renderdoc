@@ -60,6 +60,7 @@ public:
   ShaderVariable GetSampleInfo(DXIL::ResourceClass resClass, const DXDebug::BindingSlot &slot,
                                const DXBC::ShaderType shaderType, const char *opString);
   ShaderVariable GetRenderTargetSampleInfo(const DXBC::ShaderType shaderType, const char *opString);
+  ResourceReferenceInfo GetResourceReferenceInfo(const DXDebug::BindingSlot &slot);
 
 private:
   WrappedID3D12Device *m_Device;
