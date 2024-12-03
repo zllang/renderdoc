@@ -166,3 +166,6 @@ Shader Variables
 
 .. autoclass:: renderdoc.ShaderBindIndex
   :members:
+
+.. autoclass:: renderdoc.ShaderDirectAccess
+  :members:

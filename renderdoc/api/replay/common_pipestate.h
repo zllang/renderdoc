@@ -651,6 +651,11 @@ struct DescriptorAccess
     return CategoryForDescriptorType(type) == o.category && index == o.index &&
            arrayElement == o.arrayElement;
   }
+  bool operator==(const ShaderDirectAccess &o) const
+  {
+    return CategoryForDescriptorType(type) == o.category && descriptorStore == o.descriptorStore &&
+           byteOffset == o.byteOffset && byteSize == o.byteSize;
+  }
   bool operator==(const DescriptorAccess &o) const
   {
     return stage == o.stage && type == o.type && index == o.index &&
@@ -737,6 +742,12 @@ DECLARE_REFLECTION_STRUCT(DescriptorAccess);
 
 inline ShaderBindIndex::ShaderBindIndex(const DescriptorAccess &access)
     : ShaderBindIndex(CategoryForDescriptorType(access.type), access.index, access.arrayElement)
+{
+}
+
+inline ShaderDirectAccess::ShaderDirectAccess(const DescriptorAccess &access)
+    : ShaderDirectAccess(CategoryForDescriptorType(access.type), access.descriptorStore,
+                         access.byteOffset, access.byteSize)
 {
 }
 
@@ -860,6 +871,7 @@ struct UsedDescriptor
 
   bool operator==(const DescriptorAccess &o) const { return access == o; }
   bool operator==(const ShaderBindIndex &o) const { return access == o; }
+  bool operator==(const ShaderDirectAccess &o) const { return access == o; }
   bool operator==(const UsedDescriptor &o) const
   {
     return access == o.access && descriptor == o.descriptor && sampler == o.sampler;
