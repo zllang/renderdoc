@@ -207,7 +207,9 @@ struct ThreadState
 
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroups);
 
-  void MarkResourceAccess(const rdcstr &name, const ShaderBindIndex &bindIndex);
+  void MarkResourceAccess(const rdcstr &name, const ResourceReferenceInfo &resRefInfo,
+                          bool directAccess, const ShaderDirectAccess &access,
+                          const ShaderBindIndex &bindIndex);
   void SetResult(const Id &id, ShaderVariable &result, DXIL::Operation op, DXIL::DXOp dxOpCode,
                  ShaderEvents flags);
   rdcstr GetArgumentName(uint32_t i) const;
@@ -286,6 +288,8 @@ struct ThreadState
   rdcarray<Id> m_Dormant;
   // Annotated handle properties
   std::map<Id, AnnotationProperties> m_AnnotatedProperties;
+  // ResourceReferenceInfo for any direct heap access bindings created using createHandleFromHeap
+  std::map<Id, ResourceReferenceInfo> m_DirectHeapAccessBindings;
 
   const FunctionInfo *m_FunctionInfo = NULL;
   DXBC::ShaderType m_ShaderType;
@@ -305,8 +309,8 @@ struct ThreadState
   // The PC of the active instruction that was or will be executed on the current simulation step
   uint32_t m_ActiveGlobalInstructionIdx = ~0U;
 
-  rdcarray<ShaderBindIndex> m_accessedSRVs;
-  rdcarray<ShaderBindIndex> m_accessedUAVs;
+  rdcarray<BindingSlot> m_accessedSRVs;
+  rdcarray<BindingSlot> m_accessedUAVs;
 
   // index in the pixel quad
   uint32_t m_WorkgroupIndex = ~0U;
