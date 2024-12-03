@@ -426,11 +426,63 @@ bool D3D12ShaderDebug::CalculateSampleGather(
 }
 
 D3D12Descriptor D3D12ShaderDebug::FindDescriptor(WrappedID3D12Device *device,
+                                                 const DXDebug::HeapDescriptorType heapType,
+                                                 uint32_t descriptorIndex)
+{
+  RDCASSERT(heapType != HeapDescriptorType::NoHeap);
+
+  const D3D12RenderState &rs = device->GetQueue()->GetCommandData()->m_RenderState;
+  D3D12ResourceManager *rm = device->GetResourceManager();
+  // Fetch the correct heap sampler and resource descriptor heaps
+  WrappedID3D12DescriptorHeap *descHeap = NULL;
+
+  rdcarray<ResourceId> descHeaps = rs.heaps;
+  for(ResourceId heapId : descHeaps)
+  {
+    WrappedID3D12DescriptorHeap *pD3D12Heap = rm->GetCurrentAs<WrappedID3D12DescriptorHeap>(heapId);
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = pD3D12Heap->GetDesc();
+    if(heapDesc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+      if((heapType == HeapDescriptorType::Sampler) && (descHeap == NULL))
+        descHeap = pD3D12Heap;
+    }
+    else
+    {
+      RDCASSERT(heapDesc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+      if((heapType == HeapDescriptorType::CBV_SRV_UAV) && (descHeap == NULL))
+        descHeap = pD3D12Heap;
+    }
+  }
+
+  if(descHeap == NULL)
+  {
+    RDCERR("Couldn't find descriptor heap type %u", heapType);
+    return D3D12Descriptor();
+  }
+
+  D3D12Descriptor *desc = (D3D12Descriptor *)descHeap->GetCPUDescriptorHandleForHeapStart().ptr;
+  if(descriptorIndex >= descHeap->GetNumDescriptors())
+  {
+    RDCERR("Descriptor index %u out of bounds Max:%u", descriptorIndex,
+           descHeap->GetNumDescriptors());
+    return D3D12Descriptor();
+  }
+
+  desc += descriptorIndex;
+  return *desc;
+}
+
+D3D12Descriptor D3D12ShaderDebug::FindDescriptor(WrappedID3D12Device *device,
                                                  D3D12_DESCRIPTOR_RANGE_TYPE descType,
                                                  const BindingSlot &slot,
                                                  const DXBC::ShaderType shaderType)
 {
   D3D12Descriptor descriptor;
+
+  if(slot.heapType != DXDebug::HeapDescriptorType::NoHeap)
+  {
+    return FindDescriptor(device, slot.heapType, slot.descriptorIndex);
+  }
 
   const D3D12RenderState &rs = device->GetQueue()->GetCommandData()->m_RenderState;
   D3D12ResourceManager *rm = device->GetResourceManager();
