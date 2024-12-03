@@ -681,7 +681,21 @@ HMODULE WINAPI Hooked_LoadLibraryExW(LPCWSTR lpLibFileName, HANDLE fileHandle, D
     dohook = false;
   }
 
-  if(flags == 0 && GetModuleHandleW(lpLibFileName))
+  DWORD flagsExcludingSearchOrders = flags;
+
+  // if this is a pure "filename.dll" load, don't care about search-order flags since loaded DLLs are
+  // always returned first regardless of the search order and so we can detect the DLL is already loaded
+  if(wcschr(lpLibFileName, L'\\') == 0 && wcschr(lpLibFileName, L'/') == 0)
+  {
+    flagsExcludingSearchOrders &=
+        ~(LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+          LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_USER_DIRS |
+          LOAD_WITH_ALTERED_SEARCH_PATH | LOAD_LIBRARY_SAFE_CURRENT_DIRS);
+  }
+
+  // if there are no flags (possibly with search path flags excluded) and we already have the
+  // library loaded, don't hook anything
+  if(flagsExcludingSearchOrders == 0 && GetModuleHandleW(lpLibFileName))
     dohook = false;
 
   if(flags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE))
