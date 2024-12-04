@@ -1138,4 +1138,46 @@ ResourceReferenceInfo D3D12APIWrapper::GetResourceReferenceInfo(const DXDebug::B
   }
   return resRefInfo;
 }
+
+ShaderDirectAccess D3D12APIWrapper::GetShaderDirectAccess(DescriptorCategory category,
+                                                          const DXDebug::BindingSlot &slot)
+{
+  const HeapDescriptorType heapType = slot.heapType;
+  RDCASSERT(heapType != HeapDescriptorType::NoHeap);
+  uint32_t descriptorIndex = slot.descriptorIndex;
+
+  const D3D12RenderState &rs = m_Device->GetQueue()->GetCommandData()->m_RenderState;
+  D3D12ResourceManager *rm = m_Device->GetResourceManager();
+
+  ShaderDirectAccess access;
+  uint32_t byteSize = DXILDebug::D3D12_DESCRIPTOR_BYTESIZE;
+  uint32_t byteOffset = descriptorIndex * byteSize;
+
+  // Fetch the correct heap sampler and resource descriptor heap
+  rdcarray<ResourceId> descHeaps = rs.heaps;
+  for(ResourceId heapId : descHeaps)
+  {
+    WrappedID3D12DescriptorHeap *pD3D12Heap = rm->GetCurrentAs<WrappedID3D12DescriptorHeap>(heapId);
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = pD3D12Heap->GetDesc();
+    if(heapDesc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+    {
+      if(heapType == HeapDescriptorType::Sampler)
+      {
+        RDCASSERTEQUAL(category, DescriptorCategory::Sampler);
+        return ShaderDirectAccess(category, rm->GetOriginalID(heapId), byteOffset, byteSize);
+      }
+    }
+    else
+    {
+      RDCASSERT(heapDesc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+      if(heapType == HeapDescriptorType::CBV_SRV_UAV)
+      {
+        RDCASSERTNOTEQUAL(category, DescriptorCategory::Sampler);
+        return ShaderDirectAccess(category, rm->GetOriginalID(heapId), byteOffset, byteSize);
+      }
+    }
+  }
+  RDCERR("Failed to find descriptor %u %u", (uint32_t)heapType, descriptorIndex);
+  return ShaderDirectAccess();
+}
 };

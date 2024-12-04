@@ -46,6 +46,9 @@ typedef DXBC::InterpolationMode InterpolationMode;
 class Debugger;
 struct GlobalState;
 
+// D3D12 descriptors are equal sized and treated as effectively one byte in size
+const uint32_t D3D12_DESCRIPTOR_BYTESIZE = 1;
+
 struct InstructionRange
 {
   uint32_t min;
@@ -162,6 +165,8 @@ public:
   virtual ShaderVariable GetRenderTargetSampleInfo(const DXBC::ShaderType shaderType,
                                                    const char *opString) = 0;
   virtual ResourceReferenceInfo GetResourceReferenceInfo(const DXDebug::BindingSlot &slot) = 0;
+  virtual ShaderDirectAccess GetShaderDirectAccess(DescriptorCategory category,
+                                                   const DXDebug::BindingSlot &slot) = 0;
 };
 
 struct MemoryTracking
