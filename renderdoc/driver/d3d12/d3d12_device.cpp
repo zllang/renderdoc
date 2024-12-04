@@ -3748,8 +3748,12 @@ void WrappedID3D12Device::DumpDRED(D3D12_AUTO_BREADCRUMB_NODE *node,
     if(ctx && numContexts > 0 && ctx->BreadcrumbIndex == i)
     {
       RDCLOG("  [%u]: %s -- %ls", i, ToStr(node->pCommandHistory[i]).c_str(), ctx->pContextString);
-      ctx++;
-      numContexts--;
+      // sometimes get duplicates?
+      while(ctx->BreadcrumbIndex == i)
+      {
+        ctx++;
+        numContexts--;
+      }
     }
     else
     {

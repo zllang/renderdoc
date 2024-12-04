@@ -549,6 +549,26 @@ class WrappedID3D12CommandQueue;
   template <typename SerialiserType>                         \
   bool CONCAT(Serialise_, func(SerialiserType &ser, __VA_ARGS__));
 
+template <typename DRED_NODE>
+inline void GetDREDContexts(const DRED_NODE *node, D3D12_DRED_BREADCRUMB_CONTEXT **contexts,
+                            UINT &numContexts);
+
+template <>
+inline void GetDREDContexts(const D3D12_AUTO_BREADCRUMB_NODE *node,
+                            D3D12_DRED_BREADCRUMB_CONTEXT **contexts, UINT &numContexts)
+{
+  *contexts = NULL;
+  numContexts = 0;
+}
+
+template <>
+inline void GetDREDContexts(const D3D12_AUTO_BREADCRUMB_NODE1 *node,
+                            D3D12_DRED_BREADCRUMB_CONTEXT **contexts, UINT &numContexts)
+{
+  *contexts = node->pBreadcrumbContexts;
+  numContexts = node->BreadcrumbContextsCount;
+}
+
 class WrappedID3D12Device : public IFrameCapturer, public ID3DDevice, public ID3D12Device14
 {
 private:
@@ -804,21 +824,6 @@ private:
   void EndCaptureFrame();
 
   void DumpDREDPageFault(const D3D12_DRED_PAGE_FAULT_OUTPUT &DredPageFaultOutput);
-
-  template <typename DRED_NODE>
-  void GetDREDContexts(DRED_NODE *node, D3D12_DRED_BREADCRUMB_CONTEXT **contexts, UINT &numContexts)
-  {
-    *contexts = NULL;
-    numContexts = 0;
-  }
-
-  template <>
-  void GetDREDContexts(D3D12_AUTO_BREADCRUMB_NODE1 *node, D3D12_DRED_BREADCRUMB_CONTEXT **contexts,
-                       UINT &numContexts)
-  {
-    *contexts = node->pBreadcrumbContexts;
-    numContexts = node->BreadcrumbContextsCount;
-  }
 
   template <typename DRED_NODE>
   void DumpDRED(DRED_NODE *head)
