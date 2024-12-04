@@ -101,6 +101,19 @@ struct VariableTag
   rdcstr absoluteRefPath;
 };
 
+struct ResourceReference
+{
+  ResourceReference() {}
+  ResourceReference(ShaderBindIndex bp) : bind(bp), directAccess(false) {}
+  ResourceReference(ShaderDirectAccess acc) : access(acc), directAccess(true) {}
+  union
+  {
+    ShaderBindIndex bind;
+    ShaderDirectAccess access;
+  };
+  bool directAccess;
+};
+
 class ShaderViewer : public QFrame, public IShaderViewer, public ICaptureViewer
 {
   Q_OBJECT
@@ -336,6 +349,8 @@ private:
   QSet<QPair<int, uint32_t>> m_Breakpoints;
   bool m_TempBreakpoint = false;
 
+  std::map<ShaderDirectAccess, rdcstr> m_LogicalBindNames;
+
   QList<QPair<ScintillaEdit *, int>> m_FindAllResults;
 
   static const int BOOKMARK_MAX_MENU_ENTRY_LENGTH = 40;    // max length of bookmark names in menu
@@ -423,7 +438,7 @@ private:
   void runTo(const rdcarray<uint32_t> &runToInstructions, bool forward, ShaderEvents condition);
   void runTo(uint32_t runToInstruction, bool forward, ShaderEvents condition = ShaderEvents::NoEvent);
 
-  void runToResourceAccess(bool forward, VarType type, const ShaderBindIndex &resource);
+  void runToResourceAccess(bool forward, VarType type, const ResourceReference &resRef);
 
   void applyBackwardsChange();
   void applyForwardsChange();
