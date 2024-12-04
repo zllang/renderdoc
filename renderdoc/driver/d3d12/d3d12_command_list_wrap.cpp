@@ -3878,6 +3878,23 @@ void WrappedID3D12GraphicsCommandList::FinaliseExecuteIndirectEvents(BakedCmdLis
             D3D12_DISPATCH_RAYS_DESC *args = (D3D12_DISPATCH_RAYS_DESC *)data;
             data += sizeof(D3D12_DISPATCH_RAYS_DESC);
 
+            for(D3D12_GPU_VIRTUAL_ADDRESS *addr :
+                {&args->RayGenerationShaderRecord.StartAddress, &args->MissShaderTable.StartAddress,
+                 &args->HitGroupTable.StartAddress, &args->CallableShaderTable.StartAddress})
+            {
+              if(*addr == 0)
+                continue;
+
+              ResourceId id;
+              uint64_t offs = 0;
+              m_pDevice->GetResIDFromOrigAddr(*addr, id, offs);
+
+              ID3D12Resource *res = GetResourceManager()->GetLiveAs<ID3D12Resource>(id);
+              RDCASSERT(res);
+              if(res)
+                *addr = res->GetGPUVirtualAddress() + offs;
+            }
+
             curAction.dispatchDimension[0] = args->Width;
             curAction.dispatchDimension[1] = args->Height;
             curAction.dispatchDimension[2] = args->Depth;
