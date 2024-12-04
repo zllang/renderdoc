@@ -358,6 +358,7 @@ private:
     GLenum wrapT = eGL_CLAMP_TO_EDGE;
     GLenum wrapR = eGL_CLAMP_TO_EDGE;
     GLenum compareMode = eGL_NONE;
+    float lodBias = 0.0f;
   };
 
   // sets the desired parameters, and returns the previous ones ready to restore
