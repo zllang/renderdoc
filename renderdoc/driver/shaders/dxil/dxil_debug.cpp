@@ -1836,6 +1836,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::SampleCmpLevelZero:
           case DXOp::TextureGather:
           case DXOp::TextureGatherCmp:
+          case DXOp::CalculateLOD:
           {
             Id handleId = GetArgumentId(1);
             bool annotatedHandle;
@@ -2833,7 +2834,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::Bfi:
           case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
-          case DXOp::CalculateLOD:
           case DXOp::SampleIndex:
           case DXOp::Coverage:
           case DXOp::InnerCoverage:
@@ -4636,11 +4636,21 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
 
   // DXIL reports the vector result as a struct of N members of Element type, plus an int.
   const Type *retType = inst.type;
-  RDCASSERTEQUAL(retType->type, Type::TypeKind::Struct);
-  const Type *baseType = retType->members[0];
-  RDCASSERTEQUAL(baseType->type, Type::TypeKind::Scalar);
-  result.type = ConvertDXILTypeToVarType(baseType);
-  result.columns = (uint8_t)(retType->members.size() - 1);
+  if(dxOpCode != DXOp::CalculateLOD)
+  {
+    RDCASSERTEQUAL(retType->type, Type::TypeKind::Struct);
+    const Type *baseType = retType->members[0];
+    RDCASSERTEQUAL(baseType->type, Type::TypeKind::Scalar);
+    result.type = ConvertDXILTypeToVarType(baseType);
+    result.columns = (uint8_t)(retType->members.size() - 1);
+  }
+  else
+  {
+    RDCASSERTEQUAL(retType->type, Type::TypeKind::Scalar);
+    RDCASSERTEQUAL(retType->scalarType, Type::Float);
+    RDCASSERTEQUAL(result.rows, 1);
+    RDCASSERTEQUAL(result.columns, 1);
+  }
 
   // CalculateSampleGather is only valid for SRV resources
   ResourceClass resClass = resRefInfo.resClass;
@@ -4763,7 +4773,10 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
         countOffset = 2;
         gatherArg = 9;
         break;
-      case DXOp::CalculateLOD: countUV = 3; break;
+      case DXOp::CalculateLOD:
+        countUV = 3;
+        countOffset = 0;
+        break;
       case DXOp::TextureGatherCmp:
         countOffset = 2;
         gatherArg = 9;
@@ -4891,6 +4904,16 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
                                     m_ShaderType, instructionIdx, opString, data);
 
   result.value = data.value;
+
+  if(dxOpCode == DXOp::CalculateLOD)
+  {
+    // clamped is in arg 6
+    ShaderVariable arg;
+    RDCASSERT(GetShaderVariable(inst.args[6], opCode, dxOpCode, arg, false));
+    // CalculateSampleGather returns {CalculateLevelOfDetail(), CalculateLevelOfDetailUnclamped()}
+    if(arg.value.u32v[0] == 0)
+      result.value.u32v[0] = data.value.u32v[1];
+  }
 }
 
 rdcstr ThreadState::GetArgumentName(uint32_t i) const

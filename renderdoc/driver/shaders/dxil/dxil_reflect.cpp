@@ -1834,7 +1834,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::CheckAccessFullyMapped:
               case DXOp::AtomicBinOp:
               case DXOp::AtomicCompareExchange:
-              case DXOp::CalculateLOD:
               case DXOp::EvalSnapped:
               case DXOp::EvalSampleIndex:
               case DXOp::EvalCentroid:
