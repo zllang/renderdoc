@@ -36,6 +36,16 @@ RDOC_CONFIG(bool, Replay_Debug_EnableAftermath, false,
 RDOC_CONFIG(bool, Replay_Debug_EnableNVRTValidation, false,
             "Enable nvidia Raytracing validation on D3D12 and Vulkan.");
 
+// system headers must be included before NV ones
+#if ENABLED(RDOC_WIN32)
+
+#include <windows.h>
+
+#include "driver/dx/official/d3d12.h"
+#include "driver/dx/official/dxgi.h"
+
+#endif
+
 #include "driver/ihv/nv/official/aftermath/GFSDK_Aftermath.h"
 #include "driver/ihv/nv/official/aftermath/GFSDK_Aftermath_GpuCrashDump.h"
 #include "driver/ihv/nv/official/aftermath/GFSDK_Aftermath_GpuCrashDumpDecoding.h"
@@ -45,10 +55,6 @@ RDOC_CONFIG(bool, Replay_Debug_EnableNVRTValidation, false,
 
 #include "official/nvapi/nvapi.h"
 
-#include <windows.h>
-
-#include "driver/dx/official/d3d12.h"
-#include "driver/dx/official/dxgi.h"
 #include "driver/vulkan/official/vulkan_core.h"
 
 namespace
