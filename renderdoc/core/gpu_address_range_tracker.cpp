@@ -29,6 +29,10 @@ void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
   SCOPED_WRITELOCK(addressLock);
   auto it = std::lower_bound(addresses.begin(), addresses.end(), range.start);
 
+  // for resources with identical start addresses, sort them by realEnd
+  while(it != addresses.end() && it->start == range.start && it->realEnd < range.realEnd)
+    ++it;
+
   addresses.insert(it - addresses.begin(), range);
 }
 
@@ -78,7 +82,7 @@ void GPUAddressRangeTracker::GetResIDFromAddr(GPUAddressRange::Address addr, Res
     // find the largest resource containing this address - not perfect but helps with trivially bad
     // aliases where a tiny resource and a large resource are co-situated and the larger resource
     // needs to be used for validity
-    while((it + 1) != addresses.end() && (it + 1)->start <= addr && (it + 1)->realEnd > range.realEnd)
+    while((it + 1) != addresses.end() && (it + 1)->start <= addr && (it + 1)->realEnd >= range.realEnd)
     {
       it++;
       range = *it;
@@ -115,7 +119,7 @@ void GPUAddressRangeTracker::GetResIDFromAddrAllowOutOfBounds(GPUAddressRange::A
     // find the largest resource containing this address - not perfect but helps with trivially bad
     // aliases where a tiny resource and a large resource are co-situated and the larger resource
     // needs to be used for validity
-    while((it + 1) != addresses.end() && (it + 1)->start <= addr && (it + 1)->realEnd > range.realEnd)
+    while((it + 1) != addresses.end() && (it + 1)->start <= addr && (it + 1)->realEnd >= range.realEnd)
     {
       it++;
       range = *it;
