@@ -1668,7 +1668,7 @@ PatchedRayDispatch D3D12RTManager::PatchRayDispatch(ID3D12GraphicsCommandList4 *
 
 PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
     ID3D12GraphicsCommandList *unwrappedCmd, rdcarray<ResourceId> heaps,
-    ID3D12CommandSignature *pCommandSignature, UINT MaxCommandCount, ID3D12Resource *pArgumentBuffer,
+    ID3D12CommandSignature *pCommandSignature, UINT &MaxCommandCount, ID3D12Resource *pArgumentBuffer,
     UINT64 ArgumentBufferOffset, ID3D12Resource *pCountBuffer, UINT64 CountBufferOffset)
 {
   PatchedRayDispatch ret = {};
@@ -1682,7 +1682,9 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   // :( some games have fixed sizes, so any other estimate could fail.
   // games without fixed sizes would be reasonably served by 3 or 4 multiplied by the number of BLAS
   // in the largest TLAS, multiplied by the largest local root signature size.
-  uint32_t patchDataSize = 20 * 1024 * 1024 * MaxCommandCount;
+  //
+  // minimum of 64 bytes to account for MaxCommandCount so that we don't allocate 0-sized buffers
+  uint32_t patchDataSize = RDCMAX(64U, 20 * 1024 * 1024 * MaxCommandCount);
 
   if(D3D12_Debug_RT_IndirectEstimateOverride() > 0)
     patchDataSize = RDCMAX(patchDataSize, D3D12_Debug_RT_IndirectEstimateOverride());
@@ -1819,6 +1821,14 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   // but it takes the ref we had when we created it.
   ret.resources.patchScratchBuffer = scratchBuffer;
   ret.resources.argumentBuffer = argsBuffer;
+
+  // TODO: Verify for indirect executes
+
+  if(IsReplayMode(m_wrappedDevice->GetState()) && D3D12_Debug_RT_Auditing())
+  {
+    // only one execute is allowed per command signature, if it's ray tracing and we're auditing then turn it off
+    MaxCommandCount = 0;
+  }
 
   return ret;
 }
@@ -3093,6 +3103,13 @@ bool D3D12GpuBufferAllocator::Alloc(D3D12GpuBufferHeapType heapType,
                                     D3D12GpuBufferHeapMemoryFlag heapMem, uint64_t size,
                                     uint64_t alignment, D3D12GpuBuffer **gpuBuffer)
 {
+  if(size == 0)
+  {
+    RDCERR("Can't allocate 0-byte buffer");
+    *gpuBuffer = NULL;
+    return false;
+  }
+
   SCOPED_LOCK(m_bufferAllocLock);
   bool success = false;
   if(heapType < D3D12GpuBufferHeapType::Count && heapType != D3D12GpuBufferHeapType::UnInitialized)

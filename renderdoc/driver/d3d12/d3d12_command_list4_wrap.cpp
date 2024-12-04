@@ -1841,7 +1841,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_DispatchRays(SerialiserType &se
             Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
         state.ApplyComputeRootElementsUnwrapped(Unwrap4(list));
 
-        m_Cmd->m_RayDispatches.push_back(patchedDispatch);
+        m_Cmd->m_RayDispatches.push_back(std::move(patchedDispatch));
 
         uint32_t eventId = m_Cmd->HandlePreCallback(list, ActionFlags::DispatchRay);
         Unwrap4(list)->DispatchRays(&patchedDispatch.desc);
@@ -1932,7 +1932,7 @@ void WrappedID3D12GraphicsCommandList::DispatchRays(_In_ const D3D12_DISPATCH_RA
 
     // during capture track the ray dispatches so the memory can be freed dynamically. On replay we
     // free all the memory at the end of each replay
-    m_RayDispatches.push_back(patchedDispatch.resources);
+    m_RayDispatches.push_back(std::move(patchedDispatch.resources));
 
     // a ray dispatch certainly will pull in buffers we can't know about
     m_ListRecord->cmdInfo->forceMapsListEvent = true;

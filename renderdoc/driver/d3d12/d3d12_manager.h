@@ -1061,6 +1061,7 @@ struct PatchedRayDispatch
       SAFE_ADDREF(lookupBuffer);
       SAFE_ADDREF(patchScratchBuffer);
       SAFE_ADDREF(argumentBuffer);
+      SAFE_ADDREF(readbackBuffer);
     }
 
     void Release()
@@ -1068,6 +1069,7 @@ struct PatchedRayDispatch
       SAFE_RELEASE(lookupBuffer);
       SAFE_RELEASE(patchScratchBuffer);
       SAFE_RELEASE(argumentBuffer);
+      SAFE_RELEASE(readbackBuffer);
     }
   };
 
@@ -1259,7 +1261,7 @@ public:
   PatchedRayDispatch PatchIndirectRayDispatch(ID3D12GraphicsCommandList *unwrappedCmd,
                                               rdcarray<ResourceId> heaps,
                                               ID3D12CommandSignature *pCommandSignature,
-                                              UINT MaxCommandCount, ID3D12Resource *pArgumentBuffer,
+                                              UINT &MaxCommandCount, ID3D12Resource *pArgumentBuffer,
                                               UINT64 ArgumentBufferOffset,
                                               ID3D12Resource *pCountBuffer, UINT64 CountBufferOffset);
 

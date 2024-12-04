@@ -4095,12 +4095,6 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
     WrappedID3D12CommandSignature *comSig = (WrappedID3D12CommandSignature *)pCommandSignature;
 
-    if(D3D12_Debug_RT_Auditing() && comSig->sig.raytraced)
-    {
-      // only one execute is allowed per command signature, if it's ray tracing and we're auditing then turn it off
-      MaxCommandCount = 0;
-    }
-
     if(IsActiveReplaying(m_State))
     {
       uint32_t actualCount = MaxCommandCount;
@@ -4186,12 +4180,13 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
           ID3D12Resource *argBuffer = Unwrap(patched.first);
           uint64_t argOffset = patched.second;
+          uint32_t maxCommands = MaxCommandCount;
 
           if(comSig->sig.raytraced)
           {
             PatchedRayDispatch patchedDispatch = {};
             patchedDispatch = GetResourceManager()->GetRTManager()->PatchIndirectRayDispatch(
-                Unwrap(list), state.heaps, comSig, MaxCommandCount, patched.first, patched.second,
+                Unwrap(list), state.heaps, comSig, maxCommands, patched.first, patched.second,
                 pCountBuffer, CountBufferOffset);
 
             argBuffer = patchedDispatch.resources.argumentBuffer->Resource();
@@ -4206,6 +4201,8 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             state.ApplyComputeRootElementsUnwrapped(Unwrap(list));
             m_Cmd->m_RayDispatches.push_back(patchedDispatch);
           }
+
+          countToReplay = RDCMIN(countToReplay, maxCommands);
 
           for(uint32_t i = 0; i < countToReplay; i++)
           {
@@ -4259,12 +4256,13 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
           ID3D12Resource *argBuffer = Unwrap(patched.first);
           UINT64 argOffset = patched.second;
+          uint32_t maxCommands = MaxCommandCount;
 
           if(comSig->sig.raytraced)
           {
             PatchedRayDispatch patchedDispatch = {};
             patchedDispatch = GetResourceManager()->GetRTManager()->PatchIndirectRayDispatch(
-                Unwrap(list), state.heaps, comSig, MaxCommandCount, patched.first, patched.second,
+                Unwrap(list), state.heaps, comSig, maxCommands, patched.first, patched.second,
                 pCountBuffer, CountBufferOffset);
 
             argBuffer = patchedDispatch.resources.argumentBuffer->Resource();
@@ -4280,7 +4278,7 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             m_Cmd->m_RayDispatches.push_back(patchedDispatch);
           }
 
-          uint32_t countToReplay = actualCount;
+          uint32_t countToReplay = RDCMIN(actualCount, maxCommands);
 
           if(m_Cmd->m_FirstEventID <= 1)
           {
@@ -4358,13 +4356,14 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
 
       ID3D12Resource *argBuffer = Unwrap(patched.first);
       UINT64 argOffset = patched.second;
+      uint32_t maxCommands = MaxCommandCount;
 
       if(comSig->sig.raytraced)
       {
-        PatchedRayDispatch patchedDispatch = {};
-        patchedDispatch = GetResourceManager()->GetRTManager()->PatchIndirectRayDispatch(
-            Unwrap(list), state.heaps, comSig, MaxCommandCount, patched.first, patched.second,
-            pCountBuffer, CountBufferOffset);
+        PatchedRayDispatch patchedDispatch =
+            GetResourceManager()->GetRTManager()->PatchIndirectRayDispatch(
+                Unwrap(list), state.heaps, comSig, maxCommands, patched.first, patched.second,
+                pCountBuffer, CountBufferOffset);
 
         argBuffer = patchedDispatch.resources.argumentBuffer->Resource();
         argOffset = patchedDispatch.resources.argumentBuffer->Offset();
@@ -4377,10 +4376,10 @@ bool WrappedID3D12GraphicsCommandList::Serialise_ExecuteIndirect(
             ->SetPipelineState1(
                 Unwrap(GetResourceManager()->GetCurrentAs<ID3D12StateObject>(state.stateobj)));
         state.ApplyComputeRootElementsUnwrapped(Unwrap(pCommandList));
-        m_Cmd->m_RayDispatches.push_back(patchedDispatch);
+        m_Cmd->m_RayDispatches.push_back(std::move(patchedDispatch));
       }
 
-      Unwrap(list)->ExecuteIndirect(comSig->GetReal(), MaxCommandCount, argBuffer, argOffset,
+      Unwrap(list)->ExecuteIndirect(comSig->GetReal(), maxCommands, argBuffer, argOffset,
                                     Unwrap(pCountBuffer), CountBufferOffset);
 
       const uint32_t sigSize = (uint32_t)comSig->sig.arguments.size();
