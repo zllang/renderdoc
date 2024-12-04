@@ -3038,7 +3038,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       {
         ShaderVariable arg;
         RDCASSERT(GetPhiShaderVariable(dxilValue, opCode, dxOpCode, arg));
-        result.value = arg.value;
+        rdcstr name = result.name;
+        // Copy the whole variable to ensure we get the correct type information
+        result = arg;
+        result.name = name;
         break;
       }
       else
