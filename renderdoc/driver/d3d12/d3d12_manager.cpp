@@ -1745,6 +1745,9 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   prepInfo.maxCommandCount = MaxCommandCount;
   prepInfo.scratchBuffer = scratchBuffer->Address();
 
+  if(pCountBuffer == NULL)
+    prepInfo.maxCommandCount |= 0x80000000U;
+
   // set up general patching data - lookup buffers and so on
 
   unwrappedCmd->SetPipelineState(m_RayPatchingData.indirectPrepPipe);
