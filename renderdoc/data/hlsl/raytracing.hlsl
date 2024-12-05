@@ -265,11 +265,24 @@ void PatchTable(uint byteOffset)
 }
 
 // Each SV_GroupId corresponds to one shader record to patch
-[numthreads(RECORD_PATCH_THREADS, 1, 1)] void RENDERDOC_PatchRayDispatchCS(uint3 dispatchThread
+[numthreads(RECORD_PATCH_THREADS, 1, 1)] void RENDERDOC_PatchShaderTableCS(uint3 dispatchThread
                                                                            : SV_DispatchThreadID) {
   if(dispatchThread.x < shaderrecord_count)
     PatchTable(shaderrecord_stride * dispatchThread.x);
-}
+};
+
+// Each SV_GroupId corresponds to one shader record to patch
+[numthreads(RECORD_PATCH_THREADS, 1, 1)] void RENDERDOC_CopyShaderTableCS(uint3 dispatchThread
+                                                                          : SV_DispatchThreadID) {
+  if(dispatchThread.x < shaderrecord_count)
+  {
+    for(uint b = 0; b < shaderrecord_stride;)
+    {
+      b = CopyData(patchSource, patchDest, shaderrecord_stride * dispatchThread.x, b,
+                   shaderrecord_stride);
+    }
+  }
+};
 
 // define these structs in hlsl for simplicity
 
@@ -327,7 +340,7 @@ GPUAddress AlignRecordAddress(GPUAddress x)
     numCommands = min(numCommands, applicationCountBuffer.Load(0));
   }
 
-  GPUAddress outputBufferLocation = scratchBuffer;
+  GPUAddress outputBufferLocation = destBuffer;
   uint dispatchIndex = 0;
 
   PatchingExecute execute = (PatchingExecute)0xccddeeff;
@@ -441,6 +454,13 @@ GPUAddress AlignRecordAddress(GPUAddress x)
     patchedExecuteArguments.Store4(commandSigDispatchOffset + commandOffset + 4 * 16, raw.a[4]);
     patchedExecuteArguments.Store4(commandSigDispatchOffset + commandOffset + 5 * 16, raw.a[5]);
     patchedExecuteArguments.Store(commandSigDispatchOffset + commandOffset + 6 * 16, raw.b);
+  }
+
+  // check for buffer overrun
+  if(!lessEqual(outputBufferLocation, destBufferEnd))
+  {
+    // error! don't patch, this will fail. Needs to be caught by auditing
+    dispatchIndex = 0;
   }
 
   // store the number of patching indirect dispatches we'll do, up to 4 per the application's number

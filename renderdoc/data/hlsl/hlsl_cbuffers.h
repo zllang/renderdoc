@@ -338,7 +338,8 @@ struct LocalRootSigData
 
 cbuffer RayIndirectDispatchCB REG(b0)
 {
-  GPUAddress scratchBuffer;
+  GPUAddress destBuffer;
+  GPUAddress destBufferEnd;
 
   uint commandSigDispatchOffset;
   uint commandSigStride;

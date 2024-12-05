@@ -1036,6 +1036,8 @@ struct D3D12AccStructPatchInfo
   ID3D12PipelineState *m_pipeline = NULL;
 };
 
+class WrappedID3D12CommandSignature;
+
 struct PatchedRayDispatch
 {
   struct Resources
@@ -1078,6 +1080,10 @@ struct PatchedRayDispatch
   // the patched dispatch descriptor
   D3D12_DISPATCH_RAYS_DESC desc = {};
   rdcarray<ResourceId> heaps;
+  // for auditing, from an indirect RT dispatch
+  UINT MaxCommands = 0;
+  WrappedID3D12CommandSignature *comSig = NULL;
+  bool HasDynamicCount = false;
 };
 
 struct D3D12ShaderExportDatabase;
@@ -1334,7 +1340,9 @@ public:
 
   void Verify(PatchedRayDispatch &r);
 
-  void VerifyRecord(const uint64_t recordSize, byte *table, byte *ref,
+  void VerifyDispatch(D3D12_DISPATCH_RAYS_DESC desc, byte *wrappedRecords, byte *unwrappedRecords,
+                      WrappedID3D12DescriptorHeap *resHeap, WrappedID3D12DescriptorHeap *sampHeap);
+  void VerifyRecord(const uint64_t recordSize, byte *wrappedRecord, byte *unwrappedRef,
                     WrappedID3D12DescriptorHeap *resHeap, WrappedID3D12DescriptorHeap *sampHeap);
 
   void AddDispatchTimer(uint32_t q);
@@ -1393,8 +1401,9 @@ private:
   // pipeline data for patching ray dispatches
   struct
   {
-    ID3D12RootSignature *descPatchRootSig = NULL;
-    ID3D12PipelineState *descPatchPipe = NULL;
+    ID3D12RootSignature *shaderTablePatchRootSig = NULL;
+    ID3D12PipelineState *shaderTablePatchPipe = NULL;
+    ID3D12PipelineState *shaderTableCopyPipe = NULL;
     ID3D12RootSignature *indirectPrepRootSig = NULL;
     ID3D12PipelineState *indirectPrepPipe = NULL;
     ID3D12CommandSignature *indirectComSig = NULL;
