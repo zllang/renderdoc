@@ -38,7 +38,8 @@
 #include "data/hlsl/hlsl_cbuffers.h"
 
 RDOC_CONFIG(uint32_t, D3D12_Debug_RT_IndirectEstimateOverride, 0,
-            "Override how many bytes are reserved for shader tables in each indirect ray dispatch");
+            "Override how many bytes are reserved for shader tables in each indirect ray dispatch "
+            "(will be multiplied by MaxCommandCount)");
 RDOC_CONFIG(uint32_t, D3D12_Debug_RT_MaxVertexIncrement, 1000,
             "Amount to add to the API-provided max vertex when building a BLAS with an index "
             "buffer, to account for incorrectly set values by application.");
@@ -1687,7 +1688,7 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   uint32_t patchDataSize = RDCMAX(64U, 20 * 1024 * 1024 * MaxCommandCount);
 
   if(D3D12_Debug_RT_IndirectEstimateOverride() > 0)
-    patchDataSize = RDCMAX(patchDataSize, D3D12_Debug_RT_IndirectEstimateOverride());
+    patchDataSize = D3D12_Debug_RT_IndirectEstimateOverride() * MaxCommandCount;
 
   m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::DefaultHeapWithUav,
                              D3D12GpuBufferHeapMemoryFlag::Default, patchDataSize,
