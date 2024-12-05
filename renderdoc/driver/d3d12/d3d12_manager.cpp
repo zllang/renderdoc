@@ -1748,6 +1748,13 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   if(pCountBuffer == NULL)
     prepInfo.maxCommandCount |= 0x80000000U;
 
+  D3D12_RESOURCE_BARRIER barrier = {};
+  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  barrier.Transition.pResource = Unwrap(pArgumentBuffer);
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+  unwrappedCmd->ResourceBarrier(1, &barrier);
+
   // set up general patching data - lookup buffers and so on
 
   unwrappedCmd->SetPipelineState(m_RayPatchingData.indirectPrepPipe);
@@ -1773,9 +1780,12 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   // patching the actual arguments buffer we'll return
   unwrappedCmd->Dispatch(1, 1, 1);
 
+  barrier.Transition.pResource = Unwrap(pArgumentBuffer);
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
+  unwrappedCmd->ResourceBarrier(1, &barrier);
+
   // this is ready for the application to use (once we patch the things it refers to), and for us to use below
-  D3D12_RESOURCE_BARRIER barrier = {};
-  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
   barrier.Transition.pResource = argsBuffer->Resource();
   barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
   barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT;
