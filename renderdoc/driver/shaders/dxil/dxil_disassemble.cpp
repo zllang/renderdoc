@@ -4240,13 +4240,25 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
           {
             switch(inst.op)
             {
+              case Operation::Bitcast:
+              {
+                if(inst.type->type == Type::Scalar)
+                {
+                  if(inst.type->scalarType == Type::ScalarKind::Float)
+                    lineStr += "asfloat";
+                  if(inst.type->scalarType == Type::ScalarKind::Int)
+                    lineStr += "asint";
+                }
+                else
+                  lineStr += "(" + inst.type->toString(dxcStyleFormatting) + ")";
+                break;
+              }
               case Operation::Trunc:
               case Operation::ZExt:
               case Operation::SExt:
               case Operation::UToF:
               case Operation::FPTrunc:
               case Operation::FPExt:
-              case Operation::Bitcast:
               case Operation::FToU:
               case Operation::FToS:
               case Operation::PtrToI:
