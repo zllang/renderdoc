@@ -1868,6 +1868,14 @@ DXBCContainer::DXBCContainer(const bytebuf &ByteCode, const rdcstr &debugInfoPat
     {
       // root signature
     }
+    else if(*fourcc == FOURCC_PRIV)
+    {
+      // private data
+    }
+    else if(*fourcc == FOURCC_VERS)
+    {
+      // compiler version
+    }
     else if(*fourcc == FOURCC_RDAT)
     {
       m_RDATOffset = chunkContents - data;
