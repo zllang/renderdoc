@@ -27,7 +27,6 @@
 #include "core/settings.h"
 #include "maths/formatpacking.h"
 #include "replay/common/var_dispatch_helpers.h"
-#include "dxil_controlflow.h"
 
 RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
@@ -1280,7 +1279,12 @@ static void FillViewFmtFromVarType(VarType type, DXILDebug::GlobalState::ViewFmt
 
 namespace DXILDebug
 {
-
+bool ExecutionPoint::IsAfter(const ExecutionPoint &from, const ControlFlow &controlFlow) const
+{
+  if(block == from.block)
+    return instruction > from.instruction;
+  return controlFlow.IsForwardConnection(from.block, block);
+}
 static void ApplyDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int input,
                              int numWords, float *data, float signmul, int32_t quadIdxA,
                              int32_t quadIdxB)
@@ -1514,6 +1518,7 @@ ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger,
   m_Semantics.isFrontFace = false;
   m_Semantics.primID = ~0U;
   m_Assigned.resize(maxSSAId);
+  m_Live.resize(maxSSAId);
 }
 
 ThreadState::~ThreadState()
@@ -1531,6 +1536,7 @@ void ThreadState::InitialiseHelper(const ThreadState &activeState)
   m_Semantics = activeState.m_Semantics;
   m_Variables = activeState.m_Variables;
   m_Assigned = activeState.m_Assigned;
+  m_Live = activeState.m_Live;
 }
 
 bool ThreadState::Finished() const
@@ -1543,7 +1549,7 @@ bool ThreadState::InUniformBlock() const
   return m_FunctionInfo->uniformBlocks.contains(m_Block);
 }
 
-void ThreadState::ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray<Id> &newLive)
+void ThreadState::ProcessScopeChange(const rdcarray<bool> &oldLive, const rdcarray<bool> &newLive)
 {
   // nothing to do if we aren't tracking into a state
   if(!m_State)
@@ -1552,19 +1558,19 @@ void ThreadState::ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray
   // all oldLive (except globals) are going out of scope. all newLive (except globals) are coming
   // into scope
 
-  const rdcarray<Id> &liveGlobals = m_Debugger.GetLiveGlobals();
+  const rdcarray<bool> &liveGlobals = m_Debugger.GetLiveGlobals();
 
-  for(const Id &id : oldLive)
+  for(uint32_t id = 0; id < oldLive.size(); id++)
   {
-    if(liveGlobals.contains(id))
+    if(liveGlobals[id])
       continue;
 
     m_State->changes.push_back({m_Variables[id]});
   }
 
-  for(const Id &id : newLive)
+  for(uint32_t id = 0; id < newLive.size(); id++)
   {
-    if(liveGlobals.contains(id))
+    if(liveGlobals[id])
       continue;
 
     m_State->changes.push_back({ShaderVariable(), m_Variables[id]});
@@ -1583,12 +1589,10 @@ void ThreadState::EnterFunction(const Function *function, const rdcarray<Value *
     // process the outgoing scope
     ProcessScopeChange(m_Live, {});
     m_Callstack.back()->live = m_Live;
-    m_Callstack.back()->dormant = m_Dormant;
   }
 
   // start with just globals
   m_Live = m_Debugger.GetLiveGlobals();
-  m_Dormant.clear();
   m_Block = 0;
   m_PreviousBlock = ~0U;
   m_PhiVariables.clear();
@@ -2324,7 +2328,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
             uint32_t regIndex = arg.value.u32v[0];
 
-            RDCASSERT(m_Live.contains(handleId));
+            RDCASSERT(m_Live[handleId]);
             RDCASSERT(IsVariableAssigned(handleId));
             // Find the cbuffer variable from the handleId
             auto itVar = m_Variables.find(handleId);
@@ -4244,22 +4248,23 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   };
 
   // Remove variables which have gone out of scope
-  rdcarray<Id> liveIdsToRemove;
-  for(const Id &id : m_Live)
+  ExecutionPoint current(m_Block, m_FunctionInstructionIdx);
+  for(uint32_t id = 0; id < m_Live.size(); ++id)
   {
+    if(!m_Live[id])
+      continue;
     // The fake output variable is always in scope
     if(id == m_Output.id)
       continue;
 
-    auto itRange = m_FunctionInfo->rangePerId.find(id);
-    RDCASSERT(itRange != m_FunctionInfo->rangePerId.end());
-    const uint32_t maxInstruction = itRange->second.max;
-    if(m_FunctionInstructionIdx > maxInstruction)
+    auto itRange = m_FunctionInfo->maxExecPointPerId.find(id);
+    RDCASSERT(itRange != m_FunctionInfo->maxExecPointPerId.end());
+    const ExecutionPoint maxPoint = itRange->second;
+    // Use control flow to determine if the current execution point is after the maximum point
+    if(current.IsAfter(maxPoint, m_FunctionInfo->controlFlow))
     {
       RDCASSERTNOTEQUAL(id, resultId);
-      liveIdsToRemove.push_back(id);
-      if(!m_Dormant.contains(id))
-        m_Dormant.push_back(id);
+      m_Live[id] = false;
 
       if(m_State)
       {
@@ -4269,46 +4274,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
     }
   }
-  for(const Id &id : liveIdsToRemove)
-    m_Live.removeOne(id);
 
-  if(!m_Ended)
-  {
-    const Instruction &nextInst = *m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
-    Id nextResultId = nextInst.slot;
-    // Bring back dormant variables which are now in scope
-    rdcarray<Id> dormantIdsToRemove;
-    for(const Id &id : m_Dormant)
-    {
-      auto itRange = m_FunctionInfo->rangePerId.find(id);
-      RDCASSERT(itRange != m_FunctionInfo->rangePerId.end());
-      const uint32_t minInstruction = itRange->second.min;
-      if(m_FunctionInstructionIdx >= minInstruction)
-      {
-        const uint32_t maxInstruction = itRange->second.max;
-        if(m_FunctionInstructionIdx <= maxInstruction)
-        {
-          dormantIdsToRemove.push_back(id);
-
-          // Do not record the change for the resultId of the next instruction
-          if(m_State && (id != nextResultId))
-          {
-            ShaderVariableChange change;
-            change.after = m_Variables[id];
-            m_State->changes.push_back(change);
-          }
-        }
-      }
-    }
-    for(const Id &id : dormantIdsToRemove)
-    {
-      m_Dormant.removeOne(id);
-      if(!m_Live.contains(id))
-        m_Live.push_back(id);
-    }
-  }
-
-  // Update the result variable after the dormant variables have been brought back
+  // Update the result variable
   RDCASSERT(!(result.name.empty() ^ (resultId == DXILDebug::INVALID_ID)));
   if(!result.name.empty() && resultId != DXILDebug::INVALID_ID)
   {
@@ -4318,8 +4285,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     // Fake Output results won't be in the referencedIds
     RDCASSERT(resultId == m_Output.id || m_FunctionInfo->referencedIds.count(resultId) == 1);
 
-    if(!m_Live.contains(resultId))
-      m_Live.push_back(resultId);
+    RDCASSERT(resultId < m_Live.size());
+    m_Live[resultId] = true;
     m_Variables[resultId] = result;
     RDCASSERT(resultId < m_Assigned.size());
     m_Assigned[resultId] = true;
@@ -4492,7 +4459,8 @@ bool ThreadState::IsVariableAssigned(const Id id) const
 
 bool ThreadState::GetLiveVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
 {
-  RDCASSERT(m_Live.contains(id));
+  RDCASSERT(id < m_Live.size());
+  RDCASSERT(m_Live[id]);
   RDCASSERT(IsVariableAssigned(id));
   auto it = m_Variables.find(id);
   RDCASSERT(it != m_Variables.end());
@@ -4955,7 +4923,8 @@ DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
 ResourceReferenceInfo ThreadState::GetResource(Id handleId, bool &annotatedHandle)
 {
   ResourceReferenceInfo resRefInfo;
-  RDCASSERT(m_Live.contains(handleId));
+  RDCASSERT(handleId < m_Live.size());
+  RDCASSERT(m_Live[handleId]);
   RDCASSERT(IsVariableAssigned(handleId));
   auto it = m_Variables.find(handleId);
   if(it != m_Variables.end())
@@ -6331,6 +6300,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     sourceVar.variables.push_back(ref);
   }
 
+  m_LiveGlobals.resize(nextSSAId);
   MemoryTracking &globalMemory = m_GlobalState.memory;
   for(const DXIL::GlobalVar *gv : m_Program->m_GlobalVars)
   {
@@ -6361,6 +6331,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       }
     }
     m_GlobalState.globals.push_back(globalVar);
+    m_LiveGlobals[globalVar.id] = true;
   }
 
   rdcstr entryPoint = reflection.entryPoint;
@@ -6382,7 +6353,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   // Generate helper data per function
   // global instruction offset
   // all SSA Ids referenced
-  // minimum and maximum instruction per SSA reference
+  // maximum execution point per SSA reference
   // uniform control blocks
   for(const Function *f : m_Program->m_Functions)
   {
@@ -6394,9 +6365,38 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       uint32_t countInstructions = (uint32_t)f->instructions.size();
       globalOffset += countInstructions;
 
-      ReferencedIds &ssaRefs = info.referencedIds;
-      InstructionRangePerId &ssaRange = info.rangePerId;
+      // Find the uniform control blocks in the function
+      rdcarray<rdcpair<uint32_t, uint32_t>> links;
+      for(const Block *block : f->blocks)
+      {
+        for(const Block *pred : block->preds)
+        {
+          if(pred->name.empty())
+          {
+            uint32_t from = pred->id;
+            uint32_t to = block->id;
+            links.push_back({from, to});
+          }
+        }
+      }
 
+      ControlFlow &controlFlow = info.controlFlow;
+
+      controlFlow.Construct(links);
+      info.uniformBlocks = controlFlow.GetUniformBlocks();
+      const rdcarray<uint32_t> loopBlocks = controlFlow.GetLoopBlocks();
+
+      // Handle de-generate case when a single block
+      if(info.uniformBlocks.empty())
+      {
+        RDCASSERTEQUAL(f->blocks.size(), 1);
+        info.uniformBlocks.push_back(f->blocks[0]->id);
+      }
+
+      ReferencedIds &ssaRefs = info.referencedIds;
+      ExecutionPointPerId &ssaMaxExecPoints = info.maxExecPointPerId;
+
+      uint32_t curBlock = 0;
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
         const Instruction &inst = *(f->instructions[i]);
@@ -6413,15 +6413,27 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           RDCASSERTEQUAL(ssaRefs.count(resultId), 0);
           ssaRefs.insert(resultId);
 
-          // The result SSA should not have any range tracking
-          RDCASSERTEQUAL(ssaRange.count(resultId), 0);
-          // For assignment track maximum and minimum (as current instruction plus one)
-          ssaRange[resultId] = {i + 1, maxInst};
+          const ExecutionPoint current(curBlock, i);
+          auto it = ssaMaxExecPoints.find(resultId);
+          if(it == ssaMaxExecPoints.end())
+            ssaMaxExecPoints[resultId] = current;
+          else
+            // If the result SSA has tracking then this access should be at a later execution point
+            RDCASSERT(it->second.IsAfter(current, controlFlow));
         }
-        // Track min and max when SSA is referenced as an argument
+        // Track maximum execution point when an SSA is referenced as an argument
         // Arguments to phi instructions are handled separately
         if(inst.op == Operation::Phi)
           continue;
+
+        // If the current block is in a loop, set the execution point to the next uniform block
+        ExecutionPoint maxPoint(curBlock, maxInst);
+        if(loopBlocks.contains(curBlock))
+        {
+          uint32_t nextUniformBlock = controlFlow.GetNextUniformBlock(curBlock);
+          maxPoint.block = nextUniformBlock;
+          maxPoint.instruction = f->blocks[nextUniformBlock]->startInstructionIdx + 1;
+        }
         for(uint32_t a = 0; a < inst.args.size(); ++a)
         {
           DXIL::Value *arg = inst.args[a];
@@ -6432,28 +6444,26 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           if(cast<GlobalVar>(arg))
           {
             if(ssaRefs.count(argId) == 0)
-            {
               ssaRefs.insert(argId);
-              ssaRange[argId] = {0, maxInst};
-            }
           }
-          // For non phi-nodes the argument SSA should already exist as the result of a previous operation
-          RDCASSERTEQUAL(ssaRefs.count(argId), 1);
-          // The result SSA should not have any range tracking
-          auto itRange = ssaRange.find(argId);
-          if(itRange != ssaRange.end())
+          auto it = ssaMaxExecPoints.find(argId);
+          if(it == ssaMaxExecPoints.end())
           {
-            itRange->second.min = RDCMIN(i, itRange->second.min);
-            itRange->second.max = RDCMAX(maxInst, itRange->second.max);
+            ssaMaxExecPoints[argId] = maxPoint;
           }
           else
           {
-            RDCERR("SSA Id range not found %d", argId);
+            // Update the maximum execution point if access is later than the existing access
+            if(maxPoint.IsAfter(it->second, controlFlow))
+              it->second = maxPoint;
           }
         }
+        if(inst.op == Operation::Branch || inst.op == Operation::Unreachable ||
+           inst.op == Operation::Switch || inst.op == Operation::Ret)
+          ++curBlock;
       }
       // If these do not match in size that means there is a result SSA that is never read
-      RDCASSERTEQUAL(ssaRefs.size(), ssaRange.size());
+      RDCASSERTEQUAL(ssaRefs.size(), ssaMaxExecPoints.size());
 
       // store the block captured SSA IDs used as arguments to phi nodes
       PhiReferencedIdsPerBlock &phiReferencedIdsPerBlock = info.phiReferencedIdsPerBlock;
@@ -6473,29 +6483,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           uint32_t blockId = block->id;
           phiReferencedIdsPerBlock[blockId].insert(argId);
         }
-      }
-
-      // Find the uniform control blocks in the function
-      rdcarray<rdcpair<uint32_t, uint32_t>> links;
-      for(const Block *block : f->blocks)
-      {
-        for(const Block *pred : block->preds)
-        {
-          if(pred->name.empty())
-          {
-            uint32_t from = pred->id;
-            uint32_t to = block->id;
-            links.push_back({from, to});
-          }
-        }
-      }
-      ControlFlow controlFlow(links);
-      info.uniformBlocks = controlFlow.GetUniformBlocks();
-      //  Handle de-generate case when a single block
-      if(info.uniformBlocks.empty())
-      {
-        RDCASSERTEQUAL(f->blocks.size(), 1);
-        info.uniformBlocks.push_back(f->blocks[0]->id);
       }
     }
   }

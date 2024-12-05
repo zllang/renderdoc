@@ -30,6 +30,7 @@
 #include "driver/shaders/dxbc/dxbc_bytecode.h"
 #include "driver/shaders/dxbc/dxbc_container.h"
 #include "dxil_bytecode.h"
+#include "dxil_controlflow.h"
 #include "dxil_debuginfo.h"
 
 namespace DXILDebug
@@ -49,15 +50,19 @@ struct GlobalState;
 // D3D12 descriptors are equal sized and treated as effectively one byte in size
 const uint32_t D3D12_DESCRIPTOR_BYTESIZE = 1;
 
-struct InstructionRange
+struct ExecutionPoint
 {
-  uint32_t min;
-  uint32_t max;
+  ExecutionPoint() : block(~0U), instruction(~0U) {}
+  ExecutionPoint(uint32_t block, uint32_t instruction) : block(block), instruction(instruction) {}
+  bool IsAfter(const ExecutionPoint &from, const DXIL::ControlFlow &controlFlow) const;
+
+  uint32_t block;
+  uint32_t instruction;
 };
 
 typedef std::map<ShaderBuiltin, ShaderVariable> BuiltinInputs;
 typedef std::set<Id> ReferencedIds;
-typedef std::map<Id, InstructionRange> InstructionRangePerId;
+typedef std::map<Id, ExecutionPoint> ExecutionPointPerId;
 typedef std::map<uint32_t, ReferencedIds> PhiReferencedIdsPerBlock;
 
 void GetInterpolationModeForInputParams(const rdcarray<SigParameter> &stageInputSig,
@@ -89,10 +94,11 @@ struct FunctionInfo
 {
   const DXIL::Function *function = NULL;
   ReferencedIds referencedIds;
-  InstructionRangePerId rangePerId;
+  ExecutionPointPerId maxExecPointPerId;
   PhiReferencedIdsPerBlock phiReferencedIdsPerBlock;
   uint32_t globalInstructionOffset = ~0U;
   rdcarray<uint32_t> uniformBlocks;
+  DXIL::ControlFlow controlFlow;
 };
 
 struct StackFrame
@@ -100,9 +106,8 @@ struct StackFrame
   StackFrame(const DXIL::Function *func) : function(func) {}
   const DXIL::Function *function;
 
-  // the thread's live and dormant lists before the function was entered
-  rdcarray<uint32_t> live;
-  rdcarray<uint32_t> dormant;
+  // the thread's live list before the function was entered
+  rdcarray<bool> live;
 };
 
 struct GlobalVariable
@@ -248,7 +253,7 @@ struct ThreadState
   ShaderValue DDY(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
                   const rdcarray<ThreadState> &quad, const Id &id) const;
 
-  void ProcessScopeChange(const rdcarray<Id> &oldLive, const rdcarray<Id> &newLive);
+  void ProcessScopeChange(const rdcarray<bool> &oldLive, const rdcarray<bool> &newLive);
 
   void InitialiseHelper(const ThreadState &activeState);
   static bool ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups);
@@ -286,9 +291,7 @@ struct ThreadState
   // SSA Variables captured when a branch happens for use in phi nodes
   std::map<Id, ShaderVariable> m_PhiVariables;
   // Live variables at the current scope
-  rdcarray<Id> m_Live;
-  // Dormant variables at the current scope
-  rdcarray<Id> m_Dormant;
+  rdcarray<bool> m_Live;
   // If the variable has been assigned a value
   rdcarray<bool> m_Assigned;
   // Annotated handle properties
@@ -504,7 +507,7 @@ public:
   ThreadState &GetActiveLane() { return m_Workgroups[m_ActiveLaneIndex]; }
   ThreadState &GetWorkgroup(const uint32_t i) { return m_Workgroups[i]; }
   rdcarray<ThreadState> &GetWorkgroups() { return m_Workgroups; }
-  const rdcarray<Id> &GetLiveGlobals() { return m_LiveGlobals; }
+  const rdcarray<bool> &GetLiveGlobals() { return m_LiveGlobals; }
   static rdcstr GetResourceReferenceName(const DXIL::Program *program, DXIL::ResourceClass resClass,
                                          const BindingSlot &slot);
   const DXIL::Program &GetProgram() const { return *m_Program; }
@@ -532,7 +535,7 @@ private:
   std::map<const DXIL::Function *, FunctionInfo> m_FunctionInfos;
 
   // the live mutable global variables, to initialise a stack frame's live list
-  rdcarray<Id> m_LiveGlobals;
+  rdcarray<bool> m_LiveGlobals;
 
   GlobalState m_GlobalState;
 
