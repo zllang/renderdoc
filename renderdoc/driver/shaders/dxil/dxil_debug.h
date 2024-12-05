@@ -193,7 +193,8 @@ struct MemoryTracking
 
 struct ThreadState
 {
-  ThreadState(uint32_t workgroupIndex, Debugger &debugger, const GlobalState &globalState);
+  ThreadState(uint32_t workgroupIndex, Debugger &debugger, const GlobalState &globalState,
+              uint32_t maxSSAId);
   ~ThreadState();
 
   void EnterFunction(const DXIL::Function *function, const rdcarray<DXIL::Value *> &args);
@@ -254,6 +255,8 @@ struct ThreadState
 
   bool GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                                ShaderVariable &var, bool flushDenormInput, bool isLive) const;
+  bool IsVariableAssigned(const Id id) const;
+
   struct AnnotationProperties
   {
     DXIL::ResourceKind resKind;
@@ -286,6 +289,8 @@ struct ThreadState
   rdcarray<Id> m_Live;
   // Dormant variables at the current scope
   rdcarray<Id> m_Dormant;
+  // If the variable has been assigned a value
+  rdcarray<bool> m_Assigned;
   // Annotated handle properties
   std::map<Id, AnnotationProperties> m_AnnotatedProperties;
   // ResourceReferenceInfo for any direct heap access bindings created using createHandleFromHeap
@@ -308,6 +313,9 @@ struct ThreadState
   uint32_t m_GlobalInstructionIdx = ~0U;
   // The PC of the active instruction that was or will be executed on the current simulation step
   uint32_t m_ActiveGlobalInstructionIdx = ~0U;
+
+  // SSA Ids guaranteed to be greater than 0 and less than this value
+  uint32_t m_MaxSSAId;
 
   rdcarray<BindingSlot> m_accessedSRVs;
   rdcarray<BindingSlot> m_accessedUAVs;
