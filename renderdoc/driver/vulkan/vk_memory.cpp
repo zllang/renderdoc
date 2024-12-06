@@ -348,7 +348,7 @@ MemoryAllocation WrappedVulkan::AllocateMemoryForResource(bool buffer, VkMemoryR
     }
 
     uint64_t initStateLimitMB = RenderDoc::Inst().GetCaptureOptions().softMemoryLimit;
-    if(initStateLimitMB > 0)
+    if(initStateLimitMB > 0 && initStateLimitMB < 512)
       allocSize = RDCMAX(initStateLimitMB, allocSize);
 
     uint32_t memoryTypeIndex = 0;
