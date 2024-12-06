@@ -56,6 +56,32 @@ already computed
 
 namespace DXIL
 {
+bool ControlFlow::IsBlockConnected(uint32_t from, uint32_t to) const
+{
+  for(uint32_t pathIdx = 0; pathIdx < m_Paths.size(); ++pathIdx)
+  {
+    m_CheckedPaths.clear();
+    m_CheckedPaths.resize(m_Paths.size());
+    for(size_t i = 0; i < m_CheckedPaths.size(); ++i)
+      m_CheckedPaths[i] = false;
+    int32_t startIdx = -1;
+    for(uint32_t i = 0; i < m_Paths[pathIdx].size() - 1; ++i)
+    {
+      if(m_Paths[pathIdx][i] == from)
+      {
+        startIdx = i;
+        break;
+      }
+    }
+    // BlockInAnyPath will also check all paths linked to from the end node of the path
+    if(startIdx != -1 && (BlockInAnyPath(to, pathIdx, startIdx + 1, 0) != -1))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool ControlFlow::TraceBlockFlow(const uint32_t from, BlockPath &path)
 {
   if(from == PATH_END)
@@ -267,33 +293,20 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
     }
   }
 
+  // Generate the connections 2D map for quick lookup of forward connections
+  // IsBlock B in any path ahead of Block A
+  m_Connections.resize(maxBlockIndex);
+  for(uint32_t from = 0; from < maxBlockIndex; ++from)
+  {
+    m_Connections[from].resize(maxBlockIndex);
+    for(uint32_t to = 0; to < maxBlockIndex; ++to)
+      m_Connections[from][to] = IsBlockConnected(from, to);
+  }
+
   // A loop block is defined by any block which appears in any path starting from the block
   for(uint32_t block : m_Blocks)
   {
-    bool loop = false;
-    for(uint32_t pathIdx = 0; pathIdx < m_Paths.size(); ++pathIdx)
-    {
-      m_CheckedPaths.clear();
-      m_CheckedPaths.resize(m_Paths.size());
-      for(size_t i = 0; i < m_CheckedPaths.size(); ++i)
-        m_CheckedPaths[i] = false;
-      int32_t startIdx = -1;
-      for(uint32_t i = 0; i < m_Paths[pathIdx].size() - 1; ++i)
-      {
-        if(m_Paths[pathIdx][i] == block)
-        {
-          startIdx = i;
-          break;
-        }
-      }
-      // BlockInAnyPath will also check all paths linked to from the end node of the path
-      if(startIdx != -1 && (BlockInAnyPath(block, pathIdx, startIdx + 1, 0) != -1))
-      {
-        loop = true;
-        break;
-      }
-    }
-    if(loop)
+    if(IsForwardConnection(block, block))
       m_LoopBlocks.push_back(block);
   }
 

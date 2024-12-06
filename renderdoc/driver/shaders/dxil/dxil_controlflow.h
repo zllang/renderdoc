@@ -39,6 +39,7 @@ public:
   rdcarray<uint32_t> GetUniformBlocks() const { return m_UniformBlocks; }
   rdcarray<uint32_t> GetLoopBlocks() const { return m_LoopBlocks; }
   uint32_t GetNextUniformBlock(uint32_t from) const;
+  bool IsForwardConnection(uint32_t from, uint32_t to) const { return m_Connections[from][to]; }
 
 private:
   typedef rdcarray<uint32_t> BlockPath;
@@ -46,6 +47,7 @@ private:
   bool TraceBlockFlow(const uint32_t from, BlockPath &path);
   bool BlockInAllPaths(uint32_t block, uint32_t pathIdx, int32_t startIdx) const;
   int32_t BlockInAnyPath(uint32_t block, uint32_t pathIdx, int32_t startIdx, int32_t steps) const;
+  bool ControlFlow::IsBlockConnected(uint32_t from, uint32_t to) const;
 
   const uint32_t PATH_END = ~0U;
 
@@ -59,5 +61,6 @@ private:
 
   rdcarray<uint32_t> m_UniformBlocks;
   rdcarray<uint32_t> m_LoopBlocks;
+  rdcarray<rdcarray<bool>> m_Connections;
 };
 };    // namespace DXIL
