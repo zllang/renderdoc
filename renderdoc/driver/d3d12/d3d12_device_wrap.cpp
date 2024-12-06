@@ -36,9 +36,6 @@
 
 RDOC_EXTERN_CONFIG(bool, Replay_Debug_SingleThreadedCompilation);
 
-RDOC_DEBUG_CONFIG(bool, D3D12_Experimental_EnableRTSupport, false,
-                  "Enable support for experimental DXR support");
-
 RDOC_EXTERN_CONFIG(bool, D3D12_Debug_RT_Auditing);
 
 static RDResult DeferredPipelineCompile(ID3D12Device *device,
@@ -2400,15 +2397,6 @@ HRESULT WrappedID3D12Device::CheckFeatureSupport(D3D12_FEATURE Feature, void *pF
         (D3D12_FEATURE_DATA_D3D12_OPTIONS5 *)pFeatureSupportData;
     if(FeatureSupportDataSize != sizeof(D3D12_FEATURE_DATA_D3D12_OPTIONS5))
       return E_INVALIDARG;
-
-    // don't support raytracing
-    if(!D3D12_Experimental_EnableRTSupport())
-    {
-      opts->RaytracingTier = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
-
-      if(dolog)
-        RDCLOG("Forcing no raytracing tier support");
-    }
 
     return S_OK;
   }
