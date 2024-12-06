@@ -24,10 +24,40 @@
 
 #pragma once
 
+#include <unordered_set>
+
 namespace DXIL
 {
 typedef rdcpair<uint32_t, uint32_t> BlockLink;
 
-void FindUniformBlocks(const rdcarray<BlockLink> &links, rdcarray<uint32_t> &uniformBlocks);
+struct ControlFlow
+{
+public:
+  ControlFlow() = default;
+  ControlFlow(const rdcarray<rdcpair<uint32_t, uint32_t>> &links) { Construct(links); }
+  void Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links);
+  rdcarray<uint32_t> GetUniformBlocks() const { return m_UniformBlocks; }
+  rdcarray<uint32_t> GetLoopBlocks() const { return m_LoopBlocks; }
+  uint32_t GetNextUniformBlock(uint32_t from) const;
 
+private:
+  typedef rdcarray<uint32_t> BlockPath;
+
+  bool TraceBlockFlow(const uint32_t from, BlockPath &path);
+  bool BlockInAllPaths(uint32_t block, uint32_t pathIdx, int32_t startIdx) const;
+  int32_t BlockInAnyPath(uint32_t block, uint32_t pathIdx, int32_t startIdx, int32_t steps) const;
+
+  const uint32_t PATH_END = ~0U;
+
+  std::unordered_set<uint32_t> m_Blocks;
+  rdcarray<BlockPath> m_BlockLinks;
+
+  rdcarray<rdcarray<uint32_t>> m_BlockPathLinks;
+  mutable rdcarray<bool> m_TracedBlocks;
+  mutable rdcarray<bool> m_CheckedPaths;
+  rdcarray<BlockPath> m_Paths;
+
+  rdcarray<uint32_t> m_UniformBlocks;
+  rdcarray<uint32_t> m_LoopBlocks;
+};
 };    // namespace DXIL

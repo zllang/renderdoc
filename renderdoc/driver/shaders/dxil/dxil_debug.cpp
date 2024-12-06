@@ -6489,8 +6489,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           }
         }
       }
-      DXIL::FindUniformBlocks(links, info.uniformBlocks);
-      // Handle de-generate case when a single block
+      ControlFlow controlFlow(links);
+      info.uniformBlocks = controlFlow.GetUniformBlocks();
+      //  Handle de-generate case when a single block
       if(info.uniformBlocks.empty())
       {
         RDCASSERTEQUAL(f->blocks.size(), 1);
