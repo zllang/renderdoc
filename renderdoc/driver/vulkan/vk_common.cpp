@@ -314,7 +314,8 @@ void *GPUBuffer::Map(uint32_t *bindoffset, VkDeviceSize usedsize)
   }
 
   void *ptr = NULL;
-  VkResult vkr = m_pDriver->vkMapMemory(device, mem, offset, size, 0, (void **)&ptr);
+  VkResult vkr =
+      ObjDisp(device)->MapMemory(Unwrap(device), Unwrap(mem), offset, size, 0, (void **)&ptr);
   CHECK_VKR(m_pDriver, vkr);
 
   if(!ptr)
@@ -326,10 +327,10 @@ void *GPUBuffer::Map(uint32_t *bindoffset, VkDeviceSize usedsize)
   if(createFlags & eGPUBufferReadback)
   {
     VkMappedMemoryRange range = {
-        VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, NULL, mem, offset, size,
+        VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, NULL, Unwrap(mem), offset, size,
     };
 
-    vkr = m_pDriver->vkInvalidateMappedMemoryRanges(device, 1, &range);
+    vkr = ObjDisp(device)->InvalidateMappedMemoryRanges(Unwrap(device), 1, &range);
     CHECK_VKR(m_pDriver, vkr);
   }
 
@@ -352,14 +353,14 @@ void GPUBuffer::Unmap()
   if(!(createFlags & eGPUBufferReadback) && !(createFlags & eGPUBufferGPULocal))
   {
     VkMappedMemoryRange range = {
-        VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, NULL, mem, mapoffset, VK_WHOLE_SIZE,
+        VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, NULL, Unwrap(mem), mapoffset, VK_WHOLE_SIZE,
     };
 
-    VkResult vkr = m_pDriver->vkFlushMappedMemoryRanges(device, 1, &range);
+    VkResult vkr = ObjDisp(device)->FlushMappedMemoryRanges(Unwrap(device), 1, &range);
     CHECK_VKR(m_pDriver, vkr);
   }
 
-  m_pDriver->vkUnmapMemory(device, mem);
+  ObjDisp(device)->UnmapMemory(Unwrap(device), Unwrap(mem));
 }
 
 bool VkInitParams::IsSupportedVersion(uint64_t ver)
