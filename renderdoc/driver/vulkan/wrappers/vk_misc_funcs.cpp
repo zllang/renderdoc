@@ -1591,6 +1591,16 @@ bool WrappedVulkan::Serialise_vkCreateQueryPool(SerialiserType &ser, VkDevice de
           ObjDisp(cmd)->CmdWriteTimestamp(Unwrap(cmd), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                           Unwrap(pool), i);
         }
+        else if(CreateInfo.queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR ||
+                CreateInfo.queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR ||
+                CreateInfo.queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR)
+        {
+          /*
+          ObjDisp(cmd)->CmdWriteAccelerationStructuresPropertiesKHR(
+              Unwrap(commandBuffer), 1, UnwrapPtr(m_DummyQueryAS), CreateInfo.queryType,
+              Unwrap(pool), i);
+              */
+        }
         else
         {
           ObjDisp(cmd)->CmdBeginQuery(Unwrap(cmd), Unwrap(pool), i, 0);

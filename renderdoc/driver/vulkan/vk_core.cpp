@@ -3749,10 +3749,21 @@ void WrappedVulkan::ApplyInitialContents()
       for(uint32_t q = 0; q < r.queryCount; q++)
       {
         // Timestamps are easy - we can do these without needing to render
-        if(m_CreationInfo.m_QueryPool[GetResID(r.pool)].queryType == VK_QUERY_TYPE_TIMESTAMP)
+        VkQueryType queryType = m_CreationInfo.m_QueryPool[GetResID(r.pool)].queryType;
+        if(queryType == VK_QUERY_TYPE_TIMESTAMP)
         {
           ObjDisp(cmd)->CmdWriteTimestamp(Unwrap(cmd), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                           Unwrap(r.pool), r.firstQuery + q);
+        }
+        else if(queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR ||
+                queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR ||
+                queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR)
+        {
+          /*
+          ObjDisp(cmd)->CmdWriteAccelerationStructuresPropertiesKHR(
+              Unwrap(commandBuffer), 1, UnwrapPtr(m_DummyQueryAS), CreateInfo.queryType,
+              Unwrap(pool), i);
+              */
         }
         else
         {
