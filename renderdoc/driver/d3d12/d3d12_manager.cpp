@@ -1089,7 +1089,7 @@ void D3D12RTManager::VerifyRecord(const uint64_t recordSize, byte *wrappedRecord
   // be constant data or just padding
   memcpy(record.data() + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES,
          wrappedRecord + D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES,
-         recordSize - D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+         size_t(recordSize - D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES));
 
   if(localIdx != 0xffff)
   {
