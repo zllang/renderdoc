@@ -28,6 +28,13 @@
 #include "vk_manager.h"
 
 RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_SingleSubmitFlushing);
+RDOC_CONFIG(uint32_t, Vulkan_Debug_RT_MaxVertexIncrement, 1000,
+            "Amount to add to the API-provided max vertex when building a BLAS with an index "
+            "buffer, to account for incorrectly set values by application.");
+RDOC_CONFIG(
+    uint32_t, Vulkan_Debug_RT_MaxVertexPercentIncrease, 10,
+    "Percentage increase for the API-provided max vertex when building a BLAS with an index "
+    "buffer, to account for incorrectly set values by application.");
 
 namespace
 {
@@ -323,9 +330,17 @@ RDResult VulkanAccelerationStructureManager::CopyInputBuffers(
 
         if(indexData)
         {
-          // If we're using an index buffer we don't know how much of the vertex buffer we need,
-          // and we can't trust the app to set maxVertex correctly, so we take the whole buffer
-          vertexData.size = vertexData.rao.record->memSize - vertexData.rao.offset;
+          // don't take maxVertex as perfect, applications have no reason to set it correctly for
+          // everything to work with drivers, and likely no validation. Add an overestimate factor
+          uint32_t untrustedVertexCount = triInfo.maxVertex;
+          uint32_t estimatedVertexCount =
+              untrustedVertexCount +
+              (untrustedVertexCount / 100) * Vulkan_Debug_RT_MaxVertexPercentIncrease() +
+              Vulkan_Debug_RT_MaxVertexIncrement();
+
+          // don't read more than what is left in the buffer
+          vertexData.size = RDCMIN(triInfo.vertexStride * estimatedVertexCount,
+                                   vertexData.rao.record->memSize - vertexData.rao.offset);
           vertexData.SetReadPosition(0);
         }
         else
