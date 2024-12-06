@@ -585,10 +585,6 @@ void VulkanDebugManager::PatchLineStripIndexBuffer(const ActionDescription *acti
   memcpy(ptr, patchedIndices.data(), patchedIndices.size() * sizeof(uint32_t));
   indexBuffer.Unmap();
 
-  rs.ibuffer.offs = 0;
-  rs.ibuffer.bytewidth = 4;
-  rs.ibuffer.buf = GetResID(indexBuffer.buf);
-
   VkBufferMemoryBarrier uploadbarrier = {
       VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
       NULL,
@@ -596,9 +592,9 @@ void VulkanDebugManager::PatchLineStripIndexBuffer(const ActionDescription *acti
       VK_ACCESS_INDEX_READ_BIT,
       VK_QUEUE_FAMILY_IGNORED,
       VK_QUEUE_FAMILY_IGNORED,
-      Unwrap(indexBuffer.buf),
+      indexBuffer.UnwrappedBuffer(),
       0,
-      indexBuffer.totalsize,
+      indexBuffer.TotalSize(),
   };
 
   VkCommandBuffer cmd = m_pDriver->GetNextCmd();
@@ -1295,6 +1291,10 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
 
         // do single draw
         state.BeginRenderPassAndApplyState(m_pDriver, cmd, VulkanRenderState::BindGraphics, false);
+
+        ObjDisp(cmd)->CmdBindIndexBuffer(Unwrap(cmd), patchedIB.UnwrappedBuffer(), 0,
+                                         VK_INDEX_TYPE_UINT32);
+
         ActionDescription action = *mainDraw;
         action.numIndices = patchedIndexCount;
         action.baseVertex = 0;

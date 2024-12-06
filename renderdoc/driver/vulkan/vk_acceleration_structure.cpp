@@ -548,7 +548,7 @@ RDResult VulkanAccelerationStructureManager::CopyInputBuffers(
 
   // Allocate the required memory block
   metadata->readbackMem = CreateTempReadBackBuffer(device, currentDstOffset);
-  if(metadata->readbackMem.mem == VK_NULL_HANDLE)
+  if(metadata->readbackMem.UnwrappedMemory() == VK_NULL_HANDLE)
   {
     RDCERR("Unable to allocate AS input buffer readback memory (size: %u bytes)", currentDstOffset);
     return {};
@@ -562,7 +562,7 @@ RDResult VulkanAccelerationStructureManager::CopyInputBuffers(
     // Queue the copying
     for(const BufferData &bufData : inputBuffersData)
       ObjDisp(device)->CmdCopyBuffer(Unwrap(commandBuffer), bufData.buf,
-                                     Unwrap(metadata->readbackMem.buf), 1, &bufData.region);
+                                     metadata->readbackMem.UnwrappedBuffer(), 1, &bufData.region);
 
     VkMemoryBarrier barrier = {
         VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -881,9 +881,6 @@ GPUBuffer VulkanAccelerationStructureManager::CreateTempReadBackBuffer(VkDevice 
   GPUBuffer result;
   result.Create(m_pDriver, device, size, 1,
                 GPUBuffer::eGPUBufferReadback | GPUBuffer::eGPUBufferAddressable);
-
-  m_pDriver->GetResourceManager()->SetInternalResource(GetResID(result.mem));
-  m_pDriver->GetResourceManager()->SetInternalResource(GetResID(result.buf));
 
   return result;
 }

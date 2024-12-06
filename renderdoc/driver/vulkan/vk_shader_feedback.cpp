@@ -1821,7 +1821,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
   VkResult vkr = VK_SUCCESS;
   VkDevice dev = m_Device;
 
-  if(feedbackData.feedbackStorageSize > m_BindlessFeedback.FeedbackBuffer.sz)
+  if(feedbackData.feedbackStorageSize > m_BindlessFeedback.FeedbackBuffer.TotalSize())
   {
     uint32_t flags = GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO;
 
@@ -1847,12 +1847,12 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
                           VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT,
                       "KHR and EXT buffer_device_address should be interchangeable here.");
     VkBufferDeviceAddressInfo getAddressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    getAddressInfo.buffer = m_BindlessFeedback.FeedbackBuffer.buf;
+    getAddressInfo.buffer = m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer();
 
     if(useBufferAddressKHR)
-      bufferAddress = m_pDriver->vkGetBufferDeviceAddress(dev, &getAddressInfo);
+      bufferAddress = ObjDisp(dev)->GetBufferDeviceAddress(Unwrap(dev), &getAddressInfo);
     else
-      bufferAddress = m_pDriver->vkGetBufferDeviceAddressEXT(dev, &getAddressInfo);
+      bufferAddress = ObjDisp(dev)->GetBufferDeviceAddressEXT(Unwrap(dev), &getAddressInfo);
   }
   else
   {
@@ -2122,7 +2122,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
     CHECK_VKR(m_pDriver, vkr);
 
     // fill destination buffer with 0s to ensure a baseline to then feedback against
-    ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), Unwrap(m_BindlessFeedback.FeedbackBuffer.buf), 0,
+    ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(), 0,
                                 feedbackData.feedbackStorageSize, 0);
 
     VkBufferMemoryBarrier feedbackbufBarrier = {
@@ -2132,7 +2132,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
         VK_ACCESS_SHADER_WRITE_BIT,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        Unwrap(m_BindlessFeedback.FeedbackBuffer.buf),
+        m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(),
         0,
         feedbackData.feedbackStorageSize,
     };
@@ -2165,7 +2165,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
   }
 
   bytebuf data;
-  GetBufferData(GetResID(m_BindlessFeedback.FeedbackBuffer.buf), 0, 0, data);
+  GetDebugManager()->GetBufferData(m_BindlessFeedback.FeedbackBuffer, 0, 0, data);
 
   for(auto it = feedbackData.offsetMap.begin(); it != feedbackData.offsetMap.end(); ++it)
   {

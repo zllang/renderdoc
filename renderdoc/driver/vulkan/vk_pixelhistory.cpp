@@ -263,7 +263,7 @@ struct PixelHistoryShaderCache
 
   ~PixelHistoryShaderCache()
   {
-    if(dummybuf.device != VK_NULL_HANDLE)
+    if(dummybuf.TotalSize() > 0)
       dummybuf.Destroy();
     for(auto it = m_ShaderReplacements.begin(); it != m_ShaderReplacements.end(); ++it)
     {
@@ -535,13 +535,14 @@ private:
       }
 
       // implement workaround for Intel drivers to force shader to have unimportant side-effects
-      if(dummybuf.device != VK_NULL_HANDLE)
+      if(dummybuf.TotalSize() > 0)
       {
         VkBufferDeviceAddressInfo getAddressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-        getAddressInfo.buffer = dummybuf.buf;
+        getAddressInfo.buffer = dummybuf.UnwrappedBuffer();
 
+        VkDevice dev = m_pDriver->GetDev();
         VkDeviceAddress bufferAddress =
-            m_pDriver->vkGetBufferDeviceAddress(m_pDriver->GetDev(), &getAddressInfo);
+            ObjDisp(dev)->GetBufferDeviceAddress(Unwrap(dev), &getAddressInfo);
 
         rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
         rdcspv::Id bufptrtype = editor.DeclareType(

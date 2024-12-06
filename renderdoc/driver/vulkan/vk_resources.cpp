@@ -3952,7 +3952,7 @@ QueryPoolInfo::QueryPoolInfo(WrappedVulkan *driver, VkDevice device,
                              const VkQueryPoolCreateInfo *pCreateInfo)
 {
   m_Buffer.Create(driver, device, pCreateInfo->queryCount * 8, 1, GPUBuffer::eGPUBufferReadback);
-  m_MappedMem = (byte *)m_Buffer.Map(0, m_Buffer.totalsize);
+  m_MappedMem = (byte *)m_Buffer.Map(0, m_Buffer.TotalSize());
 }
 
 QueryPoolInfo::~QueryPoolInfo()

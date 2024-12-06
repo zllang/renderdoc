@@ -1576,7 +1576,7 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
   vt->BeginCommandBuffer(Unwrap(cmd), &beginInfo);
 
   // reset first uint (used as atomic counter) to 0
-  vt->CmdFillBuffer(Unwrap(cmd), Unwrap(m_VertexPick.Result.buf), 0, sizeof(uint32_t) * 4, 0);
+  vt->CmdFillBuffer(Unwrap(cmd), m_VertexPick.Result.UnwrappedBuffer(), 0, sizeof(uint32_t) * 4, 0);
 
   VkBufferMemoryBarrier bufBarrier = {
       VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -1585,7 +1585,7 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
       VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT,
       VK_QUEUE_FAMILY_IGNORED,
       VK_QUEUE_FAMILY_IGNORED,
-      Unwrap(m_VertexPick.Result.buf),
+      m_VertexPick.Result.UnwrappedBuffer(),
       0,
       VK_WHOLE_SIZE,
   };
@@ -1597,36 +1597,36 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
   if(!idxs.empty())
   {
     // wait for writes
-    bufBarrier.buffer = Unwrap(m_VertexPick.IBUpload.buf);
+    bufBarrier.buffer = m_VertexPick.IBUpload.UnwrappedBuffer();
     bufBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
     bufBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     DoPipelineBarrier(cmd, 1, &bufBarrier);
 
     // do copy
     bufCopy.size = m_VertexPick.IBSize;
-    vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(m_VertexPick.IBUpload.buf), Unwrap(m_VertexPick.IB.buf),
-                      1, &bufCopy);
+    vt->CmdCopyBuffer(Unwrap(cmd), m_VertexPick.IBUpload.UnwrappedBuffer(),
+                      m_VertexPick.IB.UnwrappedBuffer(), 1, &bufCopy);
 
     // wait for copy
-    bufBarrier.buffer = Unwrap(m_VertexPick.IB.buf);
+    bufBarrier.buffer = m_VertexPick.IB.UnwrappedBuffer();
     bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     bufBarrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
     DoPipelineBarrier(cmd, 1, &bufBarrier);
   }
 
   // wait for writes
-  bufBarrier.buffer = Unwrap(m_VertexPick.VBUpload.buf);
+  bufBarrier.buffer = m_VertexPick.VBUpload.UnwrappedBuffer();
   bufBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
   bufBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
   DoPipelineBarrier(cmd, 1, &bufBarrier);
 
   // do copy
   bufCopy.size = m_VertexPick.VBSize;
-  vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(m_VertexPick.VBUpload.buf), Unwrap(m_VertexPick.VB.buf), 1,
-                    &bufCopy);
+  vt->CmdCopyBuffer(Unwrap(cmd), m_VertexPick.VBUpload.UnwrappedBuffer(),
+                    m_VertexPick.VB.UnwrappedBuffer(), 1, &bufCopy);
 
   // wait for copy
-  bufBarrier.buffer = Unwrap(m_VertexPick.VB.buf);
+  bufBarrier.buffer = m_VertexPick.VB.UnwrappedBuffer();
   bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   bufBarrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
   DoPipelineBarrier(cmd, 1, &bufBarrier);
@@ -1641,19 +1641,19 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
   // wait for shader to finish writing before transferring to readback buffer
   bufBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
   bufBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  bufBarrier.buffer = Unwrap(m_VertexPick.Result.buf);
+  bufBarrier.buffer = m_VertexPick.Result.UnwrappedBuffer();
   DoPipelineBarrier(cmd, 1, &bufBarrier);
 
-  bufCopy.size = m_VertexPick.Result.totalsize;
+  bufCopy.size = m_VertexPick.Result.TotalSize();
 
   // copy to readback buffer
-  vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(m_VertexPick.Result.buf),
-                    Unwrap(m_VertexPick.ResultReadback.buf), 1, &bufCopy);
+  vt->CmdCopyBuffer(Unwrap(cmd), m_VertexPick.Result.UnwrappedBuffer(),
+                    m_VertexPick.ResultReadback.UnwrappedBuffer(), 1, &bufCopy);
 
   // wait for transfer to finish before reading on CPU
   bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   bufBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-  bufBarrier.buffer = Unwrap(m_VertexPick.ResultReadback.buf);
+  bufBarrier.buffer = m_VertexPick.ResultReadback.UnwrappedBuffer();
   DoPipelineBarrier(cmd, 1, &bufBarrier);
 
   VkResult vkr = vt->EndCommandBuffer(Unwrap(cmd));
@@ -1891,9 +1891,6 @@ void VulkanDebugManager::ResetBufferMSDescriptorPools()
 
 void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_t len, bytebuf &ret)
 {
-  VkDevice dev = m_pDriver->GetDev();
-  const VkDevDispatchTable *vt = ObjDisp(dev);
-
   if(!m_pDriver->GetResourceManager()->HasCurrentResource(buff))
   {
     RDCERR("Getting buffer data for unknown buffer/memory %s!", ToStr(buff).c_str());
@@ -1908,15 +1905,15 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
     return;
   }
 
-  VkBuffer srcBuf = VK_NULL_HANDLE;
+  VkBuffer unwrappedSrcBuf = VK_NULL_HANDLE;
   uint64_t bufsize = 0;
 
   if(WrappedVkDeviceMemory::IsAlloc(res))
   {
-    srcBuf = m_pDriver->m_CreationInfo.m_Memory[buff].wholeMemBuf;
+    unwrappedSrcBuf = Unwrap(m_pDriver->m_CreationInfo.m_Memory[buff].wholeMemBuf);
     bufsize = m_pDriver->m_CreationInfo.m_Memory[buff].wholeMemBufSize;
 
-    if(srcBuf == VK_NULL_HANDLE)
+    if(unwrappedSrcBuf == VK_NULL_HANDLE)
     {
       RDCLOG(
           "Memory doesn't have wholeMemBuf, either non-buffer accessible (non-linear) or dedicated "
@@ -1926,7 +1923,7 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
   }
   else if(WrappedVkBuffer::IsAlloc(res))
   {
-    srcBuf = m_pDriver->GetResourceManager()->GetCurrentHandle<VkBuffer>(buff);
+    unwrappedSrcBuf = Unwrap(m_pDriver->GetResourceManager()->GetCurrentHandle<VkBuffer>(buff));
     bufsize = m_pDriver->m_CreationInfo.m_Buffer[buff].size;
   }
   else
@@ -1935,29 +1932,38 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
     return;
   }
 
-  if(offset >= bufsize)
+  GetBufferData(unwrappedSrcBuf, bufsize, offset, len, ret);
+}
+
+void VulkanDebugManager::GetBufferData(VkBuffer unwrappedBuf, uint64_t bufsize, uint64_t readOffset,
+                                       uint64_t readLen, bytebuf &ret)
+{
+  VkDevice dev = m_pDriver->GetDev();
+  const VkDevDispatchTable *vt = ObjDisp(dev);
+
+  if(readOffset >= bufsize)
   {
     // can't read past the end of the buffer, return empty
     return;
   }
 
-  if(len == 0 || len > bufsize)
+  if(readLen == 0 || readLen > bufsize)
   {
-    len = bufsize - offset;
+    readLen = bufsize - readOffset;
   }
 
-  if(VkDeviceSize(offset + len) > bufsize)
+  if(VkDeviceSize(readOffset + readLen) > bufsize)
   {
     RDCWARN("Attempting to read off the end of the buffer (%llu %llu). Will be clamped (%llu)",
-            offset, len, bufsize);
-    len = RDCMIN(len, bufsize - offset);
+            readOffset, readLen, bufsize);
+    readLen = RDCMIN(readLen, bufsize - readOffset);
   }
 
-  ret.resize((size_t)len);
+  ret.resize((size_t)readLen);
 
-  VkDeviceSize srcoffset = (VkDeviceSize)offset;
+  VkDeviceSize srcoffset = (VkDeviceSize)readOffset;
   size_t dstoffset = 0;
-  VkDeviceSize sizeRemaining = (VkDeviceSize)len;
+  VkDeviceSize sizeRemaining = (VkDeviceSize)readLen;
 
   VkCommandBuffer cmd = m_pDriver->GetNextCmd();
 
@@ -1977,7 +1983,7 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
       VK_ACCESS_TRANSFER_READ_BIT,
       VK_QUEUE_FAMILY_IGNORED,
       VK_QUEUE_FAMILY_IGNORED,
-      Unwrap(srcBuf),
+      unwrappedBuf,
       srcoffset,
       sizeRemaining,
   };
@@ -2006,11 +2012,11 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
     CHECK_VKR(m_pDriver, vkr);
 
     VkBufferCopy region = {srcoffset, 0, chunkSize};
-    vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(srcBuf), Unwrap(m_ReadbackWindow.buf), 1, &region);
+    vt->CmdCopyBuffer(Unwrap(cmd), unwrappedBuf, m_ReadbackWindow.UnwrappedBuffer(), 1, &region);
 
     bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     bufBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    bufBarrier.buffer = Unwrap(m_ReadbackWindow.buf);
+    bufBarrier.buffer = m_ReadbackWindow.UnwrappedBuffer();
     bufBarrier.offset = 0;
     bufBarrier.size = chunkSize;
 
@@ -2024,7 +2030,7 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
     m_pDriver->FlushQ();
 
     byte *pData = NULL;
-    vkr = vt->MapMemory(Unwrap(dev), Unwrap(m_ReadbackWindow.mem), 0, VK_WHOLE_SIZE, 0,
+    vkr = vt->MapMemory(Unwrap(dev), m_ReadbackWindow.UnwrappedMemory(), 0, VK_WHOLE_SIZE, 0,
                         (void **)&pData);
     CHECK_VKR(m_pDriver, vkr);
     if(vkr != VK_SUCCESS)
@@ -2037,7 +2043,11 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
     }
 
     VkMappedMemoryRange range = {
-        VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, NULL, Unwrap(m_ReadbackWindow.mem), 0, VK_WHOLE_SIZE,
+        VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+        NULL,
+        m_ReadbackWindow.UnwrappedMemory(),
+        0,
+        VK_WHOLE_SIZE,
     };
 
     vkr = vt->InvalidateMappedMemoryRanges(Unwrap(dev), 1, &range);
@@ -2050,7 +2060,7 @@ void VulkanDebugManager::GetBufferData(ResourceId buff, uint64_t offset, uint64_
     dstoffset += (size_t)chunkSize;
     sizeRemaining -= chunkSize;
 
-    vt->UnmapMemory(Unwrap(dev), Unwrap(m_ReadbackWindow.mem));
+    vt->UnmapMemory(Unwrap(dev), m_ReadbackWindow.UnwrappedMemory());
   }
 
   vt->DeviceWaitIdle(Unwrap(dev));
@@ -2461,8 +2471,8 @@ void VulkanDebugManager::FillWithDiscardPattern(VkCommandBuffer cmd, DiscardType
       }
     }
 
-    vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(stage.buf), Unwrap(buf), (uint32_t)bufRegions.size(),
-                      bufRegions.data());
+    vt->CmdCopyBuffer(Unwrap(cmd), stage.UnwrappedBuffer(), Unwrap(buf),
+                      (uint32_t)bufRegions.size(), bufRegions.data());
 
     m_DiscardPatterns[key] = buf;
 
@@ -2589,9 +2599,9 @@ void VulkanDebugManager::FillWithDiscardPattern(VkCommandBuffer cmd, DiscardType
 
 void VulkanDebugManager::InitReadbackBuffer(VkDeviceSize sz)
 {
-  if(m_ReadbackWindow.buf == VK_NULL_HANDLE || m_ReadbackWindow.sz < sz)
+  if(m_ReadbackWindow.TotalSize() < sz)
   {
-    if(m_ReadbackWindow.buf != VK_NULL_HANDLE)
+    if(m_ReadbackWindow.TotalSize() > 0)
     {
       m_ReadbackWindow.Destroy();
     }
@@ -2600,12 +2610,9 @@ void VulkanDebugManager::InitReadbackBuffer(VkDeviceSize sz)
     m_ReadbackWindow.Create(m_pDriver, dev, AlignUp(sz, (VkDeviceSize)4096), 1,
                             GPUBuffer::eGPUBufferReadback);
 
-    m_pDriver->GetResourceManager()->SetInternalResource(GetResID(m_ReadbackWindow.buf));
-    m_pDriver->GetResourceManager()->SetInternalResource(GetResID(m_ReadbackWindow.mem));
+    RDCLOG("Allocating readback window of %llu bytes", m_ReadbackWindow.TotalSize());
 
-    RDCLOG("Allocating readback window of %llu bytes", m_ReadbackWindow.sz);
-
-    VkResult vkr = ObjDisp(dev)->MapMemory(Unwrap(dev), Unwrap(m_ReadbackWindow.mem), 0,
+    VkResult vkr = ObjDisp(dev)->MapMemory(Unwrap(dev), m_ReadbackWindow.UnwrappedMemory(), 0,
                                            VK_WHOLE_SIZE, 0, (void **)&m_ReadbackPtr);
     CHECK_VKR(m_pDriver, vkr);
     if(!m_ReadbackPtr)

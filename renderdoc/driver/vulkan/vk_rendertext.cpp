@@ -260,16 +260,10 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
   m_TextGeneralUBO.Create(driver, dev, 128, 100, 0);
   RDCCOMPILE_ASSERT(sizeof(FontUBOData) <= 128, "font uniforms size");
 
-  rm->SetInternalResource(GetResID(m_TextGeneralUBO.buf));
-  rm->SetInternalResource(GetResID(m_TextGeneralUBO.mem));
-
   // we only use a subset of the [MAX_SINGLE_LINE_LENGTH] array needed for each line, so this ring
   // can be smaller
   m_TextStringUBO.Create(driver, dev, 4096, 20, 0);
   RDCCOMPILE_ASSERT(sizeof(StringUBOData) <= 4096, "font uniforms size");
-
-  rm->SetInternalResource(GetResID(m_TextStringUBO.buf));
-  rm->SetInternalResource(GetResID(m_TextStringUBO.mem));
 
   pipeInfo.layout = m_TextPipeLayout;
 
@@ -400,9 +394,6 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
       m_TextAtlasUpload.Create(driver, dev, 32768, 1, 0);
       RDCCOMPILE_ASSERT(width * height <= 32768, "font uniform size");
 
-      rm->SetInternalResource(GetResID(m_TextAtlasUpload.buf));
-      rm->SetInternalResource(GetResID(m_TextAtlasUpload.mem));
-
       byte *pData = (byte *)m_TextAtlasUpload.Map();
       RDCASSERT(pData);
 
@@ -414,9 +405,6 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
     // doesn't need to be ring'd, as it's static
     m_TextGlyphUBO.Create(driver, dev, 4096, 1, 0);
     RDCCOMPILE_ASSERT(sizeof(Vec4f) * 2 * (numChars + 1) < 4096, "font uniform size");
-
-    rm->SetInternalResource(GetResID(m_TextGlyphUBO.buf));
-    rm->SetInternalResource(GetResID(m_TextGlyphUBO.mem));
 
     FontGlyphData *glyphData = (FontGlyphData *)m_TextGlyphUBO.Map();
 
@@ -469,9 +457,9 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
         VK_ACCESS_TRANSFER_READ_BIT,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        Unwrap(m_TextAtlasUpload.buf),
+        m_TextAtlasUpload.UnwrappedBuffer(),
         0,
-        m_TextAtlasUpload.totalsize,
+        m_TextAtlasUpload.TotalSize(),
     };
 
     // ensure host writes finish before copy
@@ -492,7 +480,7 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
 
     // copy to image
     ObjDisp(textAtlasUploadCmd)
-        ->CmdCopyBufferToImage(Unwrap(textAtlasUploadCmd), Unwrap(m_TextAtlasUpload.buf),
+        ->CmdCopyBufferToImage(Unwrap(textAtlasUploadCmd), m_TextAtlasUpload.UnwrappedBuffer(),
                                Unwrap(m_TextAtlas), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                &bufRegion);
 

@@ -6047,7 +6047,7 @@ void WrappedVulkan::ReplayDraw(VkCommandBuffer cmd, const ActionDescription &act
         VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        Unwrap(m_IndirectBuffer.buf),
+        m_IndirectBuffer.UnwrappedBuffer(),
         m_IndirectBufferSize,
         m_IndirectBufferSize,
     };
@@ -6056,8 +6056,8 @@ void WrappedVulkan::ReplayDraw(VkCommandBuffer cmd, const ActionDescription &act
     DoPipelineBarrier(cmd, 1, &bufBarrier);
 
     // initialise to 0 so all other draws don't draw anything
-    ObjDisp(cmd)->CmdFillBuffer(Unwrap(cmd), Unwrap(m_IndirectBuffer.buf), m_IndirectBufferSize,
-                                m_IndirectBufferSize, 0);
+    ObjDisp(cmd)->CmdFillBuffer(Unwrap(cmd), m_IndirectBuffer.UnwrappedBuffer(),
+                                m_IndirectBufferSize, m_IndirectBufferSize, 0);
 
     // wait for fill to complete before update
     bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -6066,7 +6066,7 @@ void WrappedVulkan::ReplayDraw(VkCommandBuffer cmd, const ActionDescription &act
     DoPipelineBarrier(cmd, 1, &bufBarrier);
 
     // upload the parameters for the draw we want
-    ObjDisp(cmd)->CmdUpdateBuffer(Unwrap(cmd), Unwrap(m_IndirectBuffer.buf),
+    ObjDisp(cmd)->CmdUpdateBuffer(Unwrap(cmd), m_IndirectBuffer.UnwrappedBuffer(),
                                   m_IndirectBufferSize + params.size() * action.drawIndex,
                                   params.size(), params.data());
 
@@ -6077,16 +6077,17 @@ void WrappedVulkan::ReplayDraw(VkCommandBuffer cmd, const ActionDescription &act
     DoPipelineBarrier(cmd, 1, &bufBarrier);
 
     if(action.flags & ActionFlags::MeshDispatch)
-      ObjDisp(cmd)->CmdDrawMeshTasksIndirectEXT(Unwrap(cmd), Unwrap(m_IndirectBuffer.buf),
+      ObjDisp(cmd)->CmdDrawMeshTasksIndirectEXT(Unwrap(cmd), m_IndirectBuffer.UnwrappedBuffer(),
                                                 m_IndirectBufferSize, action.drawIndex + 1,
                                                 (uint32_t)params.size());
     else if(action.flags & ActionFlags::Indexed)
-      ObjDisp(cmd)->CmdDrawIndexedIndirect(Unwrap(cmd), Unwrap(m_IndirectBuffer.buf),
+      ObjDisp(cmd)->CmdDrawIndexedIndirect(Unwrap(cmd), m_IndirectBuffer.UnwrappedBuffer(),
                                            m_IndirectBufferSize, action.drawIndex + 1,
                                            (uint32_t)params.size());
     else
-      ObjDisp(cmd)->CmdDrawIndirect(Unwrap(cmd), Unwrap(m_IndirectBuffer.buf), m_IndirectBufferSize,
-                                    action.drawIndex + 1, (uint32_t)params.size());
+      ObjDisp(cmd)->CmdDrawIndirect(Unwrap(cmd), m_IndirectBuffer.UnwrappedBuffer(),
+                                    m_IndirectBufferSize, action.drawIndex + 1,
+                                    (uint32_t)params.size());
 
     VkMarkerRegion::End(cmd);
   }

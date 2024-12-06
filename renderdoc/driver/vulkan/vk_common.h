@@ -215,6 +215,10 @@ struct GPUBuffer
               uint32_t flags);
   void Destroy();
 
+  // return by const reference so we can pass in &UnwrappedBuffer() into bind calls
+  const VkBuffer &UnwrappedBuffer() const { return buf; }
+  const VkDeviceMemory &UnwrappedMemory() const { return mem; }
+
   void FillDescriptor(VkDescriptorBufferInfo &desc);
 
   size_t GetRingCount() { return size_t(ringCount); }
@@ -222,6 +226,9 @@ struct GPUBuffer
   void *Map(uint32_t *bindoffset = NULL, VkDeviceSize usedsize = 0);
   void Unmap();
 
+  VkDeviceSize TotalSize() const { return totalsize; }
+
+private:
   VkDeviceSize sz = 0;
   VkBuffer buf = VK_NULL_HANDLE;
   VkDeviceMemory mem = VK_NULL_HANDLE;

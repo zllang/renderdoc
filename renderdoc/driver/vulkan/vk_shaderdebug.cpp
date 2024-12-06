@@ -1300,7 +1300,7 @@ public:
       };
       ObjDisp(cmd)->CmdCopyImageToBuffer(Unwrap(cmd), Unwrap(m_DebugData.Image),
                                          VK_IMAGE_LAYOUT_GENERAL,
-                                         Unwrap(m_DebugData.ReadbackBuffer.buf), 1, &region);
+                                         m_DebugData.ReadbackBuffer.UnwrappedBuffer(), 1, &region);
 
       VkBufferMemoryBarrier bufBarrier = {
           VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -1309,7 +1309,7 @@ public:
           VK_ACCESS_HOST_READ_BIT,
           VK_QUEUE_FAMILY_IGNORED,
           VK_QUEUE_FAMILY_IGNORED,
-          Unwrap(m_DebugData.ReadbackBuffer.buf),
+          m_DebugData.ReadbackBuffer.UnwrappedBuffer(),
           0,
           VK_WHOLE_SIZE,
       };
@@ -1438,7 +1438,7 @@ public:
           VK_ACCESS_TRANSFER_READ_BIT,
           VK_QUEUE_FAMILY_IGNORED,
           VK_QUEUE_FAMILY_IGNORED,
-          Unwrap(m_DebugData.MathResult.buf),
+          m_DebugData.MathResult.UnwrappedBuffer(),
           0,
           VK_WHOLE_SIZE,
       };
@@ -1447,12 +1447,12 @@ public:
 
       VkBufferCopy bufCopy = {0, 0, 0};
       bufCopy.size = sizeof(Vec4f) * 2;
-      ObjDisp(cmd)->CmdCopyBuffer(Unwrap(cmd), Unwrap(m_DebugData.MathResult.buf),
-                                  Unwrap(m_DebugData.ReadbackBuffer.buf), 1, &bufCopy);
+      ObjDisp(cmd)->CmdCopyBuffer(Unwrap(cmd), m_DebugData.MathResult.UnwrappedBuffer(),
+                                  m_DebugData.ReadbackBuffer.UnwrappedBuffer(), 1, &bufCopy);
 
       bufBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
       bufBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-      bufBarrier.buffer = Unwrap(m_DebugData.ReadbackBuffer.buf);
+      bufBarrier.buffer = m_DebugData.ReadbackBuffer.UnwrappedBuffer();
 
       // wait for copy to finish before reading back to host
       DoPipelineBarrier(cmd, 1, &bufBarrier);
@@ -4399,7 +4399,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
            feedbackStorageSize);
   }
 
-  if(feedbackStorageSize > m_BindlessFeedback.FeedbackBuffer.sz)
+  if(feedbackStorageSize > m_BindlessFeedback.FeedbackBuffer.TotalSize())
   {
     uint32_t flags = GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO;
 
@@ -4409,7 +4409,8 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     m_BindlessFeedback.FeedbackBuffer.Destroy();
     m_BindlessFeedback.FeedbackBuffer.Create(m_pDriver, dev, feedbackStorageSize, 1, flags);
 
-    NameVulkanObject(m_BindlessFeedback.FeedbackBuffer.buf, "m_BindlessFeedback.FeedbackBuffer");
+    NameUnwrappedVulkanObject(m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(),
+                              "m_BindlessFeedback.FeedbackBuffer");
   }
 
   struct SpecData
@@ -4436,12 +4437,12 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
                           VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT,
                       "KHR and EXT buffer_device_address should be interchangeable here.");
     VkBufferDeviceAddressInfo getAddressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    getAddressInfo.buffer = m_BindlessFeedback.FeedbackBuffer.buf;
+    getAddressInfo.buffer = m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer();
 
     if(storageMode == KHR_bda)
-      specData.bufferAddress = m_pDriver->vkGetBufferDeviceAddress(dev, &getAddressInfo);
+      specData.bufferAddress = ObjDisp(dev)->GetBufferDeviceAddress(Unwrap(dev), &getAddressInfo);
     else
-      specData.bufferAddress = m_pDriver->vkGetBufferDeviceAddressEXT(dev, &getAddressInfo);
+      specData.bufferAddress = ObjDisp(dev)->GetBufferDeviceAddressEXT(Unwrap(dev), &getAddressInfo);
 
     if(Vulkan_Debug_ShaderDebugLogging())
     {
@@ -4733,7 +4734,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     CHECK_VKR(m_pDriver, vkr);
 
     // fill destination buffer with 0s to ensure a baseline to then feedback against
-    ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), Unwrap(m_BindlessFeedback.FeedbackBuffer.buf), 0,
+    ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(), 0,
                                 feedbackStorageSize, 0);
 
     VkBufferMemoryBarrier feedbackbufBarrier = {
@@ -4743,7 +4744,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
         VK_ACCESS_SHADER_WRITE_BIT,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        Unwrap(m_BindlessFeedback.FeedbackBuffer.buf),
+        m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(),
         0,
         feedbackStorageSize,
     };
@@ -4766,7 +4767,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   }
 
   bytebuf data;
-  GetBufferData(GetResID(m_BindlessFeedback.FeedbackBuffer.buf), 0, 0, data);
+  GetDebugManager()->GetBufferData(m_BindlessFeedback.FeedbackBuffer, 0, 0, data);
 
   byte *base = data.data();
   uint32_t numHits = ((uint32_t *)base)[0];

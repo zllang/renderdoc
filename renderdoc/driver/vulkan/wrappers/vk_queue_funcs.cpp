@@ -1215,7 +1215,8 @@ void WrappedVulkan::CaptureQueueSubmit(VkQueue queue,
           VkBufferCopy region = {state.mapOffset, state.mapOffset, state.mapSize};
 
           ObjDisp(copycmd)->CmdCopyBuffer(Unwrap(copycmd), Unwrap(state.wholeMemBuf),
-                                          Unwrap(GetDebugManager()->GetReadbackBuffer()), 1, &region);
+                                          GetDebugManager()->GetUnwrappedReadbackBuffer(), 1,
+                                          &region);
 
           // wait for transfer to finish before reading on CPU
           VkBufferMemoryBarrier bufBarrier = {
@@ -1225,7 +1226,7 @@ void WrappedVulkan::CaptureQueueSubmit(VkQueue queue,
               VK_ACCESS_HOST_READ_BIT,
               VK_QUEUE_FAMILY_IGNORED,
               VK_QUEUE_FAMILY_IGNORED,
-              Unwrap(GetDebugManager()->GetReadbackBuffer()),
+              GetDebugManager()->GetUnwrappedReadbackBuffer(),
               0,
               VK_WHOLE_SIZE,
           };
@@ -1255,7 +1256,7 @@ void WrappedVulkan::CaptureQueueSubmit(VkQueue queue,
           VkMappedMemoryRange range = {
               VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
               NULL,
-              Unwrap(GetDebugManager()->GetReadbackMemory()),
+              GetDebugManager()->GetUnwrappedReadbackMemory(),
               0,
               VK_WHOLE_SIZE,
           };

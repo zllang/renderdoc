@@ -3008,7 +3008,7 @@ void VulkanReplay::PickPixel(ResourceId texture, uint32_t x, uint32_t y, const S
       };
       vt->CmdCopyImageToBuffer(Unwrap(cmd), Unwrap(m_PixelPick.Image),
                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               Unwrap(m_PixelPick.ReadbackBuffer.buf), 1, &region);
+                               m_PixelPick.ReadbackBuffer.UnwrappedBuffer(), 1, &region);
 
       // update image layout back to color attachment
       pickimBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -3023,8 +3023,8 @@ void VulkanReplay::PickPixel(ResourceId texture, uint32_t x, uint32_t y, const S
     m_pDriver->FlushQ();
 
     float *pData = NULL;
-    vkr = vt->MapMemory(Unwrap(dev), Unwrap(m_PixelPick.ReadbackBuffer.mem), 0, VK_WHOLE_SIZE, 0,
-                        (void **)&pData);
+    vkr = vt->MapMemory(Unwrap(dev), m_PixelPick.ReadbackBuffer.UnwrappedMemory(), 0, VK_WHOLE_SIZE,
+                        0, (void **)&pData);
     CHECK_VKR(m_pDriver, vkr);
     if(vkr != VK_SUCCESS)
       return;
@@ -3038,7 +3038,7 @@ void VulkanReplay::PickPixel(ResourceId texture, uint32_t x, uint32_t y, const S
     VkMappedMemoryRange range = {
         VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
         NULL,
-        Unwrap(m_PixelPick.ReadbackBuffer.mem),
+        m_PixelPick.ReadbackBuffer.UnwrappedMemory(),
         0,
         VK_WHOLE_SIZE,
     };
@@ -3068,7 +3068,7 @@ void VulkanReplay::PickPixel(ResourceId texture, uint32_t x, uint32_t y, const S
       }
     }
 
-    vt->UnmapMemory(Unwrap(dev), Unwrap(m_PixelPick.ReadbackBuffer.mem));
+    vt->UnmapMemory(Unwrap(dev), m_PixelPick.ReadbackBuffer.UnwrappedMemory());
   }
 
   m_DebugWidth = oldW;
@@ -3365,9 +3365,9 @@ bool VulkanReplay::GetMinMax(ResourceId texid, const Subresource &sub, CompType 
       VK_ACCESS_SHADER_READ_BIT,
       VK_QUEUE_FAMILY_IGNORED,
       VK_QUEUE_FAMILY_IGNORED,
-      Unwrap(m_Histogram.m_MinMaxTileResult.buf),
+      m_Histogram.m_MinMaxTileResult.UnwrappedBuffer(),
       0,
-      m_Histogram.m_MinMaxTileResult.totalsize,
+      m_Histogram.m_MinMaxTileResult.TotalSize(),
   };
 
   // ensure shader writes complete before coalescing the tiles
@@ -3384,25 +3384,25 @@ bool VulkanReplay::GetMinMax(ResourceId texid, const Subresource &sub, CompType 
   // ensure shader writes complete before copying back to readback buffer
   tilebarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
   tilebarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-  tilebarrier.buffer = Unwrap(m_Histogram.m_MinMaxResult.buf);
-  tilebarrier.size = m_Histogram.m_MinMaxResult.totalsize;
+  tilebarrier.buffer = m_Histogram.m_MinMaxResult.UnwrappedBuffer();
+  tilebarrier.size = m_Histogram.m_MinMaxResult.TotalSize();
 
   DoPipelineBarrier(cmd, 1, &tilebarrier);
 
   VkBufferCopy bufcopy = {
       0,
       0,
-      m_Histogram.m_MinMaxResult.totalsize,
+      m_Histogram.m_MinMaxResult.TotalSize(),
   };
 
-  vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(m_Histogram.m_MinMaxResult.buf),
-                    Unwrap(m_Histogram.m_MinMaxReadback.buf), 1, &bufcopy);
+  vt->CmdCopyBuffer(Unwrap(cmd), m_Histogram.m_MinMaxResult.UnwrappedBuffer(),
+                    m_Histogram.m_MinMaxReadback.UnwrappedBuffer(), 1, &bufcopy);
 
   // wait for copy to complete before mapping
   tilebarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   tilebarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-  tilebarrier.buffer = Unwrap(m_Histogram.m_MinMaxReadback.buf);
-  tilebarrier.size = m_Histogram.m_MinMaxResult.totalsize;
+  tilebarrier.buffer = m_Histogram.m_MinMaxReadback.UnwrappedBuffer();
+  tilebarrier.size = m_Histogram.m_MinMaxResult.TotalSize();
 
   DoPipelineBarrier(cmd, 1, &tilebarrier);
 
@@ -3663,8 +3663,8 @@ bool VulkanReplay::GetHistogram(ResourceId texid, const Subresource &sub, CompTy
   int blocksY =
       (int)ceil(iminfo.extent.height / float(HGRAM_PIXELS_PER_TILE * HGRAM_TILES_PER_BLOCK));
 
-  vt->CmdFillBuffer(Unwrap(cmd), Unwrap(m_Histogram.m_HistogramBuf.buf), 0,
-                    m_Histogram.m_HistogramBuf.totalsize, 0);
+  vt->CmdFillBuffer(Unwrap(cmd), m_Histogram.m_HistogramBuf.UnwrappedBuffer(), 0,
+                    m_Histogram.m_HistogramBuf.TotalSize(), 0);
 
   vt->CmdBindPipeline(Unwrap(cmd), VK_PIPELINE_BIND_POINT_COMPUTE,
                       Unwrap(m_Histogram.m_HistogramPipe[textype][intTypeIndex]));
@@ -3695,9 +3695,9 @@ bool VulkanReplay::GetHistogram(ResourceId texid, const Subresource &sub, CompTy
       VK_ACCESS_TRANSFER_READ_BIT,
       VK_QUEUE_FAMILY_IGNORED,
       VK_QUEUE_FAMILY_IGNORED,
-      Unwrap(m_Histogram.m_HistogramBuf.buf),
+      m_Histogram.m_HistogramBuf.UnwrappedBuffer(),
       0,
-      m_Histogram.m_HistogramBuf.totalsize,
+      m_Histogram.m_HistogramBuf.TotalSize(),
   };
 
   // ensure shader writes complete before copying to readback buf
@@ -3706,17 +3706,17 @@ bool VulkanReplay::GetHistogram(ResourceId texid, const Subresource &sub, CompTy
   VkBufferCopy bufcopy = {
       0,
       0,
-      m_Histogram.m_HistogramBuf.totalsize,
+      m_Histogram.m_HistogramBuf.TotalSize(),
   };
 
-  vt->CmdCopyBuffer(Unwrap(cmd), Unwrap(m_Histogram.m_HistogramBuf.buf),
-                    Unwrap(m_Histogram.m_HistogramReadback.buf), 1, &bufcopy);
+  vt->CmdCopyBuffer(Unwrap(cmd), m_Histogram.m_HistogramBuf.UnwrappedBuffer(),
+                    m_Histogram.m_HistogramReadback.UnwrappedBuffer(), 1, &bufcopy);
 
   // wait for copy to complete before mapping
   tilebarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   tilebarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-  tilebarrier.buffer = Unwrap(m_Histogram.m_HistogramReadback.buf);
-  tilebarrier.size = m_Histogram.m_HistogramReadback.totalsize;
+  tilebarrier.buffer = m_Histogram.m_HistogramReadback.UnwrappedBuffer();
+  tilebarrier.size = m_Histogram.m_HistogramReadback.TotalSize();
 
   DoPipelineBarrier(cmd, 1, &tilebarrier);
 

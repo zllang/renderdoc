@@ -4577,8 +4577,8 @@ void WrappedVulkan::vkCmdCopyQueryPoolResults(VkCommandBuffer commandBuffer, VkQ
             queryCount * resultSize,
         };
         ObjDisp(commandBuffer)
-            ->CmdCopyBuffer(Unwrap(commandBuffer), Unwrap(qpInfo->m_Buffer.buf), Unwrap(destBuffer),
-                            1, &region);
+            ->CmdCopyBuffer(Unwrap(commandBuffer), qpInfo->m_Buffer.UnwrappedBuffer(),
+                            Unwrap(destBuffer), 1, &region);
       }
       else
       {
@@ -4590,8 +4590,8 @@ void WrappedVulkan::vkCmdCopyQueryPoolResults(VkCommandBuffer commandBuffer, VkQ
               {(firstQuery + i) * sizeof(uint64_t), destOffset + (i * destStride), resultSize});
 
         ObjDisp(commandBuffer)
-            ->CmdCopyBuffer(Unwrap(commandBuffer), Unwrap(qpInfo->m_Buffer.buf), Unwrap(destBuffer),
-                            (uint32_t)regions.size(), regions.data());
+            ->CmdCopyBuffer(Unwrap(commandBuffer), qpInfo->m_Buffer.UnwrappedBuffer(),
+                            Unwrap(destBuffer), (uint32_t)regions.size(), regions.data());
       }
 
       if(hasAvailability)
@@ -4599,7 +4599,7 @@ void WrappedVulkan::vkCmdCopyQueryPoolResults(VkCommandBuffer commandBuffer, VkQ
         const uint64_t availability = 1;
         for(size_t i = 0; i < queryCount; ++i)
           ObjDisp(commandBuffer)
-              ->CmdUpdateBuffer(Unwrap(commandBuffer), Unwrap(qpInfo->m_Buffer.buf),
+              ->CmdUpdateBuffer(Unwrap(commandBuffer), qpInfo->m_Buffer.UnwrappedBuffer(),
                                 destOffset + (queryCount * resultSize) + resultSize, resultSize,
                                 (uint32_t *)&availability);
       }
@@ -8149,7 +8149,7 @@ void WrappedVulkan::vkCmdWriteAccelerationStructuresPropertiesKHR(
       const VkDeviceSize numBytes = RDCMIN(maxTransferrableBytes, totalBytes);
       const VkDeviceSize startOffset = (firstQuery * sizeof(uint64_t)) + i;
       ObjDisp(commandBuffer)
-          ->CmdUpdateBuffer(Unwrap(commandBuffer), Unwrap(qpInfo->m_Buffer.buf), startOffset,
+          ->CmdUpdateBuffer(Unwrap(commandBuffer), qpInfo->m_Buffer.UnwrappedBuffer(), startOffset,
                             numBytes, (uint32_t *)((byte *)sizes.data() + i));
     }
   }

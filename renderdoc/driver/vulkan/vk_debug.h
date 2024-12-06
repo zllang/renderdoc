@@ -62,6 +62,12 @@ public:
   ~VulkanDebugManager();
 
   void GetBufferData(ResourceId buff, uint64_t offset, uint64_t len, bytebuf &ret);
+  void GetBufferData(VkBuffer unwrappedBuf, uint64_t bufsize, uint64_t readOffset, uint64_t readLen,
+                     bytebuf &ret);
+  void GetBufferData(GPUBuffer &buf, uint64_t readOffset, uint64_t readLen, bytebuf &ret)
+  {
+    GetBufferData(buf.UnwrappedBuffer(), buf.TotalSize(), readOffset, readLen, ret);
+  }
 
   void CopyTex2DMSToBuffer(VkCommandBuffer cmd, VkBuffer destBuffer, VkImage srcMS,
                            VkExtent3D extent, uint32_t baseSlice, uint32_t numSlices,
@@ -76,8 +82,8 @@ public:
 
   void InitReadbackBuffer(VkDeviceSize sz);
   byte *GetReadbackPtr() { return m_ReadbackPtr; }
-  VkBuffer GetReadbackBuffer() { return m_ReadbackWindow.buf; }
-  VkDeviceMemory GetReadbackMemory() { return m_ReadbackWindow.mem; }
+  VkBuffer GetUnwrappedReadbackBuffer() { return m_ReadbackWindow.UnwrappedBuffer(); }
+  VkDeviceMemory GetUnwrappedReadbackMemory() { return m_ReadbackWindow.UnwrappedMemory(); }
   VkPipelineCache GetPipelineCache() { return m_PipelineCache; }
   VkPipeline GetCustomPipeline() { return m_Custom.TexPipeline; }
   VkPipeline GetDummyPipeline() { return m_DummyPipeline; }

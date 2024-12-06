@@ -915,7 +915,7 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
 
     m_MeshRender.BBoxVB.Unmap();
 
-    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.BBoxVB.buf), &vboffs);
+    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.BBoxVB.UnwrappedBuffer(), &vboffs);
 
     MeshUBOData *data = (MeshUBOData *)m_MeshRender.UBO.Map(&dynOffs[0]);
     if(!data)
@@ -940,7 +940,8 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
   if(!cfg.position.unproject)
   {
     VkDeviceSize vboffs = 0;
-    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.AxisFrustumVB.buf), &vboffs);
+    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.AxisFrustumVB.UnwrappedBuffer(),
+                             &vboffs);
 
     MeshUBOData *data = (MeshUBOData *)m_MeshRender.UBO.Map(&dynOffs[0]);
     if(!data)
@@ -994,7 +995,8 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
   if(cfg.position.unproject)
   {
     VkDeviceSize vboffs = sizeof(Vec4f) * 6;    // skim the axis helpers
-    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.AxisFrustumVB.buf), &vboffs);
+    vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.AxisFrustumVB.UnwrappedBuffer(),
+                             &vboffs);
 
     MeshUBOData *data = (MeshUBOData *)m_MeshRender.UBO.Map(&dynOffs[0]);
     if(!data)
@@ -1139,7 +1141,7 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
 
         m_MeshRender.BBoxVB.Unmap();
 
-        vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.BBoxVB.buf), &vboffs);
+        vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.BBoxVB.UnwrappedBuffer(), &vboffs);
 
         vt->CmdDraw(Unwrap(cmd), primSize, 1, 0, 0);
       }
@@ -1168,7 +1170,7 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
 
         m_MeshRender.BBoxVB.Unmap();
 
-        vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.BBoxVB.buf), &vboffs);
+        vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.BBoxVB.UnwrappedBuffer(), &vboffs);
 
         vt->CmdDraw(Unwrap(cmd), (uint32_t)adjacentPrimVertices.size(), 1, 0, 0);
       }
@@ -1220,7 +1222,7 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
 
         m_MeshRender.BBoxVB.Unmap();
 
-        vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.BBoxVB.buf), &vboffs);
+        vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.BBoxVB.UnwrappedBuffer(), &vboffs);
 
         vt->CmdDraw(Unwrap(cmd), 4, 1, 0, 0);
       }
@@ -1256,7 +1258,8 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
 
         for(size_t i = 0; i < inactiveVertices.size(); i++)
         {
-          vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(m_MeshRender.BBoxVB.buf), &vboffs);
+          vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, &m_MeshRender.BBoxVB.UnwrappedBuffer(),
+                                   &vboffs);
 
           vt->CmdDraw(Unwrap(cmd), 4, 1, 0, 0);
 
