@@ -178,7 +178,7 @@ SamplerState linearclamp : register(s0);
 StructuredBuffer<MyStruct> rootsrv : register(t20);
 StructuredBuffer<MyStruct> appendsrv : register(t40);
 Texture2D<float> dimtex_edge : register(t41);
-#if SM_6_2 || SM_6_6
+#if (SM_6_2 || SM_6_6) && HAS_16BIT_SHADER_OPS 
 StructuredBuffer<int16_t> int16srv : register(t42);
 #else
 StructuredBuffer<int> int16srv : register(t42);
@@ -834,6 +834,9 @@ void main()
     TEST_ASSERT(!supportSM62 || supportSM60, "SM 6.2 requires SM 6.0 support");
     TEST_ASSERT(!supportSM66 || supportSM62, "SM 6.6 requires SM 6.2 support");
 
+    std::string shaderDefines =
+        opts4.Native16BitShaderOpsSupported ? "#define HAS_16BIT_SHADER_OPS 1\n" : "";
+
     size_t lastTest = pixel.rfind("IN.tri == ");
     lastTest += sizeof("IN.tri == ") - 1;
 
@@ -981,7 +984,7 @@ void main()
     if(supportSM60)
     {
       vsblob = Compile(common + vertex, "main", "vs_6_0");
-      psblob = Compile(common + "\n#define SM_6_0 1\n" + pixel, "main", "ps_6_0");
+      psblob = Compile(common + "\n#define SM_6_0 1\n" + shaderDefines + pixel, "main", "ps_6_0");
       pso_6_0 = MakePSO()
                     .RootSig(sig)
                     .InputLayout(inputLayout)
@@ -992,7 +995,8 @@ void main()
     if(supportSM62)
     {
       vsblob = Compile(common + vertex, "main", "vs_6_2");
-      psblob = Compile(common + "\n#define SM_6_2 1\n" + pixel, "main", "ps_6_2", compileOptions);
+      psblob = Compile(common + "\n#define SM_6_2 1\n" + shaderDefines + pixel, "main", "ps_6_2",
+                       compileOptions);
       pso_6_2 = MakePSO()
                     .RootSig(sig)
                     .InputLayout(inputLayout)
@@ -1003,7 +1007,8 @@ void main()
     if(supportSM66)
     {
       vsblob = Compile(common + vertex, "main", "vs_6_6");
-      psblob = Compile(common + "\n#define SM_6_6 1\n" + pixel, "main", "ps_6_6", compileOptions);
+      psblob = Compile(common + "\n#define SM_6_6 1\n" + shaderDefines + pixel, "main", "ps_6_6",
+                       compileOptions);
       pso_6_6 = MakePSO()
                     .RootSig(sig)
                     .InputLayout(inputLayout)
