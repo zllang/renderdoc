@@ -681,6 +681,7 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
   m_GPUSyncFence = NULL;
   m_GPUSyncHandle = NULL;
   m_GPUSyncCounter = 0;
+  m_OverlaySyncHandle = NULL;
 
   initStateCurBatch = 0;
   initStateCurList = NULL;
@@ -2422,8 +2423,27 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
 
         if(!list)
         {
-          list = StealNewList();
+          // if we've done at least one round, check if the fence has been signalled for our last
+          // use or wait on it if not
+          if(m_CurOverlay > MaxOverlayInFlight)
+          {
+            const UINT64 waitCounter = m_CurOverlay - MaxOverlayInFlight;
+            UINT64 counter = m_OverlayFence->GetCompletedValue();
+            RDCLOG("we are %llu behind", m_CurOverlay - counter);
+            if(counter < waitCounter)
+            {
+              m_OverlayFence->SetEventOnCompletion(waitCounter, m_OverlaySyncHandle);
+
+              WaitForSingleObject(m_OverlaySyncHandle, 10000);
+            }
+          }
+
+          // reset the allocator
+          m_OverlayAllocs[m_CurOverlay % MaxOverlayInFlight]->Reset();
+          list = m_OverlayLists[m_CurOverlay % MaxOverlayInFlight];
           submitlist = true;
+
+          list->Reset(m_OverlayAllocs[m_CurOverlay % MaxOverlayInFlight], NULL);
         }
 
         // buffer will be in common for presentation, transition to render target
@@ -2489,25 +2509,12 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
         {
           list->Close();
 
-          m_OverlayFenceCounter++;
-
+          // submit and signal this fence
           ID3D12CommandList *c = list;
           swapInfo.queue->ExecuteCommandListsInternal(1, &c, false, false);
-          swapInfo.queue->GetReal()->Signal(Unwrap(m_OverlayFence), m_OverlayFenceCounter);
+          swapInfo.queue->GetReal()->Signal(Unwrap(m_OverlayFence), m_CurOverlay);
 
-          m_OverlayLists.push_back({m_OverlayFenceCounter, list});
-
-          UINT64 counter = m_OverlayFence->GetCompletedValue();
-          for(size_t i = 0; i < m_OverlayLists.size();)
-          {
-            if(counter >= m_OverlayLists[i].first)
-            {
-              ReturnStolenList((ID3D12GraphicsCommandListX *)m_OverlayLists[i].second);
-              m_OverlayLists.erase(i);
-              continue;
-            }
-            i++;
-          }
+          m_CurOverlay++;
         }
       }
     }
@@ -4470,6 +4477,21 @@ void WrappedID3D12Device::CreateInternalResources()
   CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&m_OverlayFence);
   m_OverlayFence->SetName(L"m_OverlayFence");
   InternalRef();
+  m_OverlaySyncHandle = ::CreateEvent(NULL, FALSE, FALSE, NULL);
+
+  for(uint64_t i = 0; i < MaxOverlayInFlight; i++)
+  {
+    CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+                           (void **)&m_OverlayAllocs[i]);
+    GetResourceManager()->SetInternalResource(m_OverlayAllocs[i]);
+
+    CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_OverlayAllocs[i], NULL,
+                      __uuidof(ID3D12GraphicsCommandList), (void **)&m_OverlayLists[i]);
+    GetResourceManager()->SetInternalResource(m_OverlayLists[i]);
+    InternalRef();
+
+    m_OverlayLists[i]->Close();
+  }
 
   GetResourceManager()->SetInternalResource(m_Alloc);
   GetResourceManager()->SetInternalResource(m_GPUSyncFence);
@@ -4557,10 +4579,17 @@ void WrappedID3D12Device::DestroyInternalResources()
   SAFE_RELEASE(m_QueueReadbackData.fence);
   m_QueueReadbackData.Resize(0);
 
+  for(uint64_t i = 0; i < MaxOverlayInFlight; i++)
+  {
+    SAFE_RELEASE(m_OverlayLists[i]);
+    SAFE_RELEASE(m_OverlayAllocs[i]);
+  }
+
   SAFE_RELEASE(m_Alloc);
   SAFE_RELEASE(m_GPUSyncFence);
   SAFE_RELEASE(m_OverlayFence);
   CloseHandle(m_GPUSyncHandle);
+  CloseHandle(m_OverlaySyncHandle);
 }
 
 void WrappedID3D12Device::DataUploadSync()

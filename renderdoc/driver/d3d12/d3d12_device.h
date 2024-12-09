@@ -639,9 +639,11 @@ private:
   UINT64 m_GPUSyncCounter;
 
   ID3D12Fence *m_OverlayFence = NULL;
-  UINT64 m_OverlayFenceCounter = 1;
-
-  rdcarray<rdcpair<UINT64, ID3D12GraphicsCommandList *>> m_OverlayLists;
+  UINT64 m_CurOverlay = 0;
+  HANDLE m_OverlaySyncHandle;
+  static const uint64_t MaxOverlayInFlight = 5;
+  ID3D12CommandAllocator *m_OverlayAllocs[MaxOverlayInFlight] = {};
+  ID3D12GraphicsCommandList *m_OverlayLists[MaxOverlayInFlight] = {};
 
   WrappedDownlevelDevice m_WrappedDownlevel;
   WrappedDRED m_DRED;
