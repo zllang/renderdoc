@@ -300,7 +300,23 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
   {
     m_Connections[from].resize(maxBlockIndex);
     for(uint32_t to = 0; to < maxBlockIndex; ++to)
-      m_Connections[from][to] = IsBlockConnected(from, to);
+      m_Connections[from][to] = ConnectionState::Unknown;
+  }
+
+  for(uint32_t p = 0; p < m_Paths.size(); ++p)
+  {
+    const BlockPath &path = m_Paths[p];
+    for(size_t i = 0; i < path.size() - 1; ++i)
+    {
+      uint32_t from = path[i];
+      for(size_t j = i + 1; j < path.size(); ++j)
+      {
+        uint32_t to = path[j];
+        if(to == PATH_END)
+          break;
+        m_Connections[from][to] = ConnectionState::Connected;
+      }
+    }
   }
 
   // A loop block is defined by any block which appears in any path starting from the block
@@ -445,6 +461,18 @@ uint32_t ControlFlow::GetNextUniformBlock(uint32_t from) const
     }
   }
   return bestBlock;
+}
+
+bool ControlFlow::IsForwardConnection(uint32_t from, uint32_t to) const
+{
+  if(m_Connections[from][to] == ConnectionState::Unknown)
+  {
+    if(IsBlockConnected(from, to))
+      m_Connections[from][to] = ConnectionState::Connected;
+    else
+      m_Connections[from][to] = ConnectionState::NotConnected;
+  }
+  return m_Connections[from][to] == ConnectionState::Connected;
 }
 };    // namespace DXIL
 
