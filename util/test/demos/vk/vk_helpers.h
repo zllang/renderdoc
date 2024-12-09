@@ -922,6 +922,19 @@ struct DescriptorImageInfo : public VkDescriptorImageInfo
   }
 };
 
+struct WriteDescriptorSetInlineUniformBlockEXT : public VkWriteDescriptorSetInlineUniformBlockEXT
+{
+  WriteDescriptorSetInlineUniformBlockEXT(void *data, uint32_t size)
+  {
+    sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT;
+    pNext = NULL;
+    this->pData = data;
+    this->dataSize = size;
+  }
+
+  operator const VkWriteDescriptorSetInlineUniformBlockEXT *() const { return this; }
+};
+
 struct WriteDescriptorSet : public VkWriteDescriptorSet
 {
   WriteDescriptorSet(VkDescriptorSet dstSet, uint32_t dstBinding, uint32_t dstArrayElement,

@@ -2949,6 +2949,8 @@ void DescUpdateTemplate::Apply(const void *pData, DescUpdateTemplateApplication 
       void *dst = application.inlineData.data() + inlineOffset;
       memcpy(dst, src, inlineWrite.dataSize);
       inlineWrite.pData = dst;
+      inlineOffset += inlineWrite.dataSize;
+      inlineOffset = AlignUp4(inlineOffset);
 
       write.pNext = &inlineWrite;
       write.descriptorCount = entry.descriptorCount;

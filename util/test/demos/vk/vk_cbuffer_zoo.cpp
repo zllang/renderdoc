@@ -742,16 +742,14 @@ float4 main() : SV_Target0
 
     if(hasExt(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME))
     {
-      VkWriteDescriptorSetInlineUniformBlockEXT inlineUpdate = {};
-      inlineUpdate.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK_EXT;
-      inlineUpdate.pData = &inlinedata;
-      inlineUpdate.dataSize = sizeof(inlinedata);
       vkh::updateDescriptorSets(
-          device, {
-                      vkh::WriteDescriptorSet(
-                          descset, 1, inlineUpdate,
-                          vkh::DescriptorBufferInfo(cb.buffer, bindOffset * sizeof(Vec4f))),
-                  });
+          device,
+          {
+              vkh::WriteDescriptorSet(
+                  descset, 1,
+                  vkh::WriteDescriptorSetInlineUniformBlockEXT(&inlinedata, sizeof(inlinedata)),
+                  vkh::DescriptorBufferInfo(cb.buffer, bindOffset * sizeof(Vec4f))),
+          });
     }
     else
     {
