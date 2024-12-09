@@ -4038,6 +4038,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     }
     case Operation::Switch:
     {
+      m_PreviousBlock = m_Block;
+      m_PhiVariables.clear();
+      auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
+      if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
+      {
+        const ReferencedIds &phiIds = it->second;
+        for(Id id : phiIds)
+          m_PhiVariables[id] = m_Variables[id];
+      }
+
       // Value, Default_Label then Pairs of { targetValue, label }
       ShaderVariable val;
       RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, val));
