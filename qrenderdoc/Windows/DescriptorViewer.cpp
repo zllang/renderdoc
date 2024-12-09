@@ -1509,7 +1509,7 @@ void DescriptorViewer::OnCaptureLoaded()
 void DescriptorViewer::OnEventChanged(uint32_t eventId)
 {
   // each time, re-fetch the descriptors to get up to date contents
-  if(m_DescriptorStore.resourceId != ResourceId())
+  if(m_DescriptorStore.resourceId != ResourceId() && m_DescriptorStore.descriptorByteSize != 0)
   {
     m_Ctx.Replay().AsyncInvoke([this](IReplayController *r) {
       uint32_t descSize = m_DescriptorStore.descriptorByteSize;
@@ -1548,7 +1548,7 @@ void DescriptorViewer::OnEventChanged(uint32_t eventId)
           else
           {
             DescriptorRange range;
-            range.offset = uint32_t(i * descSize);
+            range.offset = m_DescriptorStore.firstDescriptorOffset + uint32_t(i * descSize);
             range.descriptorSize = descSize;
             range.count = 1;
             ranges.push_back(range);

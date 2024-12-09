@@ -921,7 +921,8 @@ void VulkanCreationInfo::ShaderEntry::ProcessStaticDescriptorAccess(
     access.index = i;
     access.byteSize = bind.fixedBindSetOrSpace;
     access.byteOffset =
-        setLayoutInfos[bind.fixedBindSetOrSpace]->bindings[bind.fixedBindNumber].elemOffset;
+        setLayoutInfos[bind.fixedBindSetOrSpace]->bindings[bind.fixedBindNumber].elemOffset +
+        setLayoutInfos[bind.fixedBindSetOrSpace]->inlineByteSize;
     descriptorAccess.push_back(access);
   }
 
@@ -949,7 +950,8 @@ void VulkanCreationInfo::ShaderEntry::ProcessStaticDescriptorAccess(
     access.index = i;
     access.byteSize = bind.fixedBindSetOrSpace;
     access.byteOffset =
-        setLayoutInfos[bind.fixedBindSetOrSpace]->bindings[bind.fixedBindNumber].elemOffset;
+        setLayoutInfos[bind.fixedBindSetOrSpace]->bindings[bind.fixedBindNumber].elemOffset +
+        setLayoutInfos[bind.fixedBindSetOrSpace]->inlineByteSize;
     descriptorAccess.push_back(access);
   }
 
@@ -977,7 +979,8 @@ void VulkanCreationInfo::ShaderEntry::ProcessStaticDescriptorAccess(
     access.index = i;
     access.byteSize = bind.fixedBindSetOrSpace;
     access.byteOffset =
-        setLayoutInfos[bind.fixedBindSetOrSpace]->bindings[bind.fixedBindNumber].elemOffset;
+        setLayoutInfos[bind.fixedBindSetOrSpace]->bindings[bind.fixedBindNumber].elemOffset +
+        setLayoutInfos[bind.fixedBindSetOrSpace]->inlineByteSize;
     descriptorAccess.push_back(access);
   }
 }

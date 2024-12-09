@@ -114,6 +114,8 @@ struct DescSetLayout
     {
       if(variableSize)
         return varDescriptorSize;
+      if(layoutDescType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK)
+        return 1;
       return descriptorCount;
     }
   };

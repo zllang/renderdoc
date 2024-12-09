@@ -2521,6 +2521,8 @@ rdcarray<Descriptor> VulkanReplay::GetDescriptors(ResourceId descriptorStore,
     const DescriptorSetSlot *desc = set.data.binds.empty() ? NULL : set.data.binds[0];
     const DescriptorSetSlot *end = desc + set.data.totalDescriptorCount();
 
+    RDCASSERT(r.offset >= set.data.inlineBytes.size());
+
     desc += (r.offset - set.data.inlineBytes.size());
 
     for(uint32_t i = 0; i < r.count; i++)
@@ -2596,7 +2598,9 @@ rdcarray<SamplerDescriptor> VulkanReplay::GetSamplerDescriptors(ResourceId descr
     const DescriptorSetSlot *desc = set.data.binds.empty() ? NULL : set.data.binds[0];
     const DescriptorSetSlot *end = desc + set.data.totalDescriptorCount();
 
-    desc += r.offset;
+    RDCASSERT(r.offset >= set.data.inlineBytes.size());
+
+    desc += (r.offset - set.data.inlineBytes.size());
 
     for(uint32_t i = 0; i < r.count; i++)
     {
@@ -2750,6 +2754,8 @@ rdcarray<DescriptorLogicalLocation> VulkanReplay::GetDescriptorLocations(
     const DescSetLayout::Binding *bind = descLayout.bindings.data();
     const DescSetLayout::Binding *firstBind = bind;
     const DescSetLayout::Binding *lastBind = bind + descLayout.bindings.size();
+
+    RDCASSERT(descriptorOffset >= descLayout.inlineByteSize);
 
     for(uint32_t i = 0; i < r.count; i++, dst++, descriptorOffset++)
     {
