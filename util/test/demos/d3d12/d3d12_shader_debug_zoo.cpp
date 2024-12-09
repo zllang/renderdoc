@@ -169,6 +169,9 @@ RWBuffer<float> unbounduav1 : register(u4);
 RWTexture2D<float> unbounduav2 : register(u5);
 
 RWBuffer<float> narrowtypeduav : register(u6);
+
+RWTexture2D<float4> textrwtest : register(u7);
+
 Buffer<float> narrowtypedsrv : register(t102);
 
 Buffer<float4> rgb_srv : register(t103);
@@ -758,8 +761,15 @@ float4 main(v2f IN) : SV_Target0
     uint f16_two = f32tof16(posone*2.0);
     return float4(f16tof32(f16_half), f16tof32(f16_one), f16tof32(f16_two), 0.0f);
   }
-#if SM_6_2 || SM_6_6
   if(IN.tri == 83)
+  {
+    float4 value = float4(posone, posone/3, posone/4, posone/5);
+    int2 uv = int2(31,37);
+    textrwtest[uv] = value;
+    return textrwtest[uv];
+  }
+#if SM_6_2 || SM_6_6
+  if(IN.tri == 84)
     return float4(int16srv[0].x, int16srv[1].x, int16srv[2].x, int16srv[3].x);
 #endif
 
@@ -952,7 +962,7 @@ void main()
             tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 0, 0, 8, 0),
             tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 1, 2, 10),
             tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 0, 100, 5, 20),
-            tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 4, 3, 30),
+            tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 4, 4, 30),
             multiRangeParam,
             uavParam(D3D12_SHADER_VISIBILITY_PIXEL, 0, 21),
             srvParam(D3D12_SHADER_VISIBILITY_PIXEL, 0, 20),
@@ -1096,7 +1106,8 @@ void main()
 
     ID3D12ResourcePtr smiley = MakeTexture(DXGI_FORMAT_R8G8B8A8_TYPELESS, 48, 48)
                                    .Mips(1)
-                                   .InitialState(D3D12_RESOURCE_STATE_COPY_DEST);
+                                   .InitialState(D3D12_RESOURCE_STATE_COPY_DEST)
+                                   .UAV();
 
     ID3D12ResourcePtr uploadBuf = MakeBuffer().Size(1024 * 1024).Upload();
     ID3D12ResourcePtr constBuf = MakeBuffer().Size(256).Upload();
@@ -1180,6 +1191,8 @@ void main()
     ID3D12ResourcePtr narrowtypedbuf = MakeBuffer().UAV().Data(narrowdata);
     MakeSRV(narrowtypedbuf).Format(DXGI_FORMAT_R16_FLOAT).CreateGPU(22);
     MakeUAV(narrowtypedbuf).Format(DXGI_FORMAT_R16_FLOAT).CreateGPU(32);
+
+    MakeUAV(smiley).Format(DXGI_FORMAT_R8G8B8A8_UNORM).CreateGPU(33);
 
     float structdata[220];
     for(int i = 0; i < 220; i++)
