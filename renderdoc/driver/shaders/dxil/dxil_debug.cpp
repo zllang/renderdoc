@@ -1890,13 +1890,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               break;
             }
 
-            const bool raw = (dxOpCode == DXOp::RawBufferLoad) || (dxOpCode == DXOp::RawBufferStore);
-            const bool buffer = (dxOpCode == DXOp::BufferLoad) || (dxOpCode == DXOp::BufferStore) ||
-                                (dxOpCode == DXOp::TextureLoad) || (dxOpCode == DXOp::TextureStore);
-
             const bool load = (dxOpCode == DXOp::TextureLoad) || (dxOpCode == DXOp::BufferLoad) ||
                               (dxOpCode == DXOp::RawBufferLoad);
-            // TODO: could be a TextureStore
             const Type *baseType = NULL;
             uint32_t resultNumComps = 0;
             if(load)
@@ -2021,14 +2016,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERTNOTEQUAL(stride, 0);
             RDCASSERTNOTEQUAL(fmt.compType, CompType::Typeless);
 
+            uint64_t dataOffset = 0;
             uint32_t texCoords[3] = {0, 0, 0};
             uint32_t elemIdx = 0;
             ShaderVariable arg;
-            // TODO: BufferStore 2D
             if(!texData)
             {
               if(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg))
                 elemIdx = arg.value.u32v[0];
+              if(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg))
+                dataOffset = arg.value.u64v[0];
             }
             else
             {
@@ -2050,14 +2047,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               elemIdx = elemIdx & ~0x3;
               firstElem *= RDCMIN(4, fmt.byteWidth);
               numElems *= RDCMIN(4, fmt.byteWidth);
-            }
-
-            uint64_t dataOffset = 0;
-            if(raw || buffer)
-            {
-              ShaderVariable offset;
-              if(GetShaderVariable(inst.args[3], opCode, dxOpCode, offset))
-                dataOffset = offset.value.u64v[0];
             }
 
             if(texData)
@@ -2088,11 +2077,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               data += dataOffset;
               int numComps = fmt.numComps;
               // Clamp the number of components to read based on the amount of data in the buffer
-              int maxNumComps = (int)((dataSize - dataOffset) / fmt.byteWidth);
-              fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
-              size_t maxOffset = (firstElem + numElems) * stride + structOffset;
-              maxNumComps = (int)((maxOffset - dataOffset) / fmt.byteWidth);
-              fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
+              if(!texData)
+              {
+                RDCASSERTNOTEQUAL(numElems, 0);
+                int maxNumComps = (int)((dataSize - dataOffset) / fmt.byteWidth);
+                fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
+                size_t maxOffset = (firstElem + numElems) * stride + structOffset;
+                maxNumComps = (int)((maxOffset - dataOffset) / fmt.byteWidth);
+                fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
+              }
 
               // For stores load the whole data, update the component, save the whole data back
               // This is to support per component writes to packed formats
@@ -2108,11 +2101,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               {
                 numComps = 0;
                 // Modify the correct components
-                for(uint32_t a = 4; a < 8; ++a)
+                const uint32_t valueStart = (dxOpCode == DXOp::TextureStore) ? 5 : 4;
+                for(uint32_t c = 0; c < 4; ++c)
                 {
-                  if(GetShaderVariable(inst.args[a], opCode, dxOpCode, arg))
+                  if(GetShaderVariable(inst.args[c + valueStart], opCode, dxOpCode, arg))
                   {
-                    const uint32_t dstComp = a - 4;
+                    const uint32_t dstComp = c;
                     const uint32_t srcComp = 0;
                     result.value.u32v[dstComp] = arg.value.u32v[srcComp];
                     ++numComps;
