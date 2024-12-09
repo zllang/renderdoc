@@ -1826,7 +1826,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::CBufferLoad:
               case DXOp::BufferUpdateCounter:
               case DXOp::CheckAccessFullyMapped:
-              case DXOp::AtomicBinOp:
               case DXOp::AtomicCompareExchange:
               case DXOp::EvalSnapped:
               case DXOp::EvalSampleIndex:

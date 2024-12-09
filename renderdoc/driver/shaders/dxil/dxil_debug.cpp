@@ -2038,11 +2038,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               size_t offsetStart = (dxOpCode == DXOp::TextureLoad) ? 3 : 2;
               if(GetShaderVariable(inst.args[offsetStart], opCode, dxOpCode, arg))
-                texCoords[0] = (int8_t)arg.value.s32v[0];
+                texCoords[0] = (int8_t)arg.value.u32v[0];
               if(GetShaderVariable(inst.args[offsetStart + 1], opCode, dxOpCode, arg))
-                texCoords[1] = (int8_t)arg.value.s32v[0];
+                texCoords[1] = (int8_t)arg.value.u32v[0];
               if(GetShaderVariable(inst.args[offsetStart + 2], opCode, dxOpCode, arg))
-                texCoords[2] = (int8_t)arg.value.s32v[0];
+                texCoords[2] = (int8_t)arg.value.u32v[0];
             }
 
             // buffer offsets are in bytes
@@ -2837,6 +2837,263 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.f32v[0] = ConvertFromHalf(arg.value.u16v[0]);
             break;
           }
+          case DXOp::AtomicBinOp:
+          {
+            // AtomicBinOp(handle, atomicOp, offset0, offset1, offset2, newValue)
+            const Id handleId = GetArgumentId(1);
+            bool annotatedHandle;
+            ResourceReferenceInfo resRefInfo = GetResource(handleId, annotatedHandle);
+            if(!resRefInfo.Valid())
+              break;
+
+            ResourceClass resClass = resRefInfo.resClass;
+            // handle must be a UAV
+            if(resClass != ResourceClass::UAV)
+            {
+              RDCERR("AtomicBinOp on non-UAV resource %s", ToStr(resClass).c_str());
+              break;
+            }
+
+            // a is the current resource value
+            ShaderVariable a;
+
+            uint32_t structOffset = 0;
+            const byte *data = NULL;
+            size_t dataSize = 0;
+            bool texData = false;
+            uint32_t rowPitch = 0;
+            uint32_t depthPitch = 0;
+            uint32_t firstElem = 0;
+            uint32_t numElems = 0;
+            GlobalState::ViewFmt fmt;
+
+            GlobalState::ResourceInfo resInfo;
+            GlobalState::UAVIterator uavIter = m_GlobalState.uavs.find(resRefInfo.binding);
+            if(uavIter == m_GlobalState.uavs.end())
+            {
+              apiWrapper->FetchUAV(resRefInfo.binding);
+              uavIter = m_GlobalState.uavs.find(resRefInfo.binding);
+            }
+            const GlobalState::UAVData &uav = uavIter->second;
+            resInfo = uav.resInfo;
+            data = uav.data.data();
+            dataSize = uav.data.size();
+            texData = uav.tex;
+            rowPitch = uav.rowPitch;
+            depthPitch = uav.depthPitch;
+
+            // Unbound resource
+            if(data == NULL)
+            {
+              RDCERR("Unbound resource %s", GetArgumentName(1).c_str());
+              a.value.u32v[0] = 0;
+              a.value.u32v[1] = 0;
+              a.value.u32v[2] = 0;
+              a.value.u32v[3] = 0;
+            }
+
+            firstElem = resInfo.firstElement;
+            numElems = resInfo.numElements;
+            fmt = resInfo.format;
+
+            // If the format is unknown, guess it using the result type
+            // See FetchUAV() comment about root buffers being typeless
+            // The stride should have been computed from the shader metadata
+            if(fmt.compType == CompType::Typeless)
+            {
+              FillViewFmtFromVarType(result.type, fmt);
+              fmt.numComps = result.columns;
+            }
+
+            bool byteAddress = resInfo.isByteBuffer;
+            if(byteAddress)
+              fmt.stride = 1;
+
+            if(annotatedHandle)
+            {
+              auto it = m_AnnotatedProperties.find(handleId);
+              RDCASSERT(it != m_AnnotatedProperties.end());
+              const AnnotationProperties &props = m_AnnotatedProperties.at(handleId);
+              if((props.resKind == ResourceKind::StructuredBuffer) ||
+                 (props.resKind == ResourceKind::StructuredBufferWithCounter))
+              {
+                fmt.stride = props.structStride;
+                byteAddress = false;
+              }
+            }
+
+            uint32_t stride = fmt.stride;
+            RDCASSERT(!((stride == 1) ^ byteAddress));
+
+            RDCASSERTEQUAL(result.columns, 1);
+            RDCASSERTEQUAL(fmt.numComps, result.columns);
+            RDCASSERTNOTEQUAL(stride, 0);
+            RDCASSERTNOTEQUAL(fmt.compType, CompType::Typeless);
+
+            uint64_t dataOffset = 0;
+            uint32_t texCoords[3] = {0, 0, 0};
+            uint32_t elemIdx = 0;
+            ShaderVariable arg;
+            if(!texData)
+            {
+              if(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg))
+                elemIdx = arg.value.u32v[0];
+              if(GetShaderVariable(inst.args[4], opCode, dxOpCode, arg))
+                dataOffset = arg.value.u64v[0];
+            }
+            else
+            {
+              size_t offsetStart = 3;
+              if(GetShaderVariable(inst.args[offsetStart], opCode, dxOpCode, arg))
+                texCoords[0] = (int8_t)arg.value.u32v[0];
+              if(GetShaderVariable(inst.args[offsetStart + 1], opCode, dxOpCode, arg))
+                texCoords[1] = (int8_t)arg.value.u32v[0];
+              if(GetShaderVariable(inst.args[offsetStart + 2], opCode, dxOpCode, arg))
+                texCoords[2] = (int8_t)arg.value.u32v[0];
+            }
+
+            // buffer offsets are in bytes
+            // firstElement/numElements is in format-sized units. Convert to byte offsets
+            if(byteAddress)
+            {
+              // For byte address buffer
+              // element index is in bytes and a multiple of four, GPU behaviour seems to be to round down
+              elemIdx = elemIdx & ~0x3;
+              firstElem *= RDCMIN(4, fmt.byteWidth);
+              numElems *= RDCMIN(4, fmt.byteWidth);
+            }
+
+            if(texData)
+            {
+              dataOffset += texCoords[0] * stride;
+              dataOffset += texCoords[1] * rowPitch;
+              dataOffset += texCoords[2] * depthPitch;
+            }
+            else
+            {
+              dataOffset += (firstElem + elemIdx) * stride;
+            }
+
+            // NULL resource or out of bounds
+            if((!texData && elemIdx >= numElems) || (texData && dataOffset >= dataSize))
+            {
+              a.value.u32v[0] = 0;
+              a.value.u32v[1] = 0;
+              a.value.u32v[2] = 0;
+              a.value.u32v[3] = 0;
+            }
+            else
+            {
+              data += dataOffset;
+              // Clamp the number of components to read based on the amount of data in the buffer
+              if(!texData)
+              {
+                RDCASSERTNOTEQUAL(numElems, 0);
+                int maxNumComps = (int)((dataSize - dataOffset) / fmt.byteWidth);
+                fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
+                size_t maxOffset = (firstElem + numElems) * stride + structOffset;
+                maxNumComps = (int)((maxOffset - dataOffset) / fmt.byteWidth);
+                fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
+              }
+              a.value = TypedUAVLoad(fmt, data);
+            }
+
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[6], opCode, dxOpCode, b));
+
+            RDCASSERTEQUAL(inst.args[6]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[6]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(retType->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(retType->scalarType, Type::Int);
+
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+            AtomicBinOpCode atomicBinOpCode = (AtomicBinOpCode)arg.value.u32v[0];
+
+            ShaderVariable res;
+            const uint32_t c = 0;
+            switch(atomicBinOpCode)
+            {
+              case AtomicBinOpCode::Add:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<I>(res, c) = comp<I>(a, c) + comp<I>(b, c)
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::And:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(res, c) = comp<U>(a, c) & comp<U>(b, c);
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::Or:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(res, c) = comp<U>(a, c) | comp<U>(b, c);
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::Xor:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(res, c) = comp<U>(a, c) ^ comp<U>(b, c);
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::IMin:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(res, c) = RDCMIN(comp<S>(a, c), comp<S>(b, c));
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::IMax:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(res, c) = RDCMAX(comp<S>(a, c), comp<S>(b, c));
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::UMin:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(res, c) = RDCMIN(comp<U>(a, c), comp<U>(b, c));
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::UMax:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(res, c) = RDCMAX(comp<S>(a, c), comp<S>(b, c));
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              case AtomicBinOpCode::Exchange:
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<I>(res, c) = comp<I>(b, c)
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                break;
+              }
+              default: RDCERR("Unhandled AtomicBinOpCode %s", ToStr(atomicBinOpCode).c_str());
+            }
+
+            TypedUAVStore(fmt, (byte *)data, res.value);
+
+            // result is the original value
+            result.value = a.value;
+            break;
+          }
           // Likely to implement when required
           case DXOp::UAddc:
           case DXOp::USubb:
@@ -2847,7 +3104,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::Ibfe:
           case DXOp::Ubfe:
           case DXOp::Bfi:
-          case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
           case DXOp::SampleIndex:
           case DXOp::Coverage:
@@ -4018,7 +4274,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       bool bIsValid = GetShaderVariable(inst.args[1], opCode, dxOpCode, b);
       ShaderVariable c;
       RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, c));
-      // TODO: mask entries might be undef meaning "don’t care"
+      // JAKE TODO: mask entries might be undef meaning "don’t care"
       const uint32_t aMax = inst.args[0]->type->elemCount;
       for(uint32_t idx = 0; idx < retType->elemCount; idx++)
       {
@@ -4104,8 +4360,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::AtomicUMax:
     case Operation::AtomicUMin:
     {
-      // TODO: full proper load and store from/to memory i.e. group shared
-      // Currently only supporting Stack allocated pointers
       size_t allocSize = 0;
       void *allocMemoryBackingPtr = NULL;
       void *baseMemoryBackingPtr = NULL;

@@ -922,6 +922,8 @@ void D3D12APIWrapper::FetchUAV(const BindingSlot &slot)
 
                     D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
                     uavData.rowPitch = GetByteSize((int)resDesc.Width, 1, 1, uavDesc.Format, 0);
+                    uavData.depthPitch =
+                        GetByteSize((int)resDesc.Width, (int)(resDesc.Height), 1, uavDesc.Format, 0);
                   }
                 }
 
