@@ -830,18 +830,22 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
   }
   // Struct: rows = 0, columns = 0 : var.members is structure members
   // Array: rows >= 1, columns == 1 : var.members is array elements
-  const rdcarray<DXIL::Value *> &members = constant->getMembers();
-  RDCASSERT(members.size() == var.members.size());
-  for(size_t i = 0; i < var.members.size(); ++i)
+  if(constant->isCompound())
   {
-    const Constant *c = cast<Constant>(members[i]);
-    if(c)
-      RDCASSERT(ConvertDXILConstantToShaderVariable(c, var.members[i]));
-    else
-      RDCASSERT(
-          ConvertDXILValueToShaderValue(members[i], var.members[i].type, 0, var.members[i].value));
+    const rdcarray<DXIL::Value *> &members = constant->getMembers();
+    RDCASSERT(members.size() == var.members.size());
+    for(size_t i = 0; i < var.members.size(); ++i)
+    {
+      const Constant *c = cast<Constant>(members[i]);
+      if(c)
+        RDCASSERT(ConvertDXILConstantToShaderVariable(c, var.members[i]));
+      else
+        RDCASSERT(ConvertDXILValueToShaderValue(members[i], var.members[i].type, 0,
+                                                var.members[i].value));
+    }
+    return true;
   }
-  return true;
+  return false;
 }
 
 size_t ComputeDXILTypeByteSize(const Type *type)
@@ -6313,15 +6317,18 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       if(gv->initialiser)
       {
         const Constant *initialData = gv->initialiser;
-        RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
-        // Write ShaderVariable data back to memory
-        auto itAlloc = globalMemory.m_Allocs.find(globalVar.id);
-        RDCASSERT(itAlloc != globalMemory.m_Allocs.end());
-        const MemoryTracking::Alloc &alloc = itAlloc->second;
-        void *allocMemoryBackingPtr = alloc.backingMemory;
-        size_t allocSize = alloc.size;
-        state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
-        RDCASSERTEQUAL(allocSize, 0);
+        if(!initialData->isNULL())
+        {
+          RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
+          // Write ShaderVariable data back to memory
+          auto itAlloc = globalMemory.m_Allocs.find(globalVar.id);
+          RDCASSERT(itAlloc != globalMemory.m_Allocs.end());
+          const MemoryTracking::Alloc &alloc = itAlloc->second;
+          void *allocMemoryBackingPtr = alloc.backingMemory;
+          size_t allocSize = alloc.size;
+          state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
+          RDCASSERTEQUAL(allocSize, 0);
+        }
       }
     }
     m_GlobalState.globals.push_back(globalVar);
