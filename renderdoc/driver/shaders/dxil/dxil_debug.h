@@ -292,6 +292,8 @@ struct ThreadState
   std::map<Id, ShaderVariable> m_PhiVariables;
   // Live variables at the current scope
   rdcarray<bool> m_Live;
+  // Globals variables at the current scope
+  rdcarray<bool> m_IsGlobal;
   // If the variable has been assigned a value
   rdcarray<bool> m_Assigned;
   // Annotated handle properties

@@ -1541,6 +1541,7 @@ void ThreadState::InitialiseHelper(const ThreadState &activeState)
   m_Variables = activeState.m_Variables;
   m_Assigned = activeState.m_Assigned;
   m_Live = activeState.m_Live;
+  m_IsGlobal = activeState.m_IsGlobal;
 }
 
 bool ThreadState::Finished() const
@@ -1597,6 +1598,8 @@ void ThreadState::EnterFunction(const Function *function, const rdcarray<Value *
 
   // start with just globals
   m_Live = m_Debugger.GetLiveGlobals();
+  m_IsGlobal = m_Live;
+
   m_Block = 0;
   m_PreviousBlock = ~0U;
   m_PhiVariables.clear();
@@ -4263,6 +4266,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       continue;
     // The fake output variable is always in scope
     if(id == m_Output.id)
+      continue;
+    // Global are always in scope
+    if(m_IsGlobal[id])
       continue;
 
     auto itRange = m_FunctionInfo->maxExecPointPerId.find(id);
