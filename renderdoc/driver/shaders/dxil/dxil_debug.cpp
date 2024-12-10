@@ -2769,28 +2769,33 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
             RDCASSERTEQUAL(a.type, b.type);
-            const uint32_t c = 0;
+            const uint32_t col = 0;
 
             if(dxOpCode == DXOp::IMul)
             {
-#undef _IMPL
-#define _IMPL(I, S, U) comp<I>(result, c) = comp<I>(a, c) * comp<I>(b, c)
-
-              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+              // 32-bit operands to produce 64-bit result
+              result.value.s64v[col] = (int64_t)a.value.s32v[col] * (int64_t)b.value.s32v[col];
             }
             else if(dxOpCode == DXOp::UMul)
             {
-#undef _IMPL
-#define _IMPL(I, S, U) comp<U>(result, c) = comp<U>(a, c) * comp<U>(b, c)
-
-              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+              // 32-bit operands to produce 64-bit result
+              result.value.u64v[col] = (uint64_t)a.value.u32v[col] * (uint64_t)b.value.u32v[col];
             }
             else if(dxOpCode == DXOp::UDiv)
             {
-#undef _IMPL
-#define _IMPL(I, S, U) comp<U>(result, c) = comp<U>(a, c) / comp<U>(b, c)
-
-              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+              // destQUOT, destREM = UDiv(src0, src1);
+              if(b.value.u32v[0] != 0)
+              {
+                result.value.u32v[0] = a.value.u32v[0] / b.value.u32v[0];
+                result.value.u32v[1] = a.value.u32v[0] - (result.value.u32v[0] * b.value.u32v[0]);
+              }
+              else
+              {
+                // Divide by zero returns 0xffffffff for both quotient and remainder
+                result.value.u32v[0] = 0xffffffff;
+                result.value.u32v[1] = 0xffffffff;
+                eventFlags |= ShaderEvents::GeneratedNanOrInf;
+              }
             }
             break;
           }
@@ -3625,14 +3630,32 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       else if(opCode == Operation::UDiv)
       {
 #undef _IMPL
-#define _IMPL(I, S, U) comp<U>(result, c) = comp<U>(a, c) / comp<U>(b, c)
+#define _IMPL(I, S, U)                                  \
+  if(comp<U>(b, c) != 0)                                \
+  {                                                     \
+    comp<U>(result, c) = comp<U>(a, c) / comp<U>(b, c); \
+  }                                                     \
+  else                                                  \
+  {                                                     \
+    comp<U>(result, c) = 0;                             \
+    eventFlags |= ShaderEvents::GeneratedNanOrInf;      \
+  }
 
         IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
       }
       else if(opCode == Operation::SDiv)
       {
 #undef _IMPL
-#define _IMPL(I, S, U) comp<S>(result, c) = comp<S>(a, c) / comp<S>(b, c)
+#define _IMPL(I, S, U)                                  \
+  if(comp<S>(b, c) != 0)                                \
+  {                                                     \
+    comp<S>(result, c) = comp<S>(a, c) / comp<S>(b, c); \
+  }                                                     \
+  else                                                  \
+  {                                                     \
+    comp<S>(result, c) = 0;                             \
+    eventFlags |= ShaderEvents::GeneratedNanOrInf;      \
+  }
 
         IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
       }
