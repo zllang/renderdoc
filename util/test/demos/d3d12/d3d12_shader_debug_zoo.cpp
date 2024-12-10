@@ -779,7 +779,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedAdd(inttexrwtest[uv], value, original);
@@ -790,7 +790,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedAnd(inttexrwtest[uv], value, original);
@@ -800,7 +800,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedOr(inttexrwtest[uv], value, original);
@@ -810,7 +810,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedXor(inttexrwtest[uv], value, original);
@@ -820,7 +820,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedMin(inttexrwtest[uv], value, original);
@@ -830,7 +830,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedMax(inttexrwtest[uv], value, original);
@@ -840,7 +840,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedExchange(inttexrwtest[uv], value, original);
@@ -850,7 +850,7 @@ float4 main(v2f IN) : SV_Target0
   {
     int value = IN.tri;
     int original;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedCompareExchange(inttexrwtest[uv], value, value+1, original);
@@ -859,7 +859,7 @@ float4 main(v2f IN) : SV_Target0
   if(IN.tri == 93)
   {
     int value = IN.tri;
-    int u = 3 * (IN.tri - 85) + 17;
+    int u = mad(3, (IN.tri - 85), 17);
     int2 uv = int2(u,37);
     inttexrwtest[uv] = 100;
     InterlockedCompareStore(inttexrwtest[uv], value, value+1);
