@@ -2838,8 +2838,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             break;
           }
           case DXOp::AtomicBinOp:
+          case DXOp::AtomicCompareExchange:
           {
             // AtomicBinOp(handle, atomicOp, offset0, offset1, offset2, newValue)
+            // AtomicCompareExchange(handle,offset0,offset1,offset2,compareValue,newValue)
             const Id handleId = GetArgumentId(1);
             bool annotatedHandle;
             ResourceReferenceInfo resRefInfo = GetResource(handleId, annotatedHandle);
@@ -2934,16 +2936,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint32_t texCoords[3] = {0, 0, 0};
             uint32_t elemIdx = 0;
             ShaderVariable arg;
+            size_t offsetStart = dxOpCode == DXOp::AtomicBinOp ? 3 : 2;
             if(!texData)
             {
-              if(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg))
+              if(GetShaderVariable(inst.args[offsetStart], opCode, dxOpCode, arg))
                 elemIdx = arg.value.u32v[0];
-              if(GetShaderVariable(inst.args[4], opCode, dxOpCode, arg))
+              if(GetShaderVariable(inst.args[offsetStart + 1], opCode, dxOpCode, arg))
                 dataOffset = arg.value.u64v[0];
             }
             else
             {
-              size_t offsetStart = 3;
               if(GetShaderVariable(inst.args[offsetStart], opCode, dxOpCode, arg))
                 texCoords[0] = (int8_t)arg.value.u32v[0];
               if(GetShaderVariable(inst.args[offsetStart + 1], opCode, dxOpCode, arg))
@@ -3006,86 +3008,103 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERTEQUAL(retType->type, Type::TypeKind::Scalar);
             RDCASSERTEQUAL(retType->scalarType, Type::Int);
 
-            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
-            AtomicBinOpCode atomicBinOpCode = (AtomicBinOpCode)arg.value.u32v[0];
-
             ShaderVariable res;
             const uint32_t c = 0;
-            switch(atomicBinOpCode)
+            if(dxOpCode == DXOp::AtomicBinOp)
             {
-              case AtomicBinOpCode::Add:
+              RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+              AtomicBinOpCode atomicBinOpCode = (AtomicBinOpCode)arg.value.u32v[0];
+
+              switch(atomicBinOpCode)
               {
+                case AtomicBinOpCode::Add:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<I>(res, c) = comp<I>(a, c) + comp<I>(b, c)
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::And:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::And:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<U>(res, c) = comp<U>(a, c) & comp<U>(b, c);
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::Or:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::Or:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<U>(res, c) = comp<U>(a, c) | comp<U>(b, c);
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::Xor:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::Xor:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<U>(res, c) = comp<U>(a, c) ^ comp<U>(b, c);
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::IMin:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::IMin:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(res, c) = RDCMIN(comp<S>(a, c), comp<S>(b, c));
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::IMax:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::IMax:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(res, c) = RDCMAX(comp<S>(a, c), comp<S>(b, c));
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::UMin:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::UMin:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<U>(res, c) = RDCMIN(comp<U>(a, c), comp<U>(b, c));
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::UMax:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::UMax:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(res, c) = RDCMAX(comp<S>(a, c), comp<S>(b, c));
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
-              }
-              case AtomicBinOpCode::Exchange:
-              {
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                case AtomicBinOpCode::Exchange:
+                {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<I>(res, c) = comp<I>(b, c)
 
-                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
-                break;
+                  IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+                  break;
+                }
+                default: RDCERR("Unhandled AtomicBinOpCode %s", ToStr(atomicBinOpCode).c_str());
               }
-              default: RDCERR("Unhandled AtomicBinOpCode %s", ToStr(atomicBinOpCode).c_str());
+            }
+            else if(dxOpCode == DXOp::AtomicCompareExchange)
+            {
+              ShaderVariable cmp;
+              RDCASSERT(GetShaderVariable(inst.args[5], opCode, dxOpCode, cmp));
+#undef _IMPL
+#define _IMPL(I, S, U) \
+  comp<I>(res, c) = comp<I>(a, c) == comp<I>(cmp, c) ? comp<I>(b, c) : comp<I>(a, c)
+
+              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+            }
+            else
+            {
+              RDCERR("Unhandled dxOpCode %s", ToStr(dxOpCode).c_str());
             }
 
             TypedUAVStore(fmt, (byte *)data, res.value);
@@ -3104,7 +3123,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::Ibfe:
           case DXOp::Ubfe:
           case DXOp::Bfi:
-          case DXOp::AtomicCompareExchange:
           case DXOp::SampleIndex:
           case DXOp::Coverage:
           case DXOp::InnerCoverage:
