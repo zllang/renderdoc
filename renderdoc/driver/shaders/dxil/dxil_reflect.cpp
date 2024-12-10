@@ -1797,7 +1797,6 @@ rdcstr Program::GetDebugStatus()
       {
         case Operation::AddrSpaceCast:
         case Operation::InsertValue:
-        case Operation::CompareExchange:
           return StringFormat::Fmt("Unsupported instruction '%s'", ToStr(inst->op).c_str());
         case Operation::Call:
         {

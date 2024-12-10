@@ -4292,7 +4292,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       bool bIsValid = GetShaderVariable(inst.args[1], opCode, dxOpCode, b);
       ShaderVariable c;
       RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, c));
-      // JAKE TODO: mask entries might be undef meaning "don’t care"
+      // TODO: mask entries might be undef meaning "don’t care"
       const uint32_t aMax = inst.args[0]->type->elemCount;
       for(uint32_t idx = 0; idx < retType->elemCount; idx++)
       {
@@ -4377,6 +4377,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::AtomicMin:
     case Operation::AtomicUMax:
     case Operation::AtomicUMin:
+    case Operation::CompareExchange:
     {
       size_t allocSize = 0;
       void *allocMemoryBackingPtr = NULL;
@@ -4405,8 +4406,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERT(IsVariableAssigned(baseMemoryId));
       const ShaderVariable a = m_Variables[baseMemoryId];
 
+      size_t newValueArgIdx = (opCode == Operation::CompareExchange) ? 2 : 1;
       ShaderVariable b;
-      RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, b));
+      RDCASSERT(GetShaderVariable(inst.args[newValueArgIdx], opCode, dxOpCode, b));
       const uint32_t c = 0;
 
       ShaderVariable res;
@@ -4497,6 +4499,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
         IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
       }
+      else if(opCode == Operation::CompareExchange)
+      {
+        ShaderVariable cmp;
+        RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, cmp));
+
+#undef _IMPL
+#define _IMPL(I, S, U) \
+  comp<I>(res, c) = comp<I>(a, c) == comp<I>(cmp, c) ? comp<I>(b, c) : comp<I>(a, c)
+
+        IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, b.type);
+      }
       else
       {
         RDCERR("Unhandled opCode %s", ToStr(opCode).c_str());
@@ -4524,10 +4537,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       break;
     }
     case Operation::AddrSpaceCast:
-    case Operation::InsertValue:
-    case Operation::CompareExchange:
-      RDCERR("Unhandled LLVM opcode %s", ToStr(opCode).c_str());
-      break;
+    case Operation::InsertValue: RDCERR("Unhandled LLVM opcode %s", ToStr(opCode).c_str()); break;
   };
 
   // Remove variables which have gone out of scope
