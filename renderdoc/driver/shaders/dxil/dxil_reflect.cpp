@@ -1816,8 +1816,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::UAddc:
               case DXOp::USubb:
               case DXOp::Fma:
-              case DXOp::IMad:
-              case DXOp::UMad:
               case DXOp::Msad:
               case DXOp::Ibfe:
               case DXOp::Ubfe:

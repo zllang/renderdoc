@@ -2794,6 +2794,40 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
+          case DXOp::IMad:
+          case DXOp::UMad:
+          {
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[3]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[3]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            ShaderVariable c;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, c));
+            RDCASSERTEQUAL(a.type, b.type);
+            RDCASSERTEQUAL(a.type, c.type);
+            const uint32_t col = 0;
+            if(dxOpCode == DXOp::IMad)
+            {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(result, col) = comp<S>(a, col) * comp<S>(b, col) + comp<S>(c, col)
+
+              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+            }
+            else if(dxOpCode == DXOp::UMad)
+            {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(result, col) = comp<U>(a, col) * comp<U>(b, col) + comp<U>(c, col)
+
+              IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, a.type);
+            }
+            break;
+          }
           case DXOp::Barrier:
           {
             ShaderVariable arg;
@@ -3117,8 +3151,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::UAddc:
           case DXOp::USubb:
           case DXOp::Fma:
-          case DXOp::IMad:
-          case DXOp::UMad:
           case DXOp::Msad:
           case DXOp::Ibfe:
           case DXOp::Ubfe:
