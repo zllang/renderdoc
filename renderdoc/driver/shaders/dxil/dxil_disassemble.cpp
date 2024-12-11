@@ -1053,7 +1053,16 @@ static rdcstr GetResourceTypeName(const Type *type)
   {
     rdcstr compType = "int";
     if(resType->scalarType == Type::Float)
-      compType = resType->bitWidth > 32 ? "double" : "float";
+    {
+      if(resType->bitWidth == 64)
+        compType = "double";
+      else if(resType->bitWidth == 32)
+        compType = "float";
+      else if(resType->bitWidth == 16)
+        compType = "half";
+      else
+        compType = "UNKNOWN FLOAT BITSIZE";
+    }
     else if(resType->scalarType == Type::Int)
     {
       if(resType->bitWidth == 64)
@@ -1064,6 +1073,8 @@ static rdcstr GetResourceTypeName(const Type *type)
         compType = "short";
       else if(resType->bitWidth == 8)
         compType = "int8";
+      else
+        compType = "UNKNOWN INT BITSIZE";
     }
 
     if(compCount > 1)
