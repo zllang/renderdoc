@@ -2661,8 +2661,26 @@ struct PSInitialData
   }
   else
   {
-    if(m_pDevice->GetShaderCache()->GetShaderBlob(extractHlsl.c_str(), "ExtractInputsPS", flags, {},
-                                                  "ps_6_0", &psBlob) != "")
+    // get the profile and shader compile flags from the vertex shader
+    rdcstr compSig = dxbc->GetDXILByteCode()->GetCompilerSig();
+    const uint32_t smMajor = dxbc->m_Version.Major;
+    const uint32_t smMinor = dxbc->m_Version.Minor;
+    if(smMajor < 6)
+    {
+      RDCERR("Invalid vertex shader SM %d.%d expect SM6.0+", smMajor, smMinor);
+      return new ShaderDebugTrace;
+    }
+    const char *profile = StringFormat::Fmt("ps_%u_%u", smMajor, smMinor).c_str();
+
+    ShaderCompileFlags compileFlags =
+        DXBC::EncodeFlags(m_pDevice->GetShaderCache()->GetCompileFlags(), profile);
+
+    const GlobalShaderFlags shaderFlags = dxbc->GetGlobalShaderFlags();
+    if(shaderFlags & GlobalShaderFlags::NativeLowPrecision)
+      compileFlags.flags.push_back({"@compile_option", "-enable-16bit-types"});
+
+    if(m_pDevice->GetShaderCache()->GetShaderBlob(extractHlsl.c_str(), "ExtractInputsPS",
+                                                  compileFlags, {}, profile, &psBlob) != "")
     {
       RDCERR("Failed to create shader to extract inputs");
       return new ShaderDebugTrace;
