@@ -287,6 +287,9 @@ EntryPointInterface::Signature::Signature(const Metadata *signature)
   cols = getival<uint8_t>(signature->children[SignatureElement::Cols]);
   startRow = getival<int32_t>(signature->children[SignatureElement::StartRow]);
   startCol = getival<int8_t>(signature->children[SignatureElement::StartCol]);
+  // System value entries have row, col = -1, reset start column to 0 to make parameter matching simpler
+  if((startRow == -1) && (startCol == -1))
+    startCol = 0;
 }
 
 EntryPointInterface::ResourceBase::ResourceBase(ResourceClass resourceClass, const Metadata *md)

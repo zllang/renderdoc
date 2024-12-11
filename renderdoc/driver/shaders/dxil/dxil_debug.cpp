@@ -6921,6 +6921,11 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       if(FindSigParameter(dxbcInParams, sig, sigParam))
       {
         v.name = sigParam.semanticIdxName;
+        if(sigParam.systemValue != ShaderBuiltin::Undefined)
+        {
+          RDCASSERT(m_GlobalState.builtinInputs.count(sigParam.systemValue) == 0);
+          m_GlobalState.builtinInputs[sigParam.systemValue] = v;
+        }
       }
       else
       {
