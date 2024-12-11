@@ -539,20 +539,20 @@ static DXBC::ResourceRetType ConvertComponentTypeToResourceRetType(const Compone
 {
   switch(compType)
   {
+    // Treat 16-bit integer as 32-bit and do the conversion after resource access
+    case ComponentType::I16:
     case ComponentType::I32: return DXBC::ResourceRetType::RETURN_TYPE_SINT;
+    case ComponentType::U16:
     case ComponentType::U32: return DXBC::ResourceRetType::RETURN_TYPE_UINT;
     case ComponentType::F32: return DXBC::ResourceRetType::RETURN_TYPE_FLOAT;
     case ComponentType::F64: return DXBC::ResourceRetType::RETURN_TYPE_DOUBLE;
     case ComponentType::SNormF32: return DXBC ::ResourceRetType::RETURN_TYPE_SNORM;
-    case ComponentType::UNormF32:
-      return DXBC::ResourceRetType::RETURN_TYPE_UNORM;
-      // Treat half as float and do the conversion after resource access
+    case ComponentType::UNormF32: return DXBC::ResourceRetType::RETURN_TYPE_UNORM;
+    // Treat 16-bit float as 32-bit and do the conversion after resource access
     case ComponentType::SNormF16:
     case ComponentType::UNormF16:
     case ComponentType::F16: return DXBC::ResourceRetType::RETURN_TYPE_FLOAT;
     case ComponentType::I1:
-    case ComponentType::I16:
-    case ComponentType::U16:
     case ComponentType::I64:
     case ComponentType::U64:
     case ComponentType::SNormF64:
