@@ -5016,6 +5016,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
   resourceData.retType = srv.compType;
   resourceData.sampleCount = srv.sampleCount;
   resourceData.binding = resRefInfo.binding;
+  RDCASSERTNOTEQUAL(resourceData.retType, ResourceRetType::RETURN_TYPE_UNKNOWN);
 
   ShaderVariable uv;
   int8_t texelOffsets[3] = {0, 0, 0};
@@ -5255,7 +5256,32 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
                                     msIndex, lodValue, compareValue, swizzle, gatherChannel,
                                     m_ShaderType, instructionIdx, opString, data);
 
-  result.value = data.value;
+  // Do conversion to the return type
+  if((result.type == VarType::Float) || (result.type == VarType::SInt) ||
+     (result.type == VarType::UInt))
+  {
+    result.value = data.value;
+  }
+  else if(result.type == VarType::Half)
+  {
+    for(uint32_t col = 0; col < result.columns; ++col)
+      result.value.f16v[col].set(data.value.f32v[col]);
+  }
+  else if(result.type == VarType::SShort)
+  {
+    for(uint32_t col = 0; col < result.columns; ++col)
+      result.value.s16v[col] = (int16_t)data.value.s32v[col];
+  }
+  else if(result.type == VarType::UShort)
+  {
+    for(uint32_t col = 0; col < result.columns; ++col)
+      result.value.u16v[col] = (uint16_t)data.value.u32v[col];
+  }
+  else
+  {
+    RDCERR("Unhandled return type %s", ToStr(result.type).c_str());
+    return;
+  }
 
   if(dxOpCode == DXOp::CalculateLOD)
   {
