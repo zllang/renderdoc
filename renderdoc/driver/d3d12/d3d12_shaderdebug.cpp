@@ -276,6 +276,10 @@ bool D3D12ShaderDebug::CalculateSampleGather(
   };
 
   cbufferData.debugSampleRetType = retTypes[resourceData.retType];
+  if(cbufferData.debugSampleRetType == 0)
+  {
+    RDCERR("Unsupported return type %d in sample operation", resourceData.retType);
+  }
 
   cbufferData.debugSampleGatherChannel = (int)gatherChannel;
   cbufferData.debugSampleSampleIndex = multisampleIndex;
