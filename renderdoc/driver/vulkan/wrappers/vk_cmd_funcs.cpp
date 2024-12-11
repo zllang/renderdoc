@@ -5607,6 +5607,23 @@ bool WrappedVulkan::Serialise_vkCmdPushDescriptorSetKHR(SerialiserType &ser,
             pImageInfo[d].imageView = Unwrap(pImageInfo[d].imageView);
             pImageInfo[d].sampler = Unwrap(pImageInfo[d].sampler);
           }
+
+          if(writes[i].pNext)
+          {
+            VkBaseInStructure *next = (VkBaseInStructure *)writes[i].pNext;
+            if(next->sType == VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR)
+            {
+              VkWriteDescriptorSetAccelerationStructureKHR *accWrite =
+                  (VkWriteDescriptorSetAccelerationStructureKHR *)next;
+              VkAccelerationStructureKHR *as =
+                  (VkAccelerationStructureKHR *)accWrite->pAccelerationStructures;
+
+              for(uint32_t a = 0; a < accWrite->accelerationStructureCount; a++)
+              {
+                as[a] = Unwrap(as[a]);
+              }
+            }
+          }
         }
       }
 
@@ -5897,6 +5914,23 @@ bool WrappedVulkan::Serialise_vkCmdPushDescriptorSetWithTemplateKHR(
           {
             pImageInfo[d].imageView = Unwrap(pImageInfo[d].imageView);
             pImageInfo[d].sampler = Unwrap(pImageInfo[d].sampler);
+          }
+
+          if(writes[i].pNext)
+          {
+            VkBaseInStructure *next = (VkBaseInStructure *)writes[i].pNext;
+            if(next->sType == VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR)
+            {
+              VkWriteDescriptorSetAccelerationStructureKHR *accWrite =
+                  (VkWriteDescriptorSetAccelerationStructureKHR *)next;
+              VkAccelerationStructureKHR *as =
+                  (VkAccelerationStructureKHR *)accWrite->pAccelerationStructures;
+
+              for(uint32_t a = 0; a < accWrite->accelerationStructureCount; a++)
+              {
+                as[a] = Unwrap(as[a]);
+              }
+            }
           }
         }
       }
