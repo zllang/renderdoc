@@ -4702,6 +4702,8 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
   bool flushDenorm = flushDenormInput && OperationFlushing(op, dxOpCode);
   if(var.type == VarType::Double)
     flushDenorm = false;
+  if(var.type == VarType::Half)
+    flushDenorm = false;
 
   RDCASSERT(!flushDenorm || var.type == VarType::Float);
   if(const Constant *c = cast<Constant>(dxilValue))
@@ -4835,6 +4837,8 @@ bool ThreadState::GetVariableHelper(Operation op, DXOp dxOpCode, ShaderVariable 
 {
   bool flushDenorm = OperationFlushing(op, dxOpCode);
   if(var.type == VarType::Double)
+    flushDenorm = false;
+  if(var.type == VarType::Half)
     flushDenorm = false;
   RDCASSERT(!flushDenorm || var.type == VarType::Float);
   if(flushDenorm)
