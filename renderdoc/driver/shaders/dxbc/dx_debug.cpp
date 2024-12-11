@@ -123,12 +123,16 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
         if(prevStageOutputSig[os].regIndex == nextreg + dummy)
         {
           filled = true;
+          VarType varType = prevStageOutputSig[os].varType;
+          uint32_t bytesPerColumn = (varType != VarType::Half) ? 4 : 2;
 
-          if(prevStageOutputSig[os].varType == VarType::Float)
+          if(varType == VarType::Float)
             psInputDefinition += "float";
-          else if(prevStageOutputSig[os].varType == VarType::SInt)
+          else if(varType == VarType::Half)
+            psInputDefinition += "half";
+          else if(varType == VarType::SInt)
             psInputDefinition += "int";
-          else if(prevStageOutputSig[os].varType == VarType::UInt)
+          else if(varType == VarType::UInt)
             psInputDefinition += "uint";
           else
             RDCERR("Unexpected input signature type: %s",
@@ -139,13 +143,13 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
                         (prevStageOutputSig[os].regChannelMask & 0x4 ? 1 : 0) +
                         (prevStageOutputSig[os].regChannelMask & 0x8 ? 1 : 0);
 
-          structureStride += 4 * numCols;
-
-          initialValues.push_back(PSInputElement(-1, 0, numCols, ShaderBuiltin::Undefined, true));
-
           rdcstr name = prevStageOutputSig[os].semanticIdxName;
-
           psInputDefinition += ToStr((uint32_t)numCols) + " input_" + name + " : " + name + ";\n";
+
+          uint32_t byteSize = AlignUp4(numCols * bytesPerColumn);
+          structureStride += byteSize;
+
+          initialValues.push_back(PSInputElement(-1, 0, byteSize / 4, ShaderBuiltin::Undefined, true));
         }
       }
 
@@ -310,6 +314,8 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
                     : sig.regChannelMask & 0x4 ? 2
                     : sig.regChannelMask & 0x8 ? 3
                                                : -1;
+    uint32_t bytesPerColumn = (sig.varType != VarType::Half) ? 4 : 2;
+    uint32_t byteSize = AlignUp4(numCols * bytesPerColumn);
 
     // arrays get added all at once (because in the struct data, they are contiguous even if
     // in the input signature they're not).
@@ -318,14 +324,14 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
       if(arrayLength == 0)
       {
         initialValues.push_back(
-            PSInputElement(sig.regIndex, firstElem, numCols, sig.systemValue, included));
+            PSInputElement(sig.regIndex, firstElem, byteSize / 4, sig.systemValue, included));
       }
       else
       {
         for(int a = 0; a < arrayLength; a++)
         {
           initialValues.push_back(
-              PSInputElement(sig.regIndex + a, firstElem, numCols, sig.systemValue, included));
+              PSInputElement(sig.regIndex + a, firstElem, byteSize / 4, sig.systemValue, included));
         }
       }
     }
