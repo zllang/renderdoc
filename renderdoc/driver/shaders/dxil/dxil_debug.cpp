@@ -544,18 +544,22 @@ static DXBC::ResourceRetType ConvertComponentTypeToResourceRetType(const Compone
     case ComponentType::F32: return DXBC::ResourceRetType::RETURN_TYPE_FLOAT;
     case ComponentType::F64: return DXBC::ResourceRetType::RETURN_TYPE_DOUBLE;
     case ComponentType::SNormF32: return DXBC ::ResourceRetType::RETURN_TYPE_SNORM;
-    case ComponentType::UNormF32: return DXBC::ResourceRetType::RETURN_TYPE_UNORM;
+    case ComponentType::UNormF32:
+      return DXBC::ResourceRetType::RETURN_TYPE_UNORM;
+      // Treat half as float and do the conversion after resource access
+    case ComponentType::SNormF16:
+    case ComponentType::UNormF16:
+    case ComponentType::F16: return DXBC::ResourceRetType::RETURN_TYPE_FLOAT;
     case ComponentType::I1:
     case ComponentType::I16:
     case ComponentType::U16:
-    case ComponentType::F16:
-    case ComponentType::SNormF16:
-    case ComponentType::UNormF16:
     case ComponentType::I64:
     case ComponentType::U64:
     case ComponentType::SNormF64:
     case ComponentType::UNormF64:
-    case ComponentType::Invalid: return DXBC::ResourceRetType::RETURN_TYPE_UNKNOWN;
+    case ComponentType::Invalid:
+      RDCERR("Unhandled component type %s", ToStr(compType).c_str());
+      return DXBC::ResourceRetType::RETURN_TYPE_UNKNOWN;
   };
   return DXBC::ResourceRetType::RETURN_TYPE_UNKNOWN;
 }
