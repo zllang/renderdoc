@@ -3156,6 +3156,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value = a.value;
             break;
           }
+          case DXOp::IsHelperLane:
+          {
+            // Helper lanes don't have state
+            result.value.u32v[0] = m_State ? 0 : 1;
+            break;
+          }
           // Likely to implement when required
           case DXOp::UAddc:
           case DXOp::USubb:
@@ -3207,7 +3213,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::WriteSamplerFeedbackBias:
           case DXOp::WriteSamplerFeedbackLevel:
           case DXOp::WriteSamplerFeedbackGrad:
-          case DXOp::IsHelperLane:
           case DXOp::BarrierByMemoryType:
           case DXOp::BarrierByMemoryHandle:
           case DXOp::BarrierByNodeRecordHandle:

@@ -1946,7 +1946,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::RayQuery_CommittedInstanceContributionToHitGroupIndex:
               case DXOp::Unpack4x8:
               case DXOp::Pack4x8:
-              case DXOp::IsHelperLane:
               case DXOp::QuadVote:
               case DXOp::TextureGatherRaw:
               case DXOp::TextureStoreSample:
