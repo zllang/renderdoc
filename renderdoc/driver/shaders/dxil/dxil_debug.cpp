@@ -3156,6 +3156,46 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value = a.value;
             break;
           }
+          case DXOp::SampleIndex:
+          {
+            // SV_SampleIndex
+            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::MSAASampleIndex) != 0);
+            result.value.u32v[0] =
+                m_GlobalState.builtinInputs.at(ShaderBuiltin::MSAASampleIndex).value.u32v[0];
+            break;
+          }
+          case DXOp::Coverage:
+          {
+            // SV_Coverage
+            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::MSAACoverage) != 0);
+            result.value.u32v[0] =
+                m_GlobalState.builtinInputs.at(ShaderBuiltin::MSAACoverage).value.u32v[0];
+            break;
+          }
+          case DXOp::InnerCoverage:
+          {
+            // SV_InnerCoverage
+            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::IsFullyCovered) != 0);
+            result.value.u32v[0] =
+                m_GlobalState.builtinInputs.at(ShaderBuiltin::IsFullyCovered).value.u32v[0];
+            break;
+          }
+          case DXOp::ViewID:
+          {
+            // SV_ViewportArrayIndex
+            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::ViewportIndex) != 0);
+            result.value.u32v[0] =
+                m_GlobalState.builtinInputs.at(ShaderBuiltin::ViewportIndex).value.u32v[0];
+            break;
+          }
+          case DXOp::PrimitiveID:
+          {
+            // SV_PrimitiveID
+            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::PrimitiveIndex) != 0);
+            result.value.u32v[0] =
+                m_GlobalState.builtinInputs.at(ShaderBuiltin::PrimitiveIndex).value.u32v[0];
+            break;
+          }
           case DXOp::IsHelperLane:
           {
             // Helper lanes don't have state
@@ -3170,12 +3210,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::Ibfe:
           case DXOp::Ubfe:
           case DXOp::Bfi:
-          case DXOp::SampleIndex:
-          case DXOp::Coverage:
-          case DXOp::InnerCoverage:
           case DXOp::MakeDouble:
           case DXOp::SplitDouble:
-          case DXOp::PrimitiveID:
           case DXOp::BitcastI16toF16:
           case DXOp::BitcastF16toI16:
           case DXOp::BitcastI32toF32:
@@ -3186,7 +3222,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::LegacyDoubleToSInt32:
           case DXOp::LegacyDoubleToUInt32:
           case DXOp::AttributeAtVertex:
-          case DXOp::ViewID:
           case DXOp::InstanceID:
           case DXOp::InstanceIndex:
           case DXOp::PrimitiveIndex:

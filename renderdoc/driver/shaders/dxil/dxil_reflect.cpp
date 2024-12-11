@@ -1829,9 +1829,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::EvalSnapped:
               case DXOp::EvalSampleIndex:
               case DXOp::EvalCentroid:
-              case DXOp::SampleIndex:
-              case DXOp::Coverage:
-              case DXOp::InnerCoverage:
               case DXOp::EmitStream:
               case DXOp::CutStream:
               case DXOp::EmitThenCutStream:
@@ -1843,7 +1840,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::DomainLocation:
               case DXOp::StorePatchConstant:
               case DXOp::OutputControlPointID:
-              case DXOp::PrimitiveID:
               case DXOp::CycleCounterLegacy:
               case DXOp::WaveIsFirstLane:
               case DXOp::WaveGetLaneIndex:
@@ -1871,7 +1867,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WaveAllBitCount:
               case DXOp::WavePrefixBitCount:
               case DXOp::AttributeAtVertex:
-              case DXOp::ViewID:
               case DXOp::InstanceID:
               case DXOp::InstanceIndex:
               case DXOp::HitKind:
