@@ -733,6 +733,7 @@ rdcstr DoStringise(const DescriptorType &el)
     STRINGISE_ENUM_CLASS_NAMED(ReadWriteImage, "RW Image");
     STRINGISE_ENUM_CLASS_NAMED(ReadWriteTypedBuffer, "RW Typed Buffer");
     STRINGISE_ENUM_CLASS_NAMED(ReadWriteBuffer, "RW Buffer");
+    STRINGISE_ENUM_CLASS_NAMED(AccelerationStructure, "Accel Structure");
   }
   END_ENUM_STRINGISE();
 }
