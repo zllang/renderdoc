@@ -5093,8 +5093,6 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     uint32_t countOffset = 3;
     uint32_t countUV = 4;
     // TODO: Sample*: Clamp is in arg 10
-    // TODO: CalculateLOD: clamped is in arg 6
-    // CalculateSampleGather returns {CalculateLevelOfDetail(), CalculateLevelOfDetailUnclamped()}
 
     // SampleBias : bias is arg 10
     // SampleLevel: lod is in arg 10
