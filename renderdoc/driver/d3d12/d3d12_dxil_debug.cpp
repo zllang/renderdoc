@@ -500,13 +500,13 @@ InterpolationMode GetInterpolationModeForInputParam(const SigParameter &sig,
   if(sig.varType == VarType::SInt || sig.varType == VarType::UInt)
     return InterpolationMode::INTERPOLATION_CONSTANT;
 
-  if(sig.varType == VarType::Float)
+  if((sig.varType == VarType::Float) || (sig.varType == VarType::Half))
   {
-    // if we're packed with ints on either side, we must be nointerpolation
+    // if we're packed with a different type on either side, we must be nointerpolation
     size_t numInputs = stageInputSig.size();
     for(size_t j = 0; j < numInputs; j++)
     {
-      if(sig.regIndex == stageInputSig[j].regIndex && stageInputSig[j].varType != VarType::Float)
+      if(sig.regIndex == stageInputSig[j].regIndex && (stageInputSig[j].varType != sig.varType))
         return DXBC::InterpolationMode::INTERPOLATION_CONSTANT;
     }
 
