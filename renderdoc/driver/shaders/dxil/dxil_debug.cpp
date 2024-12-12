@@ -6790,12 +6790,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       {
         for(const Block *pred : block->preds)
         {
-          if(pred->name.empty())
-          {
-            uint32_t from = pred->id;
-            uint32_t to = block->id;
-            links.push_back({from, to});
-          }
+          uint32_t from = pred->id;
+          uint32_t to = block->id;
+          links.push_back({from, to});
         }
       }
 
