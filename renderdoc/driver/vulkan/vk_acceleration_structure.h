@@ -35,25 +35,25 @@ struct VkAccelerationStructureInfo
   {
     struct Triangles
     {
-      VkFormat vertexFormat;
-      VkDeviceSize vertexStride;
-      uint32_t maxVertex;
-      VkIndexType indexType;
+      VkFormat vertexFormat = VK_FORMAT_UNDEFINED;
+      VkDeviceSize vertexStride = 0;
+      uint32_t maxVertex = 0;
+      VkIndexType indexType = VK_INDEX_TYPE_NONE_KHR;
     };
 
     struct Aabbs
     {
-      VkDeviceSize stride;
+      VkDeviceSize stride = 0;
     };
 
     VkGeometryTypeKHR geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-    VkGeometryFlagsKHR flags;
+    VkGeometryFlagsKHR flags = 0;
 
     Triangles tris;
     Aabbs aabbs;
 
-    VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo;
-    VkDeviceSize memOffset;
+    VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo = {};
+    VkDeviceSize memOffset = 0;
   };
 
   ~VkAccelerationStructureInfo();
