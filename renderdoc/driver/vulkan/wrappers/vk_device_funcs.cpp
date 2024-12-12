@@ -4442,6 +4442,8 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
   {
     accFeatures->accelerationStructureCaptureReplay = VK_TRUE;
     m_AccelerationStructures = true;
+
+    RDCLOG("Acceleration structures enabled, ALL MEMORY WILL BE MARKED AS BDA");
   }
 
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR *rtpFeatures =
