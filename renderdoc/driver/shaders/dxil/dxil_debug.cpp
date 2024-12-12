@@ -1640,6 +1640,17 @@ void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *st
   m_State = NULL;
 }
 
+void ThreadState::FillCallstack(ShaderDebugState &state)
+{
+  auto it = m_FunctionInfo->callstacks.upper_bound(state.nextInstruction);
+  if(it != m_FunctionInfo->callstacks.begin())
+    --it;
+  if(it->first <= m_FunctionInstructionIdx)
+    state.callstack = it->second;
+  else
+    state.callstack.clear();
+}
+
 bool IsNopInstruction(const Instruction &inst)
 {
   if(inst.op == Operation::Call)
@@ -3403,7 +3414,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
       if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
       {
-        const ReferencedIds &phiIds = it->second;
+        const FunctionInfo::ReferencedIds &phiIds = it->second;
         for(Id id : phiIds)
           m_PhiVariables[id] = m_Variables[id];
       }
@@ -4420,7 +4431,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
       if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
       {
-        const ReferencedIds &phiIds = it->second;
+        const FunctionInfo::ReferencedIds &phiIds = it->second;
         for(Id id : phiIds)
           m_PhiVariables[id] = m_Variables[id];
       }
@@ -5501,6 +5512,13 @@ bool ThreadState::ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups)
   return false;
 }
 
+Debugger::DebugInfo::~DebugInfo()
+{
+  for(const ScopedDebugData *scope : scopedDebugDatas)
+    delete scope;
+  scopedDebugDatas.clear();
+}
+
 // static helper function
 rdcstr Debugger::GetResourceReferenceName(const DXIL::Program *program,
                                           DXIL::ResourceClass resClass, const BindingSlot &slot)
@@ -5561,76 +5579,80 @@ void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
   return;
 }
 
-size_t Debugger::FindScopedDebugDataIndex(const uint32_t instructionIndex) const
+ScopedDebugData *Debugger::FindScopedDebugData(const uint32_t instructionIndex) const
 {
-  size_t countScopes = m_DebugInfo.scopedDebugDatas.size();
-  size_t scopeIndex = countScopes;
+  ScopedDebugData *scope = NULL;
   // Scopes are sorted with increasing minInstruction
-  for(size_t i = 0; i < countScopes; i++)
+  for(ScopedDebugData *s : m_DebugInfo.scopedDebugDatas)
   {
-    uint32_t scopeMinInstruction = m_DebugInfo.scopedDebugDatas[i].minInstruction;
-    if((scopeMinInstruction <= instructionIndex) &&
-       (instructionIndex <= m_DebugInfo.scopedDebugDatas[i].maxInstruction))
-      scopeIndex = i;
+    uint32_t scopeMinInstruction = s->minInstruction;
+    if((scopeMinInstruction <= instructionIndex) && (instructionIndex <= s->maxInstruction))
+      scope = s;
     else if(scopeMinInstruction > instructionIndex)
       break;
   }
-  return scopeIndex;
+  return scope;
 }
 
-size_t Debugger::FindScopedDebugDataIndex(const DXIL::Metadata *md) const
+ScopedDebugData *Debugger::FindScopedDebugData(const DXIL::Metadata *md) const
 {
-  size_t countScopes = m_DebugInfo.scopedDebugDatas.size();
-  for(size_t i = 0; i < countScopes; i++)
+  for(ScopedDebugData *s : m_DebugInfo.scopedDebugDatas)
   {
-    if(m_DebugInfo.scopedDebugDatas[i].md == md)
-      return i;
+    if(s->md == md)
+      return s;
   }
-  return countScopes;
+  return NULL;
 }
 
-size_t Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD, uint32_t instructionIndex)
+ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
 {
   // Iterate upwards to find DIFile, DISubprogram or DILexicalBlock scope
   while((scopeMD->dwarf->type != DIBase::File) && (scopeMD->dwarf->type != DIBase::Subprogram) &&
         (scopeMD->dwarf->type != DIBase::LexicalBlock))
     scopeMD = m_Program->GetDebugScopeParent(scopeMD->dwarf);
 
-  size_t scopeIndex = FindScopedDebugDataIndex(scopeMD);
+  ScopedDebugData *scope = FindScopedDebugData(scopeMD);
   // Add a new DebugScope
-  if(scopeIndex == m_DebugInfo.scopedDebugDatas.size())
+  if(!scope)
   {
     // Find the parent scope and add this to its children
     const DXIL::Metadata *parentScope = m_Program->GetDebugScopeParent(scopeMD->dwarf);
 
-    ScopedDebugData scope;
-    scope.md = scopeMD;
-    scope.minInstruction = instructionIndex;
-    scope.maxInstruction = instructionIndex;
+    scope = new ScopedDebugData();
+    scope->md = scopeMD;
+    scope->minInstruction = UINT32_MAX;
+    scope->maxInstruction = 0;
     // File scope should not have a parent
     if(scopeMD->dwarf->type != DIBase::File)
     {
       RDCASSERT(parentScope);
-      scope.parentIndex = AddScopedDebugData(parentScope, instructionIndex);
-      RDCASSERT(scope.parentIndex < m_DebugInfo.scopedDebugDatas.size());
+      scope->parent = AddScopedDebugData(parentScope);
+      RDCASSERT(scope->parent);
     }
     else
     {
       RDCASSERT(!parentScope);
-      scope.parentIndex = (size_t)-1;
+      scope->parent = NULL;
     }
-    scope.fileName = m_Program->GetDebugScopeFilePath(scope.md->dwarf);
-    scope.line = (uint32_t)m_Program->GetDebugScopeLine(scope.md->dwarf);
+    if(scopeMD->dwarf->type == DIBase::Subprogram)
+    {
+      scope->functionName = *(scopeMD->dwarf->As<DISubprogram>()->name);
+    }
+    else if(scopeMD->dwarf->type == DIBase::CompileUnit)
+    {
+      scope->functionName = "CompileUnit";
+    }
+    else if(scopeMD->dwarf->type == DIBase::File)
+    {
+      scope->functionName = "File";
+    }
+
+    scope->fileName = m_Program->GetDebugScopeFilePath(scope->md->dwarf);
+    scope->line = (uint32_t)m_Program->GetDebugScopeLine(scope->md->dwarf);
 
     m_DebugInfo.scopedDebugDatas.push_back(scope);
   }
-  else
-  {
-    ScopedDebugData &scope = m_DebugInfo.scopedDebugDatas[scopeIndex];
-    scope.minInstruction = RDCMIN(scope.minInstruction, instructionIndex);
-    scope.maxInstruction = RDCMAX(scope.maxInstruction, instructionIndex);
-  }
-  return scopeIndex;
+  return scope;
 }
 
 const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
@@ -5817,8 +5839,7 @@ void Debugger::AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t 
   RDCASSERTEQUAL(localVariableMD->dwarf->type, DIBase::Type::LocalVariable);
   const DILocalVariable *localVariable = localVariableMD->dwarf->As<DILocalVariable>();
 
-  size_t scopeIndex = AddScopedDebugData(localVariable->scope, instructionIndex);
-  ScopedDebugData &scope = m_DebugInfo.scopedDebugDatas[scopeIndex];
+  ScopedDebugData *scope = AddScopedDebugData(localVariable->scope);
 
   rdcstr sourceVarName = m_Program->GetDebugVarName(localVariable);
   LocalMapping localMapping;
@@ -5830,7 +5851,7 @@ void Debugger::AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t 
   localMapping.instIndex = instructionIndex;
   localMapping.isDeclare = isDeclare;
 
-  scope.localMappings.push_back(localMapping);
+  scope->localMappings.push_back(localMapping);
 
   const DXIL::Metadata *typeMD = localVariable->type;
   if(m_DebugInfo.types.count(typeMD) == 0)
@@ -5948,7 +5969,7 @@ void Debugger::ParseDebugData()
           {
             activeInstructionIndex = instructionIndex;
             const DebugLocation &debugLoc = m_Program->m_DebugLocations[dbgLoc];
-            AddScopedDebugData(debugLoc.scope, activeInstructionIndex);
+            AddScopedDebugData(debugLoc.scope);
           }
           continue;
         }
@@ -5967,7 +5988,7 @@ void Debugger::ParseDebugData()
 
   // Sort the scopes by instruction index
   std::sort(m_DebugInfo.scopedDebugDatas.begin(), m_DebugInfo.scopedDebugDatas.end(),
-            [](const ScopedDebugData &a, const ScopedDebugData &b) { return a < b; });
+            [](const ScopedDebugData *a, const ScopedDebugData *b) { return *a < *b; });
 
   DXIL::Program *program = ((DXIL::Program *)m_Program);
   program->m_Locals.clear();
@@ -5988,38 +6009,34 @@ void Debugger::ParseDebugData()
         localSrcVar.endInst = instructionIndex;
 
         // For each instruction - find which scope it belongs
-        size_t scopeIndex = FindScopedDebugDataIndex(instructionIndex);
+        const ScopedDebugData *scope = FindScopedDebugData(instructionIndex);
         // track which mappings we've processed, so if the same variable has mappings in multiple
         // scopes we only pick the innermost.
         rdcarray<LocalMapping> processed;
         rdcarray<const DXIL::DILocalVariable *> sourceVars;
 
         // capture the scopes upwards (from child to parent)
-        rdcarray<size_t> scopeIndexes;
-        while(scopeIndex < m_DebugInfo.scopedDebugDatas.size())
+        rdcarray<const ScopedDebugData *> scopes;
+        while(scope)
         {
-          const ScopedDebugData &scope = m_DebugInfo.scopedDebugDatas[scopeIndex];
-
           // Only add add scopes with mappings
-          if(!scope.localMappings.empty())
-            scopeIndexes.push_back(scopeIndex);
+          if(!scope->localMappings.empty())
+            scopes.push_back(scope);
 
           // if we reach a function scope, don't go up any further.
-          if(scope.md->dwarf->type == DIBase::Type::Subprogram)
+          if(scope->md->dwarf->type == DIBase::Type::Subprogram)
             break;
 
-          scopeIndex = scope.parentIndex;
+          scope = scope->parent;
         }
 
         // Iterate over the scopes downwards (parent->child)
-        for(size_t s = 0; s < scopeIndexes.size(); ++s)
+        for(const ScopedDebugData *s : scopes)
         {
-          scopeIndex = scopeIndexes[scopeIndexes.size() - 1 - s];
-          const ScopedDebugData &scope = m_DebugInfo.scopedDebugDatas[scopeIndex];
-          size_t countLocalMappings = scope.localMappings.size();
+          size_t countLocalMappings = s->localMappings.size();
           for(size_t m = 0; m < countLocalMappings; m++)
           {
-            const LocalMapping &mapping = scope.localMappings[m];
+            const LocalMapping &mapping = s->localMappings[m];
 
             // see if this mapping is superceded by a later mapping in this scope for this
             // instruction. This is a bit inefficient but simple. The alternative would be to do
@@ -6031,7 +6048,7 @@ void Debugger::ParseDebugData()
               bool supercede = false;
               for(size_t n = innerStart; n < countLocalMappings; n++)
               {
-                const LocalMapping &laterMapping = scope.localMappings[n];
+                const LocalMapping &laterMapping = s->localMappings[n];
 
                 // if this mapping will supercede and starts later
                 if(laterMapping.isSourceSupersetOf(mapping) &&
@@ -6809,8 +6826,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         info.uniformBlocks.push_back(f->blocks[0]->id);
       }
 
-      ReferencedIds &ssaRefs = info.referencedIds;
-      ExecutionPointPerId &ssaMaxExecPoints = info.maxExecPointPerId;
+      FunctionInfo::ReferencedIds &ssaRefs = info.referencedIds;
+      FunctionInfo::ExecutionPointPerId &ssaMaxExecPoints = info.maxExecPointPerId;
 
       uint32_t curBlock = 0;
       for(uint32_t i = 0; i < countInstructions; ++i)
@@ -6882,7 +6899,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       RDCASSERTEQUAL(ssaRefs.size(), ssaMaxExecPoints.size());
 
       // store the block captured SSA IDs used as arguments to phi nodes
-      PhiReferencedIdsPerBlock &phiReferencedIdsPerBlock = info.phiReferencedIdsPerBlock;
+      FunctionInfo::PhiReferencedIdsPerBlock &phiReferencedIdsPerBlock =
+          info.phiReferencedIdsPerBlock;
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
         const Instruction &inst = *(f->instructions[i]);
@@ -6899,6 +6917,79 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           uint32_t blockId = block->id;
           phiReferencedIdsPerBlock[blockId].insert(argId);
         }
+      }
+    }
+  }
+
+  // Generate scopes and callstacks
+  for(const Function *f : m_Program->m_Functions)
+  {
+    if(!f->external)
+    {
+      FunctionInfo &info = m_FunctionInfos[f];
+      uint32_t countInstructions = (uint32_t)f->instructions.size();
+
+      rdcarray<ScopedDebugData *> scopeHierarchy;
+      ScopedDebugData *currentScope = NULL;
+      /*
+            ScopedDebugData *currentScope = new ScopedDebugData();
+            currentScope->md = NULL;
+            currentScope->minInstruction = 0;
+            currentScope->maxInstruction = 0;
+            currentScope->functionName.clear();
+      scopeHierarchy.push_back(currentScope);
+      */
+      for(uint32_t i = 0; i < countInstructions; ++i)
+      {
+        uint32_t instructionIndex = i + info.globalInstructionOffset;
+        const Instruction &inst = *f->instructions[i];
+        ScopedDebugData *thisScope = NULL;
+        if(!DXIL::IsLLVMDebugCall(inst))
+        {
+          // Include DebugLoc data for building up the list of scopes
+          uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
+          if(dbgLoc != ~0U)
+          {
+            const DebugLocation &debugLoc = m_Program->m_DebugLocations[dbgLoc];
+            thisScope = AddScopedDebugData(debugLoc.scope);
+          }
+        }
+        if(currentScope)
+          currentScope->maxInstruction = instructionIndex;
+
+        if(thisScope == currentScope)
+          continue;
+
+        if(!thisScope)
+          continue;
+
+        currentScope = thisScope;
+        thisScope->minInstruction = instructionIndex;
+        thisScope->maxInstruction = instructionIndex;
+        // Walk upwards from this scope to find where to append to the scope hierarchy
+        {
+          ScopedDebugData *scope = thisScope;
+          while(scope)
+          {
+            int32_t index = scopeHierarchy.indexOf(thisScope);
+            if(index >= 0)
+            {
+              scopeHierarchy.erase(index, scopeHierarchy.count() - index);
+              break;
+            }
+            scope = scope->parent;
+          }
+        }
+        // Add the new scope to the hierarchy and generate the callstack
+        scopeHierarchy.push_back(thisScope);
+
+        FunctionInfo::Callstack callstack;
+        for(ScopedDebugData *scope : scopeHierarchy)
+        {
+          if(!scope->functionName.empty())
+            callstack.push_back(scope->functionName);
+        }
+        info.callstacks[instructionIndex] = callstack;
       }
     }
   }
@@ -7174,7 +7265,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
       if(lane == m_ActiveLaneIndex)
       {
         thread.EnterEntryPoint(m_EntryPointFunction, &initial);
-        // FillCallstack(thread, initial);
+        thread.FillCallstack(initial);
         initial.nextInstruction = thread.m_GlobalInstructionIdx;
       }
       else
@@ -7225,9 +7316,9 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
 
           state.stepIndex = m_Steps;
           thread.StepNext(&state, apiWrapper, m_Workgroups);
+          thread.FillCallstack(state);
 
           ret.push_back(std::move(state));
-
           m_Steps++;
         }
         else

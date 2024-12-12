@@ -60,11 +60,6 @@ struct ExecutionPoint
   uint32_t instruction;
 };
 
-typedef std::map<ShaderBuiltin, ShaderVariable> BuiltinInputs;
-typedef std::set<Id> ReferencedIds;
-typedef std::map<Id, ExecutionPoint> ExecutionPointPerId;
-typedef std::map<uint32_t, ReferencedIds> PhiReferencedIdsPerBlock;
-
 void GetInterpolationModeForInputParams(const rdcarray<SigParameter> &stageInputSig,
                                         const DXIL::Program *program,
                                         rdcarray<DXBC::InterpolationMode> &interpModes);
@@ -92,6 +87,11 @@ void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int d
 
 struct FunctionInfo
 {
+  typedef std::set<Id> ReferencedIds;
+  typedef std::map<Id, ExecutionPoint> ExecutionPointPerId;
+  typedef std::map<uint32_t, ReferencedIds> PhiReferencedIdsPerBlock;
+  typedef rdcarray<rdcstr> Callstack;
+
   const DXIL::Function *function = NULL;
   ReferencedIds referencedIds;
   ExecutionPointPerId maxExecPointPerId;
@@ -99,6 +99,7 @@ struct FunctionInfo
   uint32_t globalInstructionOffset = ~0U;
   rdcarray<uint32_t> uniformBlocks;
   DXIL::ControlFlow controlFlow;
+  std::map<uint32_t, Callstack> callstacks;
 };
 
 struct StackFrame
@@ -221,6 +222,7 @@ struct ThreadState
   rdcstr GetArgumentName(uint32_t i) const;
   Id GetArgumentId(uint32_t i) const;
   ResourceReferenceInfo GetResource(Id handleId, bool &annotatedHandle);
+  void FillCallstack(ShaderDebugState &state);
 
   bool GetShaderVariable(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                          ShaderVariable &var, bool flushDenormInput = true) const
@@ -333,6 +335,8 @@ struct ThreadState
 
 struct GlobalState
 {
+  typedef std::map<ShaderBuiltin, ShaderVariable> BuiltinInputs;
+
   GlobalState() = default;
   ~GlobalState();
   BuiltinInputs builtinInputs;
@@ -464,7 +468,8 @@ struct ScopedDebugData
 {
   rdcarray<LocalMapping> localMappings;
   const DXIL::Metadata *md;
-  size_t parentIndex;
+  ScopedDebugData *parent;
+  rdcstr functionName;
   rdcstr fileName;
   uint32_t line;
   uint32_t minInstruction;
@@ -524,9 +529,9 @@ private:
   void CalcActiveMask(rdcarray<bool> &activeMask);
   void ParseDbgOpDeclare(const DXIL::Instruction &inst, uint32_t instructionIndex);
   void ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructionIndex);
-  size_t AddScopedDebugData(const DXIL::Metadata *scopeMD, uint32_t instructionIndex);
-  size_t FindScopedDebugDataIndex(const DXIL::Metadata *md) const;
-  size_t Debugger::FindScopedDebugDataIndex(const uint32_t instructionIndex) const;
+  ScopedDebugData *AddScopedDebugData(const DXIL::Metadata *scopeMD);
+  ScopedDebugData *FindScopedDebugData(const DXIL::Metadata *md) const;
+  ScopedDebugData *FindScopedDebugData(const uint32_t instructionIndex) const;
   const TypeData &AddDebugType(const DXIL::Metadata *typeMD);
   void AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t instructionIndex,
                         bool isDeclare, int32_t byteOffset, uint32_t countBytes,
@@ -543,7 +548,8 @@ private:
 
   struct DebugInfo
   {
-    rdcarray<ScopedDebugData> scopedDebugDatas;
+    ~DebugInfo();
+    rdcarray<ScopedDebugData *> scopedDebugDatas;
     std::map<const DXIL::DILocalVariable *, LocalMapping> locals;
     std::map<const DXIL::Metadata *, TypeData> types;
   } m_DebugInfo;
