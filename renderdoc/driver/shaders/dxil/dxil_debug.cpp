@@ -563,9 +563,9 @@ static DXBC::ResourceRetType ConvertComponentTypeToResourceRetType(const Compone
     case ComponentType::U64:
     case ComponentType::SNormF64:
     case ComponentType::UNormF64:
-    case ComponentType::Invalid:
       RDCERR("Unhandled component type %s", ToStr(compType).c_str());
       return DXBC::ResourceRetType::RETURN_TYPE_UNKNOWN;
+    case ComponentType::Invalid: return DXBC::ResourceRetType::RETURN_TYPE_UNKNOWN;
   };
   return DXBC::ResourceRetType::RETURN_TYPE_UNKNOWN;
 }
@@ -4645,37 +4645,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::InsertValue: RDCERR("Unhandled LLVM opcode %s", ToStr(opCode).c_str()); break;
   };
 
-  // Remove variables which have gone out of scope
-  ExecutionPoint current(m_Block, m_FunctionInstructionIdx);
-  for(uint32_t id = 0; id < m_Live.size(); ++id)
-  {
-    if(!m_Live[id])
-      continue;
-    // The fake output variable is always in scope
-    if(id == m_Output.id)
-      continue;
-    // Global are always in scope
-    if(m_IsGlobal[id])
-      continue;
-
-    auto itRange = m_FunctionInfo->maxExecPointPerId.find(id);
-    RDCASSERT(itRange != m_FunctionInfo->maxExecPointPerId.end());
-    const ExecutionPoint maxPoint = itRange->second;
-    // Use control flow to determine if the current execution point is after the maximum point
-    if(current.IsAfter(maxPoint, m_FunctionInfo->controlFlow))
-    {
-      RDCASSERTNOTEQUAL(id, resultId);
-      m_Live[id] = false;
-
-      if(m_State)
-      {
-        ShaderVariableChange change;
-        change.before = m_Variables[id];
-        m_State->changes.push_back(change);
-      }
-    }
-  }
-
   // Update the result variable
   RDCASSERT(!(result.name.empty() ^ (resultId == DXILDebug::INVALID_ID)));
   if(!result.name.empty() && resultId != DXILDebug::INVALID_ID)
@@ -4730,6 +4699,33 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
 
     m_State->flags = ShaderEvents::NoEvent;
     m_State->changes.clear();
+
+    // Remove variables which have gone out of scope
+    ExecutionPoint current(m_Block, m_FunctionInstructionIdx);
+    for(uint32_t id = 0; id < m_Live.size(); ++id)
+    {
+      if(!m_Live[id])
+        continue;
+      // The fake output variable is always in scope
+      if(id == m_Output.id)
+        continue;
+      // Global are always in scope
+      if(m_IsGlobal[id])
+        continue;
+
+      auto itRange = m_FunctionInfo->maxExecPointPerId.find(id);
+      RDCASSERT(itRange != m_FunctionInfo->maxExecPointPerId.end());
+      const ExecutionPoint maxPoint = itRange->second;
+      // Use control flow to determine if the current execution point is after the maximum point
+      if(current.IsAfter(maxPoint, m_FunctionInfo->controlFlow))
+      {
+        m_Live[id] = false;
+
+        ShaderVariableChange change;
+        change.before = m_Variables[id];
+        m_State->changes.push_back(change);
+      }
+    }
   }
   ExecuteInstruction(apiWrapper, workgroups);
 
@@ -6833,7 +6829,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
 
         // Stack allocations last until the end of the function
         // Allow the variable to live for one instruction longer
-        const uint32_t maxInst = (inst.op == Operation::Alloca) ? countInstructions : i + 1;
+        const uint32_t maxInst = (inst.op == Operation::Alloca) ? countInstructions : i;
         Id resultId = inst.slot;
         if(resultId != DXILDebug::INVALID_ID)
         {
