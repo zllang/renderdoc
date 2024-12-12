@@ -800,11 +800,24 @@ void WrappedVulkan::InsertActionsAndRefreshIDs(BakedCmdBufferInfo &cmdBufInfo)
         // if the actual action count was greater than 1, display this as an indirect count
         const char *countString = (n.indirectPatch.count > 1 ? "<1>" : "1");
 
-        if(valid)
-          n.action.customName = StringFormat::Fmt("%s(%s) => <%u, %u>", name.c_str(), countString,
-                                                  n.action.numIndices, n.action.numInstances);
+        if(n.indirectPatch.type == VkIndirectPatchType::MeshIndirect ||
+           n.indirectPatch.type == VkIndirectPatchType::MeshIndirectCount)
+        {
+          if(valid)
+            n.action.customName = StringFormat::Fmt(
+                "%s(%s) => <%u, %u, %u>", name.c_str(), countString, n.action.dispatchDimension[0],
+                n.action.dispatchDimension[1], n.action.dispatchDimension[2]);
+          else
+            n.action.customName = StringFormat::Fmt("%s(%s) => <?, ?>", name.c_str(), countString);
+        }
         else
-          n.action.customName = StringFormat::Fmt("%s(%s) => <?, ?>", name.c_str(), countString);
+        {
+          if(valid)
+            n.action.customName = StringFormat::Fmt("%s(%s) => <%u, %u>", name.c_str(), countString,
+                                                    n.action.numIndices, n.action.numInstances);
+          else
+            n.action.customName = StringFormat::Fmt("%s(%s) => <?, ?>", name.c_str(), countString);
+        }
       }
       else
       {
