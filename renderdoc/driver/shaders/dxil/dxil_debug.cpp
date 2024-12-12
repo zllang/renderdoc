@@ -1686,7 +1686,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   result.value.u64v[2] = 0;
   result.value.u64v[3] = 0;
 
-  bool recordChange = true;
   switch(opCode)
   {
     case Operation::Call:
@@ -2165,8 +2164,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::AnnotateHandle:
           {
             // AnnotateHandle(res,props)
-            // Do not record changes for annotate handle
-            recordChange = false;
             rdcstr baseResource = GetArgumentName(1);
 
             ShaderVariable resource;
@@ -2175,7 +2172,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             if(resource.IsDirectAccess())
             {
               resName = m_Program.GetHandleAlias(result.name);
-              result = resource;
               // Update m_DirectHeapAccessBindings for the annotated handle
               // to use the data from the source resource
               Id baseResourceId = GetSSAId(inst.args[1]);
@@ -2186,8 +2182,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             else
             {
               resName = m_Program.GetHandleAlias(baseResource);
-              result = resource;
             }
+            result = resource;
             result.name = resName;
 
             // Parse the packed annotate handle properties
@@ -2264,8 +2260,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             const ResourceReference *resRef = m_Program.GetResourceReference(resultId);
             if(resRef)
             {
-              // Do not record the change if the resource is already known
-              recordChange = false;
               const rdcarray<ShaderVariable> *list = NULL;
               // a static known handle which should be in the global resources container
               switch(resRef->resourceBase.resClass)
@@ -2308,6 +2302,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                                                         : DescriptorCategory::ReadWriteResource;
                     result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
                     result.name = baseResource;
+                    result.type = isSRV ? VarType::ReadOnlyResource : VarType::ReadWriteResource;
                     // Default to unannotated handle
                     ClearAnnotatedHandle(result);
                   }
@@ -4649,7 +4644,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   RDCASSERT(!(result.name.empty() ^ (resultId == DXILDebug::INVALID_ID)));
   if(!result.name.empty() && resultId != DXILDebug::INVALID_ID)
   {
-    if(recordChange)
+    if(m_State)
       SetResult(resultId, result, opCode, dxOpCode, eventFlags);
 
     // Fake Output results won't be in the referencedIds
@@ -4895,8 +4890,7 @@ bool ThreadState::GetVariableHelper(Operation op, DXOp dxOpCode, ShaderVariable 
 void ThreadState::SetResult(const Id &id, ShaderVariable &result, Operation op, DXOp dxOpCode,
                             ShaderEvents flags)
 {
-  RDCASSERT(result.rows > 0);
-  RDCASSERT(result.columns > 0);
+  RDCASSERT((result.rows > 0 && result.columns > 0) || !result.members.empty());
   RDCASSERT(result.columns <= 4);
   RDCASSERTNOTEQUAL(result.type, VarType::Unknown);
 
@@ -6615,6 +6609,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   m_GlobalState.constantBlocksData.resize(count);
   for(uint32_t i = 0; i < count; i++)
   {
+    m_GlobalState.constantBlocks[i].type = VarType::ConstantBlock;
     const ConstantBlock &cbuffer = reflection.constantBlocks[i];
     uint32_t bindCount = cbuffer.bindArraySize;
     if(bindCount > 1)
