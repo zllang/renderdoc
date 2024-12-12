@@ -12449,6 +12449,45 @@ void DoSerialise(SerialiserType &ser, VkStridedDeviceAddressRegionKHR &el)
   SERIALISE_MEMBER(size);
 }
 
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo::GeometryData::Triangles &el)
+{
+  SERIALISE_MEMBER(vertexFormat);
+  SERIALISE_MEMBER(vertexStride);
+  SERIALISE_MEMBER(maxVertex);
+  SERIALISE_MEMBER(indexType);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo::GeometryData::Aabbs &el)
+{
+  SERIALISE_MEMBER(stride);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo::GeometryData &el)
+{
+  SERIALISE_MEMBER(geometryType);
+  SERIALISE_MEMBER_VKFLAGS(VkGeometryFlagsKHR, flags);
+
+  SERIALISE_MEMBER(tris);
+  SERIALISE_MEMBER(aabbs);
+
+  SERIALISE_MEMBER(buildRangeInfo);
+  SERIALISE_MEMBER(memOffset);
+}
+
+template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo &el)
+{
+  SERIALISE_MEMBER(type);
+  SERIALISE_MEMBER_VKFLAGS(VkBuildAccelerationStructureFlagsKHR, flags);
+  SERIALISE_MEMBER(geometryData);
+  SERIALISE_MEMBER(memSize);
+}
+
+INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureInfo);
+
 // pNext structs - always have deserialise for the next chain
 INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureBuildGeometryInfoKHR);
 INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureBuildSizesInfoKHR);

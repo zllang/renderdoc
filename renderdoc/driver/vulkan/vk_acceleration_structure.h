@@ -85,6 +85,11 @@ private:
   int32_t refCount = 1;
 };
 
+DECLARE_REFLECTION_STRUCT(VkAccelerationStructureInfo::GeometryData::Triangles);
+DECLARE_REFLECTION_STRUCT(VkAccelerationStructureInfo::GeometryData::Aabbs);
+DECLARE_REFLECTION_STRUCT(VkAccelerationStructureInfo::GeometryData);
+DECLARE_REFLECTION_STRUCT(VkAccelerationStructureInfo);
+
 class VulkanAccelerationStructureManager
 {
 public:

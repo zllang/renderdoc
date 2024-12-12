@@ -58,53 +58,6 @@ VkDeviceSize IndexTypeSize(VkIndexType type)
 }
 }
 
-DECLARE_STRINGISE_TYPE(VkAccelerationStructureInfo::GeometryData::Triangles);
-DECLARE_STRINGISE_TYPE(VkAccelerationStructureInfo::GeometryData::Aabbs);
-DECLARE_STRINGISE_TYPE(VkAccelerationStructureInfo::GeometryData);
-DECLARE_STRINGISE_TYPE(VkAccelerationStructureInfo);
-
-template <typename SerialiserType>
-void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo::GeometryData::Triangles &el)
-{
-  SERIALISE_MEMBER(vertexFormat);
-  SERIALISE_MEMBER(vertexStride);
-  SERIALISE_MEMBER(maxVertex);
-  SERIALISE_MEMBER(indexType);
-}
-INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureInfo::GeometryData::Triangles);
-
-template <typename SerialiserType>
-void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo::GeometryData::Aabbs &el)
-{
-  SERIALISE_MEMBER(stride);
-}
-INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureInfo::GeometryData::Aabbs);
-
-template <typename SerialiserType>
-void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo::GeometryData &el)
-{
-  SERIALISE_MEMBER(geometryType);
-  SERIALISE_MEMBER_TYPED(VkGeometryFlagBitsKHR, flags).TypedAs("VkGeometryFlagsKHR"_lit);
-
-  SERIALISE_MEMBER(tris);
-  SERIALISE_MEMBER(aabbs);
-
-  SERIALISE_MEMBER(buildRangeInfo);
-  SERIALISE_MEMBER(memOffset);
-}
-INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureInfo::GeometryData);
-
-template <typename SerialiserType>
-void DoSerialise(SerialiserType &ser, VkAccelerationStructureInfo &el)
-{
-  SERIALISE_MEMBER(type);
-  SERIALISE_MEMBER_TYPED(VkBuildAccelerationStructureFlagBitsKHR, flags)
-      .TypedAs("VkBuildAccelerationStructureFlagsKHR"_lit);
-  SERIALISE_MEMBER(geometryData);
-  SERIALISE_MEMBER(memSize);
-}
-INSTANTIATE_SERIALISE_TYPE(VkAccelerationStructureInfo);
-
 VkAccelerationStructureInfo::~VkAccelerationStructureInfo()
 {
   readbackMem.Destroy();
