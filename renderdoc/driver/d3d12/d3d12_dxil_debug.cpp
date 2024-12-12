@@ -1001,10 +1001,6 @@ bool D3D12APIWrapper::CalculateSampleGather(
     case DXOp::CalculateLOD: sampleOp = DEBUG_SAMPLE_TEX_LOD; break;
     // In the shader DEBUG_SAMPLE_TEX_LOAD and DEBUG_SAMPLE_TEX_LOAD_MS behave equivalently
     case DXOp::TextureLoad: sampleOp = DEBUG_SAMPLE_TEX_LOAD; break;
-    // TODO: consider these DXIL opcode operations
-    // DXOp::TextureGatherRaw
-    // TODO: consider these DXBC opcode operations
-    // DEBUG_SAMPLE_TEX_GATHER4_PARAM_OFFSET_CMP
     default:
       // To support a new instruction, the shader created in
       // D3D12DebugManager::CreateShaderDebugResources will need updating

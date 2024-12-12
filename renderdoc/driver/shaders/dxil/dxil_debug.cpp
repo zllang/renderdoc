@@ -31,6 +31,12 @@
 RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
 
+// TODO: Show the phi node capture variables in the UI
+// TODO: Automatically execute phi instructions after a branch
+// TODO: Assert m_Block in ThreadState is correct per instruction
+// Note: LLVM poison values are not supported
+// Note: is it worth considering GPU pointers for DXIL
+
 // normal is not zero, not subnormal, not infinite, not NaN
 inline bool RDCISNORMAL(float input)
 {
@@ -5784,7 +5790,6 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
           // TODO : WHERE IS THE BASE ELEMENT TYPE
           AddDebugType(compositeType->base);
           typeData.baseType = compositeType->base;
-          // RDCERR("Unhandled Array %s", ToStr(typeData.name).c_str());
           break;
         }
         default:
@@ -6124,7 +6129,6 @@ void Debugger::ParseDebugData()
             {
               uint32_t rows = 1;
               uint32_t columns = 1;
-              // TODO: is it worth considering GPU pointers for DXIL
               // skip past any pointer types to get the 'real' type that we'll see
               while(typeWalk && typeWalk->baseType != NULL && typeWalk->type == VarType::GPUPointer)
                 typeWalk = &m_DebugInfo.types[typeWalk->baseType];
@@ -6634,8 +6638,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     rdcarray<ShaderVariable> &dst;
   };
 
-  // TODO: need to handle SRVs, UAVs, Samplers which are arrays
-
   // Create the variables for SRVs and UAVs
   ResourceList lists[] = {
       {
@@ -6930,11 +6932,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   m_EntryPointInterface = entryPointIf;
   const rdcarray<EntryPointInterface::Signature> &inputs = m_EntryPointInterface->inputs;
 
-  // TODO: compute coverage from DXIL
-  const bool inputCoverage = false;
   const uint32_t countInParams = (uint32_t)inputs.size();
-
-  if(countInParams || inputCoverage)
+  if(countInParams)
   {
     // Make fake ShaderVariable struct to hold all the inputs
     ShaderVariable &inStruct = state.m_Input;
@@ -6942,7 +6941,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     inStruct.rows = 1;
     inStruct.columns = 1;
     inStruct.type = VarType::Struct;
-    inStruct.members.resize(countInParams + (inputCoverage ? 1 : 0));
+    inStruct.members.resize(countInParams);
 
     const rdcarray<SigParameter> &dxbcInParams = dxbcContainer->GetReflection()->InputSig;
     for(uint32_t i = 0; i < countInParams; ++i)
@@ -6984,30 +6983,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         ref.name = inStruct.name + "." + v.name;
         ref.component = c;
         inputMapping.variables.push_back(ref);
-      }
-
-      // Put the coverage mask at the end
-      if(inputCoverage)
-      {
-        // TODO
-        inStruct.members.back() = ShaderVariable("TODO_COVERAGE", 0U, 0U, 0U, 0U);
-        inStruct.members.back().columns = 1;
-
-        // TODO: handle the input of system values
-        if(false)
-        {
-          SourceVariableMapping sourcemap;
-          sourcemap.name = "SV_Coverage";
-          sourcemap.type = VarType::UInt;
-          sourcemap.rows = 1;
-          sourcemap.columns = 1;
-          // no corresponding signature element for this - maybe we should generate one?
-          sourcemap.signatureIndex = -1;
-          DebugVariableReference ref;
-          ref.type = DebugVariableType::Input;
-          ref.name = inStruct.members.back().name;
-          sourcemap.variables.push_back(ref);
-        }
       }
     }
 
@@ -7054,7 +7029,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     v.rows = (uint8_t)sig.rows;
     v.columns = (uint8_t)sig.cols;
     v.type = VarTypeForComponentType(sig.type);
-    // TODO: ShaderBuiltin::DepthOutput, ShaderBuiltin::DepthOutputLessEqual,
+    // TODO: handle the output of system values
+    // ShaderBuiltin::DepthOutput, ShaderBuiltin::DepthOutputLessEqual,
     // ShaderBuiltin::DepthOutputGreaterEqual, ShaderBuiltin::MSAACoverage,
     // ShaderBuiltin::StencilReference
 
@@ -7076,7 +7052,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     }
     ret->sourceVars.push_back(outputMapping);
 
-    // TODO: handle the output of system values
     if(0)
     {
       SourceVariableMapping sourcemap;
