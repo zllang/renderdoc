@@ -240,6 +240,8 @@ struct VulkanCreationInfo
     ShaderReflection *refl = NULL;
     SPIRVPatchData *patchData = NULL;
 
+    VkPipelineShaderStageCreateFlags flags;
+
     rdcarray<SpecConstant> specialization;
 
     // VkPipelineShaderStageRequiredSubgroupSizeCreateInfo

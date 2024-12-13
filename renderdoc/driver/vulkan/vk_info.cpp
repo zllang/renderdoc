@@ -1158,6 +1158,7 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
     shad.module = shadid;
     shad.entryPoint = pCreateInfo->pStages[i].pName;
     shad.stage = ShaderStage(stageIndex);
+    shad.flags = pCreateInfo->pStages[i].flags;
 
     ShaderModuleReflectionKey key(shad.stage, shad.entryPoint, ResourceId());
 
@@ -1784,6 +1785,7 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan, Vulk
     shad.module = shadid;
     shad.entryPoint = pCreateInfo->stage.pName;
     shad.stage = ShaderStage::Compute;
+    shad.flags = pCreateInfo->stage.flags;
 
     ShaderModuleReflectionKey key(ShaderStage::Compute, shad.entryPoint, ResourceId());
 

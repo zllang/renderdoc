@@ -608,6 +608,7 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
       stages[stageCount].pName = pipeInfo.shaders[i].entryPoint.c_str();
       stages[stageCount].pNext = NULL;
       stages[stageCount].pSpecializationInfo = NULL;
+      stages[stageCount].flags = pipeInfo.shaders[i].flags;
 
       if(pipeInfo.shaders[i].requiredSubgroupSize != 0)
       {
@@ -1081,7 +1082,7 @@ void VulkanShaderCache::MakeComputePipelineInfo(VkComputePipelineCreateInfo &pip
   stage.pName = pipeInfo.shaders[i].entryPoint.c_str();
   stage.pNext = NULL;
   stage.pSpecializationInfo = NULL;
-  stage.flags = 0;
+  stage.flags = pipeInfo.shaders[i].flags;
 
   uint32_t dataOffset = 0;
 
