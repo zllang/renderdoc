@@ -385,6 +385,7 @@ immediately before returning.
   context as needed.
 
 :param InvokeCallback callback: The callback to invoke on the UI thread.
+  Callback function signature must match :func:`InvokeCallback`.
 )");
   virtual void InvokeOntoUIThread(InvokeCallback callback) = 0;
 
@@ -403,6 +404,7 @@ added in a vertical layout.
 :param WidgetCallback closed: A callback that will be called when the widget is closed by the user.
   This implicitly deletes the widget and all its children, which will no longer be valid even if a
   handle to them exists.
+  Callback function signature must match :func:`WidgetCallback`.
 :return: The handle to the newly created widget.
 :rtype: QWidget
 )");
@@ -715,6 +717,7 @@ The widget needs to be added to a parent to become part of a panel or window.
   DOCUMENT(R"(Create a normal button widget.
 
 :param WidgetCallback pressed: Callback to be called when the button is pressed.
+  Callback function signature must match :func:`WidgetCallback`.
 :return: The handle to the newly created widget.
 :rtype: QWidget
 )");
@@ -811,6 +814,7 @@ checkerboard to be rendered instead. This is the default behaviour when a widget
 created the checkbox is unchecked.
 
 :param WidgetCallback changed: Callback to be called when the widget is toggled.
+  Callback function signature must match :func:`WidgetCallback`.
 :return: The handle to the newly created widget.
 :rtype: QWidget
 )");
@@ -823,6 +827,7 @@ Upon creation the radio box is unchecked, even in a group of other radio boxes t
 If you want a default radio box to be checked, you should use :meth:`SetWidgetChecked`.
 
 :param WidgetCallback changed: Callback to be called when the widget is toggled.
+  Callback function signature must match :func:`WidgetCallback`.
 :return: The handle to the newly created widget.
 :rtype: QWidget
 )");
@@ -893,6 +898,7 @@ happen.
 :param bool singleLine: ``True`` if the widget should be a single-line entry, otherwise it is a
   multi-line text box.
 :param WidgetCallback changed: Callback to be called when the text in the textbox is changed.
+  Callback function signature must match :func:`WidgetCallback`.
 :return: The handle to the newly created widget.
 :rtype: QWidget
 )");
@@ -907,6 +913,7 @@ When created there are no pre-defined entries in the drop-down section. This can
   well as being able to select a pre-defined entry.
 :param WidgetCallback changed: Callback to be called when the text in the combobox is changed. This
   will be called both when a new option is selected or when the user edits the text.
+  Callback function signature must match :func:`WidgetCallback`.
 :return: The handle to the newly created widget.
 :rtype: QWidget
 )");
@@ -1081,6 +1088,7 @@ struct IExtensionManager
   last string will be the name of the menu item itself. Must contain at least one entry, or two
   entries if ``base`` is :data:`WindowMenu.NewMenu`.
 :param ExtensionCallback callback: The function to callback when the menu item is selected.
+  Callback function signature must match :func:`ExtensionCallback`.
 )");
   virtual void RegisterWindowMenu(WindowMenu base, const rdcarray<rdcstr> &submenus,
                                   ExtensionCallback callback) = 0;
@@ -1096,6 +1104,7 @@ struct IExtensionManager
 :param List[str] submenus: A list of strings containing the submenus to add before the item. The
   last string will be the name of the menu item itself. Must contain at least one entry.
 :param ExtensionCallback callback: The function to callback when the menu item is selected.
+  Callback function signature must match :func:`ExtensionCallback`.
 )");
   virtual void RegisterPanelMenu(PanelMenu base, const rdcarray<rdcstr> &submenus,
                                  ExtensionCallback callback) = 0;
@@ -1111,6 +1120,7 @@ struct IExtensionManager
 :param List[str] submenus: A list of strings containing the submenus to add before the item. The
   last string will be the name of the menu item itself. Must contain at least one entry.
 :param ExtensionCallback callback: The function to callback when the menu item is selected.
+  Callback function signature must match :func:`ExtensionCallback`.
 )");
   virtual void RegisterContextMenu(ContextMenu base, const rdcarray<rdcstr> &submenus,
                                    ExtensionCallback callback) = 0;

@@ -170,6 +170,7 @@ will be invoked, if it exists.
   for a global shortcut. Note that if an existing global shortcut exists the new one will not be
   registered.
 :param ShortcutCallback callback: The function to callback when the shortcut is hit.
+  Callback function signature must match :func:`ShortcutCallback`.
 )");
   virtual void RegisterShortcut(const rdcstr &shortcut, QWidget *widget,
                                 ShortcutCallback callback) = 0;
@@ -207,7 +208,7 @@ DOCUMENT(R"(The event browser window.
   Not a member function - the signature for any ``EventFilterCallback`` callbacks.
 
   Called for each event in a capture when performing filtering in the Event Browser. The associated
-  ``FilterParseCallback`` will be called first to parse the parameters, and is available for caching
+  :func:`FilterParseCallback` will be called first to parse the parameters, and is available for caching
   or syntax checking. The same filter name and params string will be passed to this function.
 
   :param CaptureContext context: The current capture context.
@@ -343,10 +344,13 @@ expression.
   what each filter means.
 :param EventFilterCallback filter: The callback to call for each candidate event to perform
   filtering.
+  Callback function signature must match :func:`EventFilterCallback`.
 :param FilterParseCallback parser: The callback to call when the parsing the parameters and checking
   for any errors. This can be ``None`` if no pre-parsing is required.
+  Callback function signature must match :func:`FilterParseCallback`.
 :param AutoCompleteCallback completer: The callback to call when trying to provide autocomplete
   suggestions. This can be ``None`` if no completion is desired/applicable.
+  Callback function signature must match :func:`AutoCompleteCallback`.
 :return: Whether or not the registration was successful.
 :rtype: bool
 )");
@@ -1468,6 +1472,7 @@ blocking fashion on the current thread.
 :param bool synchronous: If a capture is open, then ``True`` will use :meth:`BlockInvoke` to call
   the callback. Otherwise if ``False`` then :meth:`AsyncInvoke` will be used.
 :param DirectoryBrowseCallback callback: The function to callback on the replay thread.
+  Callback function signature must match :func:`DirectoryBrowseCallback`.
 )");
   virtual void GetHomeFolder(bool synchronous, DirectoryBrowseCallback callback) = 0;
 
@@ -1480,6 +1485,7 @@ blocking fashion on the current thread.
 :param bool synchronous: If a capture is open, then ``True`` will use :meth:`BlockInvoke` to call
   the callback. Otherwise if ``False`` then :meth:`AsyncInvoke` will be used.
 :param DirectoryBrowseCallback callback: The function to callback on the replay thread.
+  Callback function signature must match :func:`DirectoryBrowseCallback`.
 )");
   virtual void ListFolder(const rdcstr &path, bool synchronous, DirectoryBrowseCallback callback) = 0;
 
@@ -1524,12 +1530,14 @@ comes in, we remove any other requests in the queue before it that have the same
 
 :param str tag: The tag to identify this callback.
 :param InvokeCallback method: The function to callback on the replay thread.
+  Callback function signature must match :func:`InvokeCallback`.
 )");
   virtual void AsyncInvoke(const rdcstr &tag, InvokeCallback method) = 0;
 
   DOCUMENT(R"(Make a non-blocking invoke call onto the replay thread.
 
 :param InvokeCallback method: The function to callback on the replay thread.
+  Callback function signature must match :func:`InvokeCallback`.
 )");
   virtual void AsyncInvoke(InvokeCallback method) = 0;
 
@@ -1539,6 +1547,7 @@ comes in, we remove any other requests in the queue before it that have the same
   DOCUMENT(R"(Make a blocking invoke call onto the replay thread.
 
 :param InvokeCallback method: The function to callback on the replay thread.
+  Callback function signature must match :func:`InvokeCallback`.
 )");
   virtual void BlockInvoke(InvokeCallback method) = 0;
 
@@ -2564,8 +2573,10 @@ place if needed.
 :param renderdoc.ShaderCompileFlags flags: The flags originally used to compile the shader.
 :param ShaderViewer.SaveCallback saveCallback: The callback function to call when a save/update is
   triggered.
+  Callback function signature must match :func:`ShaderViewer.SaveCallback`.
 :param ShaderViewer.RevertCallback revertCallback: The callback function to call when the shader
   is to be reverted - either by user request or because the shader viewer was closed.
+  Callback function signature must match :func:`ShaderViewer.RevertCallback`.
 :return: The new :class:`ShaderViewer` window opened but not shown for editing.
 :rtype: ShaderViewer
 )");
