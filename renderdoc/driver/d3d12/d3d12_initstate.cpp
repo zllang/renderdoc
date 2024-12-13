@@ -94,7 +94,12 @@ bool D3D12ResourceManager::Prepare_InitialState(ID3D12DeviceChild *res)
     D3D12Descriptor *descs = new D3D12Descriptor[numElems];
     memcpy(descs, heap->GetDescriptors(), sizeof(D3D12Descriptor) * numElems);
 
-    SetInitialContents(heap->GetResourceID(), D3D12InitialContents(descs, numElems));
+    D3D12InitialContents initContents(descs, numElems);
+
+    if(heap->HasNames())
+      initContents.descriptorNames = heap->GetNames();
+
+    SetInitialContents(heap->GetResourceID(), initContents);
     return true;
   }
   else if(type == Resource_Resource)
@@ -768,6 +773,7 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
   {
     D3D12Descriptor *Descriptors = initial ? initial->descriptors : NULL;
     uint32_t numElems = initial ? initial->numDescriptors : 0;
+    rdcarray<rdcstr> names = initial ? initial->descriptorNames : rdcarray<rdcstr>();
 
     // there's no point in setting up a lazy array when we're structured exporting because we KNOW
     // we're going to need all the data anyway.
@@ -777,6 +783,11 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
     SERIALISE_ELEMENT_ARRAY(Descriptors, numElems);
     SERIALISE_ELEMENT(numElems).Named("NumDescriptors"_lit).Important();
 
+    if(ser.VersionAtLeast(0x13))
+    {
+      SERIALISE_ELEMENT(names).Hidden();
+    }
+
     ser.SetLazyThreshold(0);
 
     SERIALISE_CHECK_READ_ERRORS();
@@ -784,6 +795,9 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
     if(IsReplayingAndReading())
     {
       WrappedID3D12DescriptorHeap *heap = (WrappedID3D12DescriptorHeap *)GetLiveResource(id);
+
+      if(!names.empty())
+        heap->GetNames() = names;
 
       D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
 

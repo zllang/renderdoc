@@ -506,6 +506,10 @@ bool D3D12InitParams::IsSupportedVersion(uint64_t ver)
   if(ver == 0x11)
     return true;
 
+  // 0x12 -> 0x13 - Descriptor heap initial states contain optional user names for descriptors
+  if(ver == 0x12)
+    return true;
+
   return false;
 }
 

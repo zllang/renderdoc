@@ -793,6 +793,7 @@ struct D3D12InitialContents
   ID3D12DeviceChild *resource;
   byte *srcData;
   size_t dataSize;
+  rdcarray<rdcstr> descriptorNames;
 
   rdcarray<uint32_t> subresources;
 

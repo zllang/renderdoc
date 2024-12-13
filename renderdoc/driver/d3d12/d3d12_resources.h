@@ -469,7 +469,15 @@ public:
 
 struct D3D12Descriptor;
 
-class WrappedID3D12DescriptorHeap : public WrappedDeviceChild12<ID3D12DescriptorHeap>
+MIDL_INTERFACE("52528c37-bfd9-4bbb-99ff-fdb7188619ce")
+IRenderDocDescriptorNamer : public IUnknown
+{
+public:
+  virtual HRESULT STDMETHODCALLTYPE SetName(UINT DescriptorIndex, LPCSTR Name) = 0;
+};
+
+class WrappedID3D12DescriptorHeap : public WrappedDeviceChild12<ID3D12DescriptorHeap>,
+                                    public IRenderDocDescriptorNamer
 {
   D3D12_CPU_DESCRIPTOR_HANDLE realCPUBase;
   D3D12_GPU_DESCRIPTOR_HANDLE realGPUBase;
@@ -487,6 +495,9 @@ class WrappedID3D12DescriptorHeap : public WrappedDeviceChild12<ID3D12Descriptor
   // (which applications then queried and passed to the GPU) which is used for GPU-unwrapping handles
   uint64_t m_OriginalWrappedGPUBase;
 
+  Threading::CriticalSection namesLock;
+  rdcarray<rdcstr> names;
+
 public:
   ALLOCATE_WITH_WRAPPED_POOL(WrappedID3D12DescriptorHeap);
 
@@ -498,6 +509,33 @@ public:
   WrappedID3D12DescriptorHeap(ID3D12DescriptorHeap *real, WrappedID3D12Device *device,
                               const D3D12_DESCRIPTOR_HEAP_DESC &desc, UINT UnpatchedNumDescriptors);
   virtual ~WrappedID3D12DescriptorHeap();
+
+  ULONG STDMETHODCALLTYPE AddRef() { return WrappedDeviceChild12::AddRef(); }
+  ULONG STDMETHODCALLTYPE Release() { return WrappedDeviceChild12::Release(); }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppvObject)
+  {
+    if(riid == __uuidof(IRenderDocDescriptorNamer))
+    {
+      *ppvObject = (IRenderDocDescriptorNamer *)this;
+      // allocate names array now
+      GetNames();
+      AddRef();
+      return S_OK;
+    }
+    return WrappedDeviceChild12::QueryInterface(riid, ppvObject);
+  }
+
+  bool HasNames()
+  {
+    SCOPED_LOCK(namesLock);
+    return !names.empty();
+  }
+  rdcarray<rdcstr> &GetNames()
+  {
+    SCOPED_LOCK(namesLock);
+    names.resize(numDescriptors);
+    return names;
+  }
 
   D3D12Descriptor *GetDescriptors() { return descriptors; }
   UINT GetNumDescriptors() { return numDescriptors; }
@@ -545,6 +583,23 @@ public:
   }
 
   uint32_t GetUnwrappedIncrement() const { return increment; }
+
+  //////////////////////////////
+  // implement IRenderDocDescriptorNamer
+
+  virtual HRESULT STDMETHODCALLTYPE SetName(UINT DescriptorIndex, LPCSTR Name)
+  {
+    if(DescriptorIndex >= numDescriptors)
+      return E_INVALIDARG;
+
+    SCOPED_LOCK(namesLock);
+    if(!Name || !Name[0])
+      names[DescriptorIndex].clear();
+    else
+      names[DescriptorIndex] = Name;
+
+    return S_OK;
+  }
 };
 
 class WrappedID3D12Fence : public WrappedDeviceChild12<ID3D12Fence, ID3D12Fence1>

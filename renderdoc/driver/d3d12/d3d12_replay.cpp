@@ -2129,6 +2129,16 @@ rdcarray<DescriptorLogicalLocation> D3D12Replay::GetDescriptorLocations(
     {
       // can't set anything except the "bind number" which we just set as the offset.
       ret[dst].fixedBindNumber = descriptorId;
+      if(heap->HasNames())
+      {
+        rdcstr name = heap->GetNames()[descriptorId];
+        if(!name.empty())
+        {
+          ret[dst].logicalBindName = StringFormat::Fmt("%s[%u]", name.c_str(), descriptorId);
+          continue;
+        }
+      }
+
       if(sampler)
         ret[dst].logicalBindName = StringFormat::Fmt("SamplerDescriptorHeap[%u]", descriptorId);
       else
