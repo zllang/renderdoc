@@ -39,6 +39,7 @@ ExtensionManager::ExtensionManager(ICaptureContext &ctx)
     : QDialog(NULL), ui(new Ui::ExtensionManager), m_Ctx(ctx)
 {
   ui->setupUi(this);
+  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
   {
     RDHeaderView *header = new RDHeaderView(Qt::Horizontal, this);
