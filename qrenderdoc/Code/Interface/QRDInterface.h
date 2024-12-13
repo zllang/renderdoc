@@ -134,6 +134,8 @@ DECLARE_REFLECTION_STRUCT(CaptureSettings);
 
 DOCUMENT(R"(The main parent window of the application.
 
+This window is retrieved by calling :meth:`CaptureContext.GetMainWindow`.
+
 .. function:: ShortcutCallback(QWidget focusWidget)
 
   Not a member function - the signature for any ``ShortcutCallback`` callbacks.
@@ -202,6 +204,8 @@ protected:
 DECLARE_REFLECTION_STRUCT(IMainWindow);
 
 DOCUMENT(R"(The event browser window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetEventBrowser`.
 
 .. function:: EventFilterCallback(context, filter, params, eventId, chunk, action, name)
 
@@ -424,7 +428,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IEventBrowser);
 
-DOCUMENT("The API inspector window.");
+DOCUMENT(R"(The API inspector window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetAPIInspector`.
+)");
 struct IAPIInspector
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`APIInspector` if PySide2 is available, or otherwise
@@ -547,7 +554,10 @@ enum class PipelineStage : int
   SampleMask,
 };
 
-DOCUMENT("The pipeline state viewer window.");
+DOCUMENT(R"(The pipeline state viewer window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetPipelineViewer`.
+)");
 struct IPipelineStateViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`PipelineStateViewer` if PySide2 is available, or otherwise
@@ -615,7 +625,10 @@ enum class FollowType : int
   OutputDepthResolve
 };
 
-DOCUMENT("The texture viewer window.");
+DOCUMENT(R"(The texture viewer window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetTextureViewer`.
+)");
 struct ITextureViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`TextureViewer` if PySide2 is available, or otherwise
@@ -761,7 +774,14 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(ITextureViewer);
 
-DOCUMENT("The buffer viewer window, either a raw buffer or the geometry pipeline.");
+DOCUMENT(R"(The buffer viewer window, either a raw buffer or the geometry pipeline.
+
+This mesh viewer is retrieved by calling :meth:`CaptureContext.GetMeshPreview`.
+
+A raw buffer viewer can be opened by calling :meth:`CaptureContext.ViewBuffer`,
+:meth:`CaptureContext.ViewTextureAsBuffer`, or :meth:`CaptureContext.ViewConstantBuffer`.
+
+)");
 struct IBufferViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`BufferViewer` if PySide2 is available, or otherwise
@@ -821,7 +841,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IBufferViewer);
 
-DOCUMENT("The Resource inspector window.");
+DOCUMENT(R"(The Resource inspector window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetResourceInspector`.
+)");
 struct IResourceInspector
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`ResourceInspector` if PySide2 is available, or otherwise
@@ -859,7 +882,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IResourceInspector);
 
-DOCUMENT("The executable capture window.");
+DOCUMENT(R"(The executable capture window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetCaptureDialog`.
+)");
 struct ICaptureDialog
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`CaptureDialog` if PySide2 is available, or otherwise
@@ -948,7 +974,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(ICaptureDialog);
 
-DOCUMENT("The debug warnings and errors window.");
+DOCUMENT(R"(The debug warnings and errors window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetDebugMessageView`.
+)");
 struct IDebugMessageView
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`DebugMessageView` if PySide2 is available, or otherwise
@@ -967,7 +996,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IDebugMessageView);
 
-DOCUMENT("The diagnostic log viewing window.");
+DOCUMENT(R"(The diagnostic log viewing window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetDiagnosticLogView`.
+)");
 struct IDiagnosticLogView
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`DiagnosticLogView` if PySide2 is available, or otherwise
@@ -986,7 +1018,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IDiagnosticLogView);
 
-DOCUMENT("The capture comments window.");
+DOCUMENT(R"(The capture comments window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetCommentView`.
+)");
 struct ICommentView
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`CommentView` if PySide2 is available, or otherwise
@@ -1018,7 +1053,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(ICommentView);
 
-DOCUMENT("The statistics window.");
+DOCUMENT(R"(The statistics window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetStatisticsViewer`.
+)");
 struct IStatisticsViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`StatisticsViewer` if PySide2 is available, or otherwise
@@ -1035,7 +1073,10 @@ protected:
   ~IStatisticsViewer() = default;
 };
 
-DOCUMENT("The timeline bar.");
+DOCUMENT(R"(The timeline bar.
+
+This window is retrieved by calling :meth:`CaptureContext.GetTimelineBar`.
+)");
 struct ITimelineBar
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`TimelineBar` if PySide2 is available, or otherwise
@@ -1067,7 +1108,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IStatisticsViewer);
 
-DOCUMENT("The performance counter view window.");
+DOCUMENT(R"(The performance counter view window.
+
+This window is retrieved by calling :meth:`CaptureContext.GetPerformanceCounterViewer`.
+)");
 struct IPerformanceCounterViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`PerformanceCounterViewer` if PySide2 is available, or otherwise
@@ -1089,7 +1133,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IPerformanceCounterViewer);
 
-DOCUMENT("The interactive python shell.");
+DOCUMENT(R"(The interactive python shell.
+
+This window is retrieved by calling :meth:`CaptureContext.GetPythonShell`.
+)");
 struct IPythonShell
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`PythonShell` if PySide2 is available, or otherwise
@@ -1134,6 +1181,9 @@ protected:
 DECLARE_REFLECTION_STRUCT(IPythonShell);
 
 DOCUMENT(R"(A shader window used for viewing, editing, or debugging.
+
+This window is retrieved by calling :meth:`CaptureContext.ViewShader`,
+:meth:`CaptureContext.EditShader`, or :meth:`CaptureContext.DebugShader`.
 
 .. function:: SaveCallback(context, viewer, encoding, flags, entry, compiled)
 
@@ -1234,7 +1284,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IShaderViewer);
 
-DOCUMENT("A shader message list window.");
+DOCUMENT(R"(A shader message list window.
+
+This window is retrieved by calling :meth:`CaptureContext.ViewShaderMessages`.
+)");
 struct IShaderMessageViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`ShaderMessageViewer` if PySide2 is available, or otherwise
@@ -1275,7 +1328,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IShaderMessageViewer);
 
-DOCUMENT("A descriptor viewer window.");
+DOCUMENT(R"(A descriptor viewer window.
+
+This window is retrieved by calling :meth:`CaptureContext.ViewDescriptorStore` or :meth:`CaptureContext.ViewDescriptors`.
+)");
 struct IDescriptorViewer
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`DescriptorViewer` if PySide2 is available, or otherwise
@@ -1294,7 +1350,10 @@ protected:
 
 DECLARE_REFLECTION_STRUCT(IDescriptorViewer);
 
-DOCUMENT("A pixel history window.");
+DOCUMENT(R"(A pixel history window.
+
+This window is retrieved by calling :meth:`CaptureContext.ViewPixelHistory`.
+)");
 struct IPixelHistoryView
 {
   DOCUMENT(R"(Retrieves the PySide2 QWidget for this :class:`PixelHistoryView` if PySide2 is available, or otherwise
@@ -1362,6 +1421,8 @@ DECLARE_REFLECTION_STRUCT(ICaptureViewer *);
 DOCUMENT(R"(A manager for accessing the underlying replay information that isn't already abstracted
 in UI side structures. This manager controls and serialises access to the underlying
 :class:`~renderdoc.ReplayController`, as well as handling remote server connections.
+
+This manager is retrieved by calling :meth:`CaptureContext.Replay`.
 
 .. function:: InvokeCallback(controller)
 

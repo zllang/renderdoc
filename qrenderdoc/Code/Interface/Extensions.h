@@ -346,6 +346,8 @@ helper exposes a small subset of Qt via RenderDoc's python bindings.
 The intention is not to allow fully flexible building of Qt panels, but to allow access to some
 basic UI building tools for simple data input and display which can be used on any RenderDoc build.
 
+This manager is retrieved by calling :meth:`ExtensionManager.GetMiniQtHelper`.
+
 .. note::
   The widget handles returned are PySide2 widgets where that is available, so this can be used to
   make a basic UI and optionally customise it further with PySide2 when possible.
@@ -1029,6 +1031,8 @@ DECLARE_REFLECTION_STRUCT(IMiniQtHelper);
 
 DOCUMENT(R"(A manager for listing available and active extensions, as well as the interface for
 extensions to register hooks and additional functionality.
+
+This manager is retrieved by calling :meth:`CaptureContext.Extensions`.
 
 .. function:: ExtensionCallback(context, data)
 

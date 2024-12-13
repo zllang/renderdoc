@@ -651,6 +651,8 @@ struct CustomPersistentStorage
 DOCUMENT(R"(A persistant config file that is automatically loaded and saved, which contains any
 settings and information that needs to be preserved from one run to the next.
 
+The config is retrieved by calling :meth:`CaptureContext.Config`.
+
 For more information about some of these settings that are user-facing see
 :ref:`the documentation for the settings window <settings-window>`.
 )");
