@@ -46,9 +46,6 @@ RDOC_DEBUG_CONFIG(bool, Vulkan_Debug_SingleSubmitFlushing, false,
                   "Every command buffer is submitted and fully flushed to the GPU, to narrow down "
                   "the source of problems.");
 
-RDOC_DEBUG_CONFIG(bool, Vulkan_Experimental_EnableRTSupport, false,
-                  "Enable experimental Vulkan RT support");
-
 uint64_t VkInitParams::GetSerialiseSize()
 {
   // misc bytes and fixed integer members
@@ -2065,10 +2062,6 @@ VkResult WrappedVulkan::FilterDeviceExtensionProperties(VkPhysicalDevice physDev
 
       if(!strcmp(ext.extensionName, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME))
       {
-        // remove unconditionally if the option isn't on
-        if(!Vulkan_Experimental_EnableRTSupport())
-          return true;
-
         // require GPDP2
         if(instDevInfo->ext_KHR_get_physical_device_properties2)
         {
@@ -2096,25 +2089,8 @@ VkResult WrappedVulkan::FilterDeviceExtensionProperties(VkPhysicalDevice physDev
         return true;
       }
 
-      // remove unconditionally if the option isn't on
-      if(!strcmp(ext.extensionName, VK_KHR_RAY_QUERY_EXTENSION_NAME))
-      {
-        if(!Vulkan_Experimental_EnableRTSupport())
-          return true;
-      }
-
-      if(!strcmp(ext.extensionName, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME))
-      {
-        if(!Vulkan_Experimental_EnableRTSupport())
-          return true;
-      }
-
       if(!strcmp(ext.extensionName, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME))
       {
-        // remove unconditionally if the option isn't on
-        if(!Vulkan_Experimental_EnableRTSupport())
-          return true;
-
         // require GPDP2
         if(instDevInfo->ext_KHR_get_physical_device_properties2)
         {
