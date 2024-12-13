@@ -91,7 +91,7 @@ public slots:
   void updateFormatList();
 
 private slots:
-  void on_apply_clicked();
+  void apply_clicked();
 
 private:
   Ui::BufferFormatSpecifier *ui;
