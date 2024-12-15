@@ -3327,8 +3327,46 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[0] = accum;
             break;
           }
-          // Likely to implement when required
           case DXOp::Ibfe:
+          {
+            // Ibfe(a,b,c)
+            // Given a range of bits in a number:
+            //   shift those bits to the LSB, sign extend the MSB of the range.
+            // width : The LSB 5 bits of a (0-31).
+            // offset: The LSB 5 bits of b (0-31)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[3]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[3]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            ShaderVariable c;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, c));
+            RDCASSERTEQUAL(a.type, b.type);
+            RDCASSERTEQUAL(a.type, c.type);
+            uint32_t width = a.value.u32v[0] & 0x1f;
+            uint32_t offset = b.value.u32v[0] & 0x1f;
+
+            if(width == 0)
+            {
+              result.value.s32v[0] = 0;
+            }
+            else if(width + offset < 32)
+            {
+              result.value.s32v[0] = c.value.s32v[0] << (32 - (width + offset));
+              result.value.s32v[0] = result.value.s32v[0] >> (32 - width);
+            }
+            else
+            {
+              result.value.s32v[0] = c.value.s32v[0] >> offset;
+            }
+            break;
+          }
+          // Likely to implement when required
           case DXOp::Ubfe:
           case DXOp::Bfi:
           case DXOp::MakeDouble:
