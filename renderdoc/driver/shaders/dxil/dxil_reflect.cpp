@@ -1876,8 +1876,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::CallShader:
               case DXOp::CreateHandleForLib:
               case DXOp::PrimitiveIndex:
-              case DXOp::Dot4AddI8Packed:
-              case DXOp::Dot4AddU8Packed:
               case DXOp::WaveMatch:
               case DXOp::WaveMultiPrefixOp:
               case DXOp::WaveMultiPrefixBitCount:

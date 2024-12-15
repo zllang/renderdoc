@@ -3627,6 +3627,47 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.f32v[0] = acc + ax * bx + ay * by;
             break;
           }
+          case DXOp::Dot4AddI8Packed:
+          case DXOp::Dot4AddU8Packed:
+          {
+            // SM6.4
+            // Dot4AddI8Packed(acc,a,b)
+            // signed dot product of 4 x i8 vectors packed into i32, with accumulate to i32
+            // Dot4AddU8Packed(acc,a,b)
+            // unsigned dot product of 4 x u8 vectors packed into i32, with accumulate to i32
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 32);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->bitWidth, 32);
+            RDCASSERTEQUAL(inst.args[3]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[3]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[3]->type->bitWidth, 32);
+            ShaderVariable acc;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, acc));
+            ShaderVariable a;
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, a));
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, b));
+
+            if(dxOpCode == DXOp::Dot4AddI8Packed)
+            {
+              int32_t res = acc.value.s32v[0];
+              for(uint32_t col = 0; col < 4; ++col)
+                res += (int32_t)a.value.s8v[col] * (int32_t)b.value.s8v[col];
+              result.value.s32v[0] = res;
+            }
+            else
+            {
+              uint32_t res = acc.value.u32v[0];
+              for(uint32_t col = 0; col < 4; ++col)
+                res += (uint32_t)a.value.u8v[col] * (uint32_t)b.value.u8v[col];
+              result.value.u32v[0] = res;
+            }
+            break;
+          }
+
           // Likely to implement when required
           // SM6.7
           case DXOp::QuadVote:
@@ -3649,12 +3690,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::BufferUpdateCounter:
             // For UAV buffer with counter: must be RWRawBuffer
             // atomically increments/decrements the hidden 32-bit counter stored with a Count or Append UAV
-
-          // SM6.4
-          case DXOp::Dot4AddI8Packed:
-            // signed dot product of 4 x i8 vectors packed into i32, with accumulate to i32
-          case DXOp::Dot4AddU8Packed:
-            // unsigned dot product of 4 x u8 vectors packed into i32, with accumulate to i32
 
           // SM6.6
           case DXOp::Unpack4x8:
