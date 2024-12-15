@@ -1846,12 +1846,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WavePrefixOp:
               case DXOp::QuadReadLaneAt:
               case DXOp::QuadOp:
-              case DXOp::BitcastI16toF16:
-              case DXOp::BitcastF16toI16:
-              case DXOp::BitcastI32toF32:
-              case DXOp::BitcastF32toI32:
-              case DXOp::BitcastI64toF64:
-              case DXOp::BitcastF64toI64:
               case DXOp::LegacyDoubleToFloat:
               case DXOp::LegacyDoubleToSInt32:
               case DXOp::LegacyDoubleToUInt32:

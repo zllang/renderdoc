@@ -3468,13 +3468,43 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[1] = (uint32_t)(a.value.u64v[0] >> 32);
             break;
           }
-          // Likely to implement when required
           case DXOp::BitcastI16toF16:
           case DXOp::BitcastF16toI16:
+          {
+            // BitcastI16toF16(value)
+            // BitcastF16toI16(value)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 16);
+            ShaderVariable a;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            result.value.u16v[0] = a.value.u16v[0];
+            break;
+          }
           case DXOp::BitcastI32toF32:
           case DXOp::BitcastF32toI32:
+          {
+            // BitcastI32toF32(value)
+            // BitcastF32toI32(value)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 32);
+            ShaderVariable a;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            result.value.u32v[0] = a.value.u32v[0];
+            break;
+          }
           case DXOp::BitcastI64toF64:
           case DXOp::BitcastF64toI64:
+          {
+            // BitcastI64toF64(value)
+            // BitcastF64toI64(value)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 64);
+            ShaderVariable a;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            result.value.u64v[0] = a.value.u64v[0];
+            break;
+          }
+          // Likely to implement when required
           case DXOp::LegacyDoubleToFloat:
           case DXOp::LegacyDoubleToSInt32:
           case DXOp::LegacyDoubleToUInt32:
