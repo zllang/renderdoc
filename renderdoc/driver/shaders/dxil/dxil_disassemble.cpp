@@ -4100,6 +4100,31 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   break;
                 }
+                case DXOp::QuadOp:
+                {
+                  // QuadOp(value,op)
+                  QuadOpKind quadOpKind;
+                  if(getival<QuadOpKind>(inst.args[2], quadOpKind))
+                  {
+                    // QuadReadAcrossDiagonal
+                    // QuadReadAcrossX
+                    // QuadReadAcrossY
+                    if(quadOpKind == QuadOpKind::ReadAcrossX)
+                      lineStr += "QuadReadAcrossX";
+                    else if(quadOpKind == QuadOpKind::ReadAcrossY)
+                      lineStr += "QuadReadAcrossY";
+                    else if(quadOpKind == QuadOpKind::ReadAcrossDiagonal)
+                      lineStr += "QuadReadAcrossDiagonal";
+                    lineStr += "(";
+                    lineStr += GetArgId(inst, 1);
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::Dot2:
                 case DXOp::Dot3:
                 case DXOp::Dot4:

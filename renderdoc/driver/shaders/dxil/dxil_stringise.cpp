@@ -128,6 +128,18 @@ rdcstr DoStringise(const DXIL::AtomicBinOpCode &el)
 }
 
 template <>
+rdcstr DoStringise(const DXIL::QuadOpKind &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::QuadOpKind)
+  {
+    STRINGISE_ENUM_CLASS(ReadAcrossX)
+    STRINGISE_ENUM_CLASS(ReadAcrossY)
+    STRINGISE_ENUM_CLASS(ReadAcrossDiagonal)
+  }
+  END_ENUM_STRINGISE();
+};
+
+template <>
 rdcstr DoStringise(const DXIL::Operation &el)
 {
   BEGIN_ENUM_STRINGISE(DXIL::Operation)

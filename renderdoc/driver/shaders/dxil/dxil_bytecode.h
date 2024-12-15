@@ -618,6 +618,16 @@ enum class AtomicBinOpCode : uint32_t
   Invalid    // Must be last.
 };
 
+enum class QuadOpKind : uint32_t
+{
+  ReadAcrossX = 0,           // returns the value from the other lane in the quad in the
+                             // horizontal direction
+  ReadAcrossY = 1,           // returns the value from the other lane in the quad in the
+                             // vertical direction
+  ReadAcrossDiagonal = 2,    // returns the value from the lane across the quad in
+                             // horizontal and vertical direction
+};
+
 enum class BarrierMode : uint32_t
 {
   Invalid = 0,
@@ -1763,6 +1773,7 @@ void SanitiseName(rdcstr &name);
 DECLARE_REFLECTION_ENUM(DXIL::Attribute);
 DECLARE_STRINGISE_TYPE(DXIL::InstructionFlags);
 DECLARE_STRINGISE_TYPE(DXIL::AtomicBinOpCode);
+DECLARE_STRINGISE_TYPE(DXIL::QuadOpKind);
 DECLARE_STRINGISE_TYPE(DXIL::Operation);
 DECLARE_STRINGISE_TYPE(DXIL::DXOp);
 DECLARE_STRINGISE_TYPE(DXIL::Type::TypeKind);
