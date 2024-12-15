@@ -3441,8 +3441,20 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 (uint32_t)(((c.value.u32v[0] << offset) & bitmask) | (d.value.u32v[0] & ~bitmask));
             break;
           }
-          // Likely to implement when required
           case DXOp::MakeDouble:
+          {
+            // MakeDouble(lo,hi)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            ShaderVariable a;
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERTEQUAL(a.type, b.type);
+            result.value.u64v[0] = ((uint64_t)b.value.u32v[0] << 32) | a.value.u32v[0];
+            break;
+          }
+          // Likely to implement when required
           case DXOp::SplitDouble:
           case DXOp::BitcastI16toF16:
           case DXOp::BitcastF16toI16:

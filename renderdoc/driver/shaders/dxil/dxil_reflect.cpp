@@ -1826,7 +1826,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::CutStream:
               case DXOp::EmitThenCutStream:
               case DXOp::GSInstanceID:
-              case DXOp::MakeDouble:
               case DXOp::SplitDouble:
               case DXOp::LoadOutputControlPoint:
               case DXOp::LoadPatchConstant:
