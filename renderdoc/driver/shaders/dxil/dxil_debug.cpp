@@ -3454,8 +3454,21 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u64v[0] = ((uint64_t)b.value.u32v[0] << 32) | a.value.u32v[0];
             break;
           }
-          // Likely to implement when required
           case DXOp::SplitDouble:
+          {
+            // SplitDouble(value)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 64);
+            ShaderVariable a;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            // lo
+            result.value.u32v[0] = (uint32_t)(a.value.u64v[0] & 0xffffffff);
+            // hi
+            result.value.u32v[1] = (uint32_t)(a.value.u64v[0] >> 32);
+            break;
+          }
+          // Likely to implement when required
           case DXOp::BitcastI16toF16:
           case DXOp::BitcastF16toI16:
           case DXOp::BitcastI32toF32:
