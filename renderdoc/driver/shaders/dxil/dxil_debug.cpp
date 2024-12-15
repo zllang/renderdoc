@@ -3429,7 +3429,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // The LSB 5 bits of offset provide the bitfield offset (0-31) to start replacing bits
             // in the number read from replacedValue.
 
-            // Given width, ofset:
+            // Given width, offset:
             //   bitmask = (((1 << width)-1) << offset) & 0xffffffff
             //   dest = ((value << offset) & bitmask) | (replacedValue & ~bitmask)
             RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
@@ -3521,6 +3521,79 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u64v[0] = a.value.u64v[0];
             break;
           }
+          // Quad Operations
+          case DXOp::QuadReadLaneAt:
+          case DXOp::QuadOp:
+          {
+            RDCASSERT(!ThreadsAreDiverged(workgroups));
+            // QuadOp(value,op)
+            // QuadReadLaneAt(value,quadLane)
+            Id id = GetArgumentId(1);
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            uint32_t lane = UINT32_MAX;
+            if(dxOpCode == DXOp::QuadOp)
+            {
+              QuadOpKind quadOp = (QuadOpKind)b.value.u32v[0];
+              switch(quadOp)
+              {
+                case QuadOpKind::ReadAcrossX:
+                {
+                  // 0->1
+                  // 1->0
+                  // 2->3
+                  // 3->2
+                  if(m_WorkgroupIndex % 2 == 0)
+                    lane = m_WorkgroupIndex + 1;
+                  else
+                    lane = m_WorkgroupIndex - 1;
+                  break;
+                }
+                case QuadOpKind::ReadAcrossY:
+                {
+                  // 0->2
+                  // 1->3
+                  // 2->0
+                  // 3->1
+                  if(m_WorkgroupIndex < 2)
+                    lane = m_WorkgroupIndex + 2;
+                  else
+                    lane = m_WorkgroupIndex - 2;
+                  break;
+                }
+                case QuadOpKind::ReadAcrossDiagonal:
+                {
+                  // 0->3
+                  // 1->2
+                  // 2->1
+                  // 3->0
+                  lane = 3 - m_WorkgroupIndex;
+                  break;
+                }
+                default: RDCERR("Unhandled QuadOpKind %s", ToStr(quadOp).c_str()); break;
+              }
+            }
+            else if(dxOpCode == DXOp::QuadReadLaneAt)
+            {
+              // QuadReadLaneAt(value,quadLane)
+              lane = b.value.u32v[0];
+            }
+            else
+            {
+              RDCERR("Unhandled dxOpCode %s", ToStr(dxOpCode).c_str());
+            }
+            if(lane < workgroups.size())
+            {
+              ShaderVariable var;
+              RDCASSERT(workgroups[lane].GetLiveVariable(id, opCode, dxOpCode, var));
+              result.value = var.value;
+            }
+            else
+            {
+              RDCERR("Invalid workgroup lane %u", lane);
+            }
+            break;
+          }
           // Likely to implement when required
           case DXOp::AttributeAtVertex:
           case DXOp::InstanceID:
@@ -3576,8 +3649,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::WaveActiveOp:
           case DXOp::WaveActiveBit:
           case DXOp::WavePrefixOp:
-          case DXOp::QuadReadLaneAt:
-          case DXOp::QuadOp:
           case DXOp::WaveAllBitCount:
           case DXOp::WavePrefixBitCount:
           case DXOp::HitKind:

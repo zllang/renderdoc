@@ -1812,6 +1812,14 @@ rdcstr Program::GetDebugStatus()
             RDCASSERT(dxOpCode < DXOp::NumOpCodes, dxOpCode, DXOp::NumOpCodes);
             switch(dxOpCode)
             {
+              case DXOp::QuadReadLaneAt:
+              case DXOp::QuadOp:
+                // Only supported on pixel shaders
+                if(m_Type != DXBC::ShaderType::Pixel)
+                  return StringFormat::Fmt(
+                      "Only supported when debugging pixel shaders dx.op call `%s` %s",
+                      callFunc->name.c_str(), ToStr(dxOpCode).c_str());
+                continue;
               case DXOp::TempRegLoad:
               case DXOp::TempRegStore:
               case DXOp::MinPrecXRegLoad:
@@ -1844,8 +1852,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WaveActiveOp:
               case DXOp::WaveActiveBit:
               case DXOp::WavePrefixOp:
-              case DXOp::QuadReadLaneAt:
-              case DXOp::QuadOp:
               case DXOp::WaveAllBitCount:
               case DXOp::WavePrefixBitCount:
               case DXOp::AttributeAtVertex:
