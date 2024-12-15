@@ -2912,6 +2912,23 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.f32v[0] = ConvertFromHalf(arg.value.u16v[0]);
             break;
           }
+          case DXOp::LegacyDoubleToFloat:
+          case DXOp::LegacyDoubleToSInt32:
+          case DXOp::LegacyDoubleToUInt32:
+          {
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 64);
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            if(dxOpCode == DXOp::LegacyDoubleToFloat)
+              result.value.f32v[0] = (float)arg.value.f64v[0];
+            else if(dxOpCode == DXOp::LegacyDoubleToSInt32)
+              result.value.s32v[0] = (int32_t)arg.value.f64v[0];
+            else if(dxOpCode == DXOp::LegacyDoubleToUInt32)
+              result.value.u32v[0] = (uint32_t)arg.value.f64v[0];
+            break;
+          }
           case DXOp::AtomicBinOp:
           case DXOp::AtomicCompareExchange:
           {
@@ -3505,9 +3522,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             break;
           }
           // Likely to implement when required
-          case DXOp::LegacyDoubleToFloat:
-          case DXOp::LegacyDoubleToSInt32:
-          case DXOp::LegacyDoubleToUInt32:
           case DXOp::AttributeAtVertex:
           case DXOp::InstanceID:
           case DXOp::InstanceIndex:

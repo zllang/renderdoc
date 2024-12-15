@@ -1846,9 +1846,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WavePrefixOp:
               case DXOp::QuadReadLaneAt:
               case DXOp::QuadOp:
-              case DXOp::LegacyDoubleToFloat:
-              case DXOp::LegacyDoubleToSInt32:
-              case DXOp::LegacyDoubleToUInt32:
               case DXOp::WaveAllBitCount:
               case DXOp::WavePrefixBitCount:
               case DXOp::AttributeAtVertex:
