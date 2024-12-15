@@ -866,6 +866,31 @@ float4 main(v2f IN) : SV_Target0
     return inttexrwtest[uv];
   }
 #endif // #if SM_6_0 || SM_6_2 || SM_6_6
+#if SM_6_6
+  if(IN.tri == 94)
+  {
+    uint a = IN.tri - 94 + 0x01020304;
+    uint b = IN.tri - 94 + 0x05060708;
+    uint c = IN.tri - 94 + 0x090a0b0c;
+    uint res = dot4add_i8packed(a, b, c);
+    return float4(res & 0xFF, (res >> 8) & 0xFF, (res >> 16) & 0xFF, (res >> 24) & 0xFF);
+  }
+  if(IN.tri == 95)
+  {
+    uint a = IN.tri - 94 + 0x01020304;
+    uint b = IN.tri - 94 + 0x05060708;
+    uint c = IN.tri - 94 + 0x090a0b0c;
+    uint res = dot4add_u8packed(a, b, c);
+    return float4(res & 0xFF, (res >> 8) & 0xFF, (res >> 16) & 0xFF, (res >> 24) & 0xFF);
+  }
+  if(IN.tri == 96)
+  {
+    half2 a = half2(IN.tri - 96 + 0.1f, IN.tri - 96 + 0.2f);
+    half2 b = half2(IN.tri - 96 + 0.2f, IN.tri - 96 + 0.3f);
+    float c = IN.tri - 96 + 0.3f;
+    return dot2add(a, b, c);
+  }
+#endif // #if SM_6_6
 
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
