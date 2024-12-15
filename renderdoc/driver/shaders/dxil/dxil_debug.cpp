@@ -3234,8 +3234,27 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[0] = m_State ? 0 : 1;
             break;
           }
-          // Likely to implement when required
           case DXOp::UAddc:
+          {
+            // a+b, carry = UAddc(a,b)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERTEQUAL(a.type, b.type);
+
+            uint64_t sum = (uint64_t)a.value.u32v[0] + (uint64_t)b.value.u32v[0];
+            // a+b : 32-bits
+            result.value.u32v[0] = (sum & 0xffffffff);
+            // carry
+            result.value.u32v[1] = sum > 0xffffffff ? 1 : 0;
+            break;
+          }
+          // Likely to implement when required
           case DXOp::USubb:
           case DXOp::Msad:
           case DXOp::Ibfe:
