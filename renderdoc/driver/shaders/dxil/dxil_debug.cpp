@@ -2557,9 +2557,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               result.value.f32v[0] = dxbc_max(a.value.f32v[0], b.value.f32v[0]);
             break;
           }
+          case DXOp::Fma:
           case DXOp::FMad:
           {
-            // FMad(a,b,c)
+            // FMa(a,b,c) : fused
+            // FMad(a,b,c) : not fused
+            // Treat fused and not fused as the same
             ShaderVariable a;
             ShaderVariable b;
             ShaderVariable c;
@@ -2570,7 +2573,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERTEQUAL(b.type, VarType::Float);
             RDCASSERTEQUAL(c.type, VarType::Float);
             RDCASSERTEQUAL(result.type, VarType::Float);
-            result.value.f32v[0] = (a.value.f32v[0] * b.value.f32v[0]) + c.value.f32v[0];
+            const double fma =
+                ((double)a.value.f32v[0] * (double)b.value.f32v[0]) + (double)c.value.f32v[0];
+            result.value.f32v[0] = (float)fma;
             break;
           }
           case DXOp::Saturate:
@@ -3232,7 +3237,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           // Likely to implement when required
           case DXOp::UAddc:
           case DXOp::USubb:
-          case DXOp::Fma:
           case DXOp::Msad:
           case DXOp::Ibfe:
           case DXOp::Ubfe:

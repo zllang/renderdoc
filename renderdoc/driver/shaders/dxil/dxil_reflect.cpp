@@ -1818,7 +1818,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::MinPrecXRegStore:
               case DXOp::UAddc:
               case DXOp::USubb:
-              case DXOp::Fma:
               case DXOp::Msad:
               case DXOp::Ibfe:
               case DXOp::Ubfe:
