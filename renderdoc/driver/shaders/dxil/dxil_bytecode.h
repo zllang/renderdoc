@@ -628,6 +628,20 @@ enum class QuadOpKind : uint32_t
                              // horizontal and vertical direction
 };
 
+// Packing/unpacking intrinsics
+enum class UnpackMode : uint32_t
+{
+  Unsigned = 0,    // not sign extended
+  Signed = 1,      // sign extended
+};
+
+enum class PackMode : uint32_t
+{
+  Trunc = 0,     // Pack low bits, drop the rest
+  UClamp = 1,    // Unsigned clamp - [0, 255] for 8-bits
+  SClamp = 2,    // Signed clamp - [-128, 127] for 8-bits
+};
+
 enum class BarrierMode : uint32_t
 {
   Invalid = 0,
@@ -1774,6 +1788,8 @@ DECLARE_REFLECTION_ENUM(DXIL::Attribute);
 DECLARE_STRINGISE_TYPE(DXIL::InstructionFlags);
 DECLARE_STRINGISE_TYPE(DXIL::AtomicBinOpCode);
 DECLARE_STRINGISE_TYPE(DXIL::QuadOpKind);
+DECLARE_STRINGISE_TYPE(DXIL::PackMode);
+DECLARE_STRINGISE_TYPE(DXIL::UnpackMode);
 DECLARE_STRINGISE_TYPE(DXIL::Operation);
 DECLARE_STRINGISE_TYPE(DXIL::DXOp);
 DECLARE_STRINGISE_TYPE(DXIL::Type::TypeKind);

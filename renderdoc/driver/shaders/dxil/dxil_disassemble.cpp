@@ -4100,6 +4100,71 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   break;
                 }
+                case DXOp::Pack4x8:
+                {
+                  // Pack4x8(packMode,x,y,z,w)
+                  // SM6.6: pack_u8, pack_s8, pack_clamp_u8 (0-255), pack_s8, pack_clamp_s8 (-128-127)
+                  //  packs vector of 4 signed or unsigned values into a packed datatype, drops or clamps unused bits
+                  PackMode packMode;
+                  // const Type *retType = inst.type;
+                  if(getival<PackMode>(inst.args[1], packMode))
+                  {
+                    if(packMode == PackMode::Trunc)
+                      lineStr += "pack_";
+                    else
+                      lineStr += "pack_clamp_";
+                    lineStr += "s8";
+                    lineStr += "(";
+                    bool needComma = false;
+                    for(uint32_t a = 2; a < 6; ++a)
+                    {
+                      if(!isUndef(inst.args[a]))
+                      {
+                        if(needComma)
+                          lineStr += ", ";
+                        lineStr += GetArgId(inst, a);
+                        needComma = true;
+                      }
+                    }
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
+                case DXOp::Unpack4x8:
+                {
+                  // Unpack4x8(unpackMode,pk)
+                  // SM6.6: unpack_s8s16, unpack_s8s32, unpack_u8u16, unpack_u8u32
+                  //  unpacks 4 8-bit signed or unsigned values into int32 or int16 vector
+                  UnpackMode unpackMode;
+                  if(getival<UnpackMode>(inst.args[1], unpackMode))
+                  {
+                    const Type *retType = inst.type;
+                    RDCASSERTEQUAL(retType->type, Type::Struct);
+                    if(retType->members.empty())
+                    {
+                      showDxFuncName = true;
+                      break;
+                    }
+
+                    uint32_t bitWidth = retType->members[0]->bitWidth;
+                    if(unpackMode == UnpackMode::Signed)
+                      lineStr += StringFormat::Fmt("unpack_s8s%d", bitWidth);
+                    else
+                      lineStr += StringFormat::Fmt("unpack_u8u%d", bitWidth);
+                    lineStr += "(";
+                    lineStr += GetArgId(inst, 2);
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::QuadOp:
                 {
                   // QuadOp(value,op)

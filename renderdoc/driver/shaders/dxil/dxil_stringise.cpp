@@ -140,6 +140,29 @@ rdcstr DoStringise(const DXIL::QuadOpKind &el)
 };
 
 template <>
+rdcstr DoStringise(const DXIL::PackMode &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::PackMode)
+  {
+    STRINGISE_ENUM_CLASS(Trunc)
+    STRINGISE_ENUM_CLASS(UClamp)
+    STRINGISE_ENUM_CLASS(SClamp)
+  }
+  END_ENUM_STRINGISE();
+};
+
+template <>
+rdcstr DoStringise(const DXIL::UnpackMode &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::UnpackMode)
+  {
+    STRINGISE_ENUM_CLASS(Unsigned)
+    STRINGISE_ENUM_CLASS(Signed)
+  }
+  END_ENUM_STRINGISE();
+};
+
+template <>
 rdcstr DoStringise(const DXIL::Operation &el)
 {
   BEGIN_ENUM_STRINGISE(DXIL::Operation)
