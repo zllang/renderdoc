@@ -1752,6 +1752,7 @@ DXILDebug::Id GetSSAId(const DXIL::Value *value);
 bool IsDXCNop(const Instruction &inst);
 bool IsLLVMDebugCall(const Instruction &inst);
 bool IsLLVMIntrinsicCall(const Instruction &inst);
+bool ShouldIgnoreSourceMapping(const Instruction &inst);
 
 bool isUndef(const Value *v);
 

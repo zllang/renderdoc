@@ -111,6 +111,30 @@ bool DXIL::IsLLVMIntrinsicCall(const Instruction &inst)
           (inst.getFuncCall()->family == FunctionFamily::LLVMInstrinsic));
 }
 
+bool DXIL::ShouldIgnoreSourceMapping(const Instruction &inst)
+{
+  // Do not set source mapping for handle creation instructions
+  if(inst.op == Operation::Call)
+  {
+    rdcstr funcCallName = inst.getFuncCall()->name;
+    if(funcCallName.beginsWith("dx.op."))
+    {
+      DXOp dxOpCode = DXOp::NumOpCodes;
+      RDCASSERT(getival<DXOp>(inst.args[0], dxOpCode));
+      RDCASSERT(dxOpCode < DXOp::NumOpCodes, dxOpCode, DXOp::NumOpCodes);
+      switch(dxOpCode)
+      {
+        case DXOp::CreateHandle:
+        case DXOp::CreateHandleFromBinding:
+        case DXOp::CreateHandleFromHeap:
+        case DXOp::AnnotateHandle: return true;
+        default: break;
+      }
+    }
+  }
+  return false;
+}
+
 // true if the Value is an SSA value i.e. from an instruction, not a constant etc.
 bool DXIL::IsSSA(const Value *dxilValue)
 {

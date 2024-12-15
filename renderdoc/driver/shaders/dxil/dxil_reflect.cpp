@@ -2035,7 +2035,7 @@ void Program::GetLineInfo(size_t instruction, uintptr_t offset, LineColumnInfo &
     if(getLineInfo)
     {
       const Instruction *const inst = f.instructions[instruction];
-      uint32_t dbgLoc = inst->debugLoc;
+      uint32_t dbgLoc = ShouldIgnoreSourceMapping(*inst) ? ~0U : inst->debugLoc;
       if(dbgLoc != ~0U)
       {
         const DebugLocation &debugLoc = m_DebugLocations[dbgLoc];
