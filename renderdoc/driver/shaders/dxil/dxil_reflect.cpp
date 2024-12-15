@@ -1927,8 +1927,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::GeometryIndex:
               case DXOp::RayQuery_CandidateInstanceContributionToHitGroupIndex:
               case DXOp::RayQuery_CommittedInstanceContributionToHitGroupIndex:
-              case DXOp::Unpack4x8:
-              case DXOp::Pack4x8:
               case DXOp::QuadVote:
               case DXOp::TextureGatherRaw:
               case DXOp::TextureStoreSample:

@@ -3667,7 +3667,87 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
+          case DXOp::Pack4x8:
+          {
+            // SM6.6: pack_u8, pack_s8, pack_clamp_u8 (0-255), pack_s8, pack_clamp_s8 (-128-127)
+            // Pack4x8(packMode,x,y,z,w)
+            //  packs vector of 4 signed or unsigned values into a packed datatype, drops or clamps unused bits
 
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            DXIL::PackMode packMode = (DXIL::PackMode)arg.value.u32v[0];
+
+            for(uint32_t i = 0; i < 4; ++i)
+            {
+              RDCASSERT(GetShaderVariable(inst.args[i + 2], opCode, dxOpCode, arg));
+              switch(packMode)
+              {
+                case DXIL::PackMode::Trunc:
+                {
+                  result.value.u8v[i] = arg.value.u32v[0] & 0xFF;
+                  break;
+                }
+                case DXIL::PackMode::SClamp:
+                {
+                  result.value.s8v[i] = (int8_t)RDCCLAMP(arg.value.s32v[0], -128, 127);
+                  break;
+                }
+                case DXIL::PackMode::UClamp:
+                {
+                  result.value.u8v[i] = (uint8_t)RDCCLAMP(arg.value.s32v[0], 0, 255);
+                  break;
+                }
+                default: RDCERR("Unhandled PackMode %s", ToStr(packMode).c_str()); break;
+              }
+            }
+            break;
+          }
+          case DXOp::Unpack4x8:
+          {
+            // SM6.6: unpack_s8s16, unpack_s8s32, unpack_u8u16, unpack_u8u32
+            // Unpack4x8(unpackMode,pk)
+            //  unpacks 4 8-bit signed or unsigned values into int32 or int16 vector
+            // Result is a structure of four 8-bit values
+            RDCASSERTEQUAL(retType->type, Type::TypeKind::Struct);
+            RDCASSERTEQUAL(retType->members.size(), 4);
+            // Remap to an array
+            const DXIL::Type *elementType = retType->members[0];
+            RDCASSERTEQUAL(elementType->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(elementType->scalarType, Type::Int);
+            result.type = ConvertDXILTypeToVarType(elementType);
+            result.columns = 4;
+            uint32_t bitWidth = elementType->bitWidth;
+
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            DXIL::UnpackMode unpackMode = (DXIL::UnpackMode)arg.value.u32v[0];
+
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+            for(uint32_t i = 0; i < 4; ++i)
+            {
+              if(unpackMode == DXIL::UnpackMode::Signed)
+              {
+                if(bitWidth == 32)
+                  result.value.s32v[i] = arg.value.s8v[i];
+                else if(bitWidth == 16)
+                  result.value.s16v[i] = arg.value.s8v[i];
+                else
+                  RDCERR("Unhandled result bitwidth %d", bitWidth);
+              }
+              else if(unpackMode == DXIL::UnpackMode::Unsigned)
+              {
+                if(bitWidth == 32)
+                  result.value.u32v[i] = arg.value.u8v[i];
+                else if(bitWidth == 16)
+                  result.value.u16v[i] = arg.value.u8v[i];
+                else
+                  RDCERR("Unhandled result bitwidth %d", bitWidth);
+              }
+              else
+                RDCERR("Unhandled UnpackMode %s", ToStr(unpackMode).c_str());
+            }
+            break;
+          }
           // Likely to implement when required
           // SM6.7
           case DXOp::QuadVote:
@@ -3690,12 +3770,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::BufferUpdateCounter:
             // For UAV buffer with counter: must be RWRawBuffer
             // atomically increments/decrements the hidden 32-bit counter stored with a Count or Append UAV
-
-          // SM6.6
-          case DXOp::Unpack4x8:
-            // unpacks 4 8-bit signed or unsigned values into int32 or int16 vector
-          case DXOp::Pack4x8:
-            // packs vector of 4 signed or unsigned values into a packed datatype, drops or clamps unused bits
 
           case DXOp::CBufferLoad:
           case DXOp::CycleCounterLegacy:
