@@ -31,11 +31,27 @@
 RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
 
-// TODO: Show the phi node capture variables in the UI
-// TODO: Automatically execute phi instructions after a branch
+// TODO: ParseDebugData()
+//       Set the maximum instruction of the current scope
+//       Create new scope starting from the current instruction
+//       End up with multiple scopes with the same source MD but different instruction ranges
 // TODO: Assert m_Block in ThreadState is correct per instruction
-// Note: LLVM poison values are not supported
-// Note: is it worth considering GPU pointers for DXIL
+// TODO: Automatically execute phi instructions after a branch
+// TODO: Support MSAA
+// TODO: Support UAVs with counter
+// TODO: Extend support for Compound Constants: Vector, GetElementPtr
+// TODO: Extend debug data parsing for DW_TAG_array_type for the base element type
+// TODO: Extend debug data parsing:  N-dimensional arrays, mapping covers whole sub-array
+
+// Notes:
+//   The phi node capture variables are not shown in the UI
+//   LLVM poison values are not supported
+//   Does it make sense to use ShaderVariable GPU pointers
+//   ExtractVal: only handles one index
+//   ComputeDXILTypeByteSize does not consider byte alignment
+//   GetElementPtr: only handles a two indexes
+//   Sample*: Argument 10 which is called Clamp is not used
+//   ShuffleVector: mask entries might be undef meaning "don’t care"
 
 // normal is not zero, not subnormal, not infinite, not NaN
 inline bool RDCISNORMAL(float input)
@@ -860,7 +876,6 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
 
 size_t ComputeDXILTypeByteSize(const Type *type)
 {
-  // TODO: byte alignment
   size_t byteSize = 0;
   switch(type->type)
   {
@@ -3483,7 +3498,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERT(IsVariableAssigned(src));
       const ShaderVariable &srcVal = m_Variables[src];
       RDCASSERT(srcVal.members.empty());
-      // TODO: handle greater than one index
       RDCASSERTEQUAL(inst.args.size(), 2);
       uint32_t idx = ~0U;
       RDCASSERT(getival(inst.args[1], idx));
@@ -3604,7 +3618,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERTEQUAL(indexes[0], 0);
       uint64_t offset = 0;
 
-      // TODO: Resolve indexes to a single offset
       const ShaderVariable &basePtr = m_Variables[ptrId];
       if(indexes.size() > 1)
         offset += indexes[1] * GetElementByteSize(basePtr.type);
@@ -4403,7 +4416,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       bool bIsValid = GetShaderVariable(inst.args[1], opCode, dxOpCode, b);
       ShaderVariable c;
       RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, c));
-      // TODO: mask entries might be undef meaning "don’t care"
       const uint32_t aMax = inst.args[0]->type->elemCount;
       for(uint32_t idx = 0; idx < retType->elemCount; idx++)
       {
@@ -4796,7 +4808,6 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
     }
     else if(c->isCompound())
     {
-      // TODO: Might be a vector
       if(c->op == Operation::GetElementPtr)
       {
         const rdcarray<DXIL::Value *> &members = c->getMembers();
@@ -4812,7 +4823,6 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
           indexes.push_back(index.value.u64v[0]);
         }
         var.value = ptrVal.value;
-        // TODO: Need to do the arithmetic with indexes
         return true;
       }
       else if(c->op == Operation::NoOp)
@@ -5139,7 +5149,6 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
     int32_t gatherArg = -1;
     uint32_t countOffset = 3;
     uint32_t countUV = 4;
-    // TODO: Sample*: Clamp is in arg 10
 
     // SampleBias : bias is arg 10
     // SampleLevel: lod is in arg 10
@@ -5799,7 +5808,6 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
             uint32_t countElements = (uint32_t)baseElement->As<DXIL::DISubrange>()->count;
             typeData.arrayDimensions.push_back(countElements);
           }
-          // TODO : WHERE IS THE BASE ELEMENT TYPE
           AddDebugType(compositeType->base);
           typeData.baseType = compositeType->base;
           break;
@@ -5947,8 +5955,6 @@ void Debugger::ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructi
 
 void Debugger::ParseDebugData()
 {
-  // Parse LLVM debug data
-  // TODO : Track current active scope, previous scope
   for(const Function *f : m_Program->m_Functions)
   {
     if(!f->external)
@@ -6256,7 +6262,6 @@ void Debugger::ParseDebugData()
                   }
                   elementOffset *= childRows * childColumns;
                   const uint32_t countDims = (uint32_t)arrayDimension;
-                  // TODO : N dimensional arrays
                   for(uint32_t d = 0; d < countDims; ++d)
                   {
                     uint32_t elementSize = childType->sizeInBytes;
@@ -6289,7 +6294,7 @@ void Debugger::ParseDebugData()
                         usage->children[x].emitSourceVar = true;
                       usage->emitSourceVar = false;
                     }
-                    // TODO : mapping covers whole sub-array
+                    // TODO: mapping covers whole sub-array
                     {
                       usage = &usage->children[elementIndex];
                       usage->type = childType->type;
