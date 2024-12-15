@@ -1816,7 +1816,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::TempRegStore:
               case DXOp::MinPrecXRegLoad:
               case DXOp::MinPrecXRegStore:
-              case DXOp::Bfi:
               case DXOp::CBufferLoad:
               case DXOp::BufferUpdateCounter:
               case DXOp::CheckAccessFullyMapped:

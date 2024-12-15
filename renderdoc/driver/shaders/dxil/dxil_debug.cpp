@@ -3405,8 +3405,43 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
-          // Likely to implement when required
           case DXOp::Bfi:
+          {
+            // bfi(width,offset,value,replacedValue)
+            // The LSB 5 bits of width provide the bitfield width (0-31) to take from value.
+            // The LSB 5 bits of offset provide the bitfield offset (0-31) to start replacing bits
+            // in the number read from replacedValue.
+
+            // Given width, ofset:
+            //   bitmask = (((1 << width)-1) << offset) & 0xffffffff
+            //   dest = ((value << offset) & bitmask) | (replacedValue & ~bitmask)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[3]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[3]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[4]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[4]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            ShaderVariable c;
+            ShaderVariable d;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, c));
+            RDCASSERT(GetShaderVariable(inst.args[4], opCode, dxOpCode, d));
+            RDCASSERTEQUAL(a.type, b.type);
+            RDCASSERTEQUAL(a.type, c.type);
+            RDCASSERTEQUAL(a.type, d.type);
+            uint32_t width = a.value.u32v[0] & 0x1f;
+            uint32_t offset = b.value.u32v[0] & 0x1f;
+            uint32_t bitmask = (((1 << width) - 1) << offset) & 0xffffffff;
+            result.value.u32v[0] =
+                (uint32_t)(((c.value.u32v[0] << offset) & bitmask) | (d.value.u32v[0] & ~bitmask));
+            break;
+          }
+          // Likely to implement when required
           case DXOp::MakeDouble:
           case DXOp::SplitDouble:
           case DXOp::BitcastI16toF16:
