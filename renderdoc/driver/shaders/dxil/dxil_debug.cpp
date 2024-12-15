@@ -3254,8 +3254,36 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[1] = sum > 0xffffffff ? 1 : 0;
             break;
           }
-          // Likely to implement when required
           case DXOp::USubb:
+          {
+            // a-b, borrow : USubb(a,b)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERTEQUAL(a.type, b.type);
+            uint64_t src0;
+            uint64_t src1;
+
+            // add on a 'borrow' bit
+            src0 = 0x100000000 | (uint64_t)a.value.u32v[0];
+            src1 = (uint64_t)b.value.u32v[0];
+
+            // do the subtract
+            uint64_t sub = src0 - src1;
+
+            // a-b : 32-bits
+            result.value.u32v[0] = (sub & 0xffffffff);
+
+            // mark where the borrow bits was used
+            result.value.u32v[1] = (sub <= 0xffffffff) ? 1U : 0U;
+            break;
+          }
+          // Likely to implement when required
           case DXOp::Msad:
           case DXOp::Ibfe:
           case DXOp::Ubfe:
