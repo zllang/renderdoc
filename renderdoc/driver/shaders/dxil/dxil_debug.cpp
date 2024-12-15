@@ -3594,6 +3594,39 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
             break;
           }
+          case DXOp::Dot2AddHalf:
+          {
+            // Dot2AddHalf(acc,ax,ay,bx,by)
+            // SM6.4: 2D half dot product with accumulate to float
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[1]->type->bitWidth, 32);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[2]->type->bitWidth, 16);
+            RDCASSERTEQUAL(inst.args[3]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[3]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[3]->type->bitWidth, 16);
+            RDCASSERTEQUAL(inst.args[4]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[4]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[4]->type->bitWidth, 16);
+            RDCASSERTEQUAL(inst.args[5]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[5]->type->scalarType, Type::Float);
+            RDCASSERTEQUAL(inst.args[5]->type->bitWidth, 16);
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, arg));
+            float acc = arg.value.f32v[0];
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+            float ax = (float)arg.value.f16v[0];
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg));
+            float ay = (float)arg.value.f16v[0];
+            RDCASSERT(GetShaderVariable(inst.args[4], opCode, dxOpCode, arg));
+            float bx = (float)arg.value.f16v[0];
+            RDCASSERT(GetShaderVariable(inst.args[5], opCode, dxOpCode, arg));
+            float by = (float)arg.value.f16v[0];
+            result.value.f32v[0] = acc + ax * bx + ay * by;
+            break;
+          }
           // Likely to implement when required
           // SM6.7
           case DXOp::QuadVote:
@@ -3618,8 +3651,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // atomically increments/decrements the hidden 32-bit counter stored with a Count or Append UAV
 
           // SM6.4
-          case DXOp::Dot2AddHalf:
-            // 2D half dot product with accumulate to float
           case DXOp::Dot4AddI8Packed:
             // signed dot product of 4 x i8 vectors packed into i32, with accumulate to i32
           case DXOp::Dot4AddU8Packed:
