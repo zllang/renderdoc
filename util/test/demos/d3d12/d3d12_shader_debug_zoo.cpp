@@ -885,10 +885,26 @@ float4 main(v2f IN) : SV_Target0
   }
   if(IN.tri == 96)
   {
-    half2 a = half2(IN.tri - 96 + 0.1f, IN.tri - 96 + 0.2f);
-    half2 b = half2(IN.tri - 96 + 0.2f, IN.tri - 96 + 0.3f);
+    half2 a = half2(IN.tri - 96 + 0.25f, IN.tri - 96 + 0.5f);
+    half2 b = half2(IN.tri - 96 + 0.5f, IN.tri - 96 + 0.25f);
     float c = IN.tri - 96 + 0.3f;
     return dot2add(a, b, c);
+  }
+  if(IN.tri == 97)
+  {
+    int val = IN.tri - 97;
+    int4 raw = int4(val-200, val+1, val+200, val+3);
+    uint packed = pack_clamp_u8(raw);
+    int4 unpacked = unpack_s8s32(packed);
+    return float4(unpacked.x, unpacked.y, unpacked.z, unpacked.w);
+  }
+  if(IN.tri == 98)
+  {
+    int val = IN.tri - 97;
+    int4 raw = int4(val, val+100, val+200, val+300);
+    int packed = pack_s8(raw);
+    uint4 unpacked = unpack_u8u32(packed);
+    return float4(unpacked.x, unpacked.y, unpacked.z, unpacked.w);
   }
 #endif // #if SM_6_6
 
