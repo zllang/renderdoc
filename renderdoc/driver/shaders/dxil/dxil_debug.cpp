@@ -3283,8 +3283,51 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[1] = (sub <= 0xffffffff) ? 1U : 0U;
             break;
           }
-          // Likely to implement when required
           case DXOp::Msad:
+          {
+            // masked Sum of Absolute Differences.
+            // Msad(ref,src,accum)
+            RDCASSERTEQUAL(inst.args[1]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[1]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[2]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[2]->type->scalarType, Type::Int);
+            RDCASSERTEQUAL(inst.args[3]->type->type, Type::TypeKind::Scalar);
+            RDCASSERTEQUAL(inst.args[3]->type->scalarType, Type::Int);
+            ShaderVariable a;
+            ShaderVariable b;
+            ShaderVariable c;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, a));
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, c));
+            RDCASSERTEQUAL(a.type, b.type);
+            RDCASSERTEQUAL(a.type, c.type);
+            uint32_t ref = a.value.u32v[0];
+            uint32_t src = b.value.u32v[0];
+            uint32_t accum = c.value.u32v[0];
+            for(uint32_t i = 0; i < 4; ++i)
+            {
+              uint8_t refByte = (uint8_t)(ref >> (i * 8));
+              if(refByte == 0)
+                continue;
+
+              uint8_t srcByte = (uint8_t)(src >> (i * 8));
+              uint8_t absDiff = (refByte >= srcByte) ? refByte - srcByte : srcByte - refByte;
+
+              // The recommended overflow behaviour for MSAD is to do a 32-bit saturate.
+              // This is not required, however, and wrapping is allowed.
+              // So from an application point of view, overflow behaviour is undefined.
+              if(UINT_MAX - accum < absDiff)
+              {
+                accum = UINT_MAX;
+                eventFlags |= ShaderEvents::GeneratedNanOrInf;
+                break;
+              }
+              accum += absDiff;
+            }
+            result.value.u32v[0] = accum;
+            break;
+          }
+          // Likely to implement when required
           case DXOp::Ibfe:
           case DXOp::Ubfe:
           case DXOp::Bfi:
