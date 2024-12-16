@@ -163,6 +163,8 @@ DXILDebug::Id DXIL::GetSSAId(const DXIL::Value *value)
     return inst->slot;
   if(const GlobalVar *gv = cast<GlobalVar>(value))
     return gv->ssaId;
+  if(const Constant *c = cast<Constant>(value))
+    return DXILDebug::INVALID_ID;
 
   RDCERR("Unhandled DXIL::Value type");
   return DXILDebug::INVALID_ID;
