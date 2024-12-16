@@ -171,7 +171,7 @@ RWTexture2D<float> unbounduav2 : register(u5);
 RWBuffer<float> narrowtypeduav : register(u6);
 
 RWTexture2D<float4> floattexrwtest : register(u7);
-RWTexture2D<int> inttexrwtest : register(u8);
+RWBuffer<int> intbufrwtest : register(u8);
 
 Buffer<float> narrowtypedsrv : register(t102);
 
@@ -773,99 +773,88 @@ float4 main(v2f IN) : SV_Target0
   {
     return float4(int16srv[0].x, int16srv[1].x, int16srv[2].x, int16srv[3].x);
   }
-// Only test Atomic operations on SM6_0 and above
-#if SM_6_0 || SM_6_2 || SM_6_6
   if(IN.tri == 85)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedAdd(inttexrwtest[uv], value, original);
-    InterlockedAdd(inttexrwtest[uv], -value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 10;
+    InterlockedAdd(intbufrwtest[u], value, original);
+    InterlockedAdd(intbufrwtest[u], -value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 86)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedAnd(inttexrwtest[uv], value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 20;
+    InterlockedAnd(intbufrwtest[u], value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 87)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedOr(inttexrwtest[uv], value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 30;
+    InterlockedOr(intbufrwtest[u], value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 88)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedXor(inttexrwtest[uv], value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 40;
+    InterlockedXor(intbufrwtest[u], value, original);
+    InterlockedXor(intbufrwtest[u], value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 89)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedMin(inttexrwtest[uv], value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 50;
+    InterlockedMin(intbufrwtest[u], value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 90)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedMax(inttexrwtest[uv], value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 60;
+    InterlockedMax(intbufrwtest[u], value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 91)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedExchange(inttexrwtest[uv], value, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 70;
+    InterlockedExchange(intbufrwtest[u], value, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 92)
   {
     int value = IN.tri;
     int original;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedCompareExchange(inttexrwtest[uv], value, value+1, original);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 80;
+    InterlockedCompareExchange(intbufrwtest[u], value, value+1, original);
+    return intbufrwtest[u];
   }
   if(IN.tri == 93)
   {
     int value = IN.tri;
     int u = mad(3, (IN.tri - 85), 17);
-    int2 uv = int2(u,37);
-    inttexrwtest[uv] = 100;
-    InterlockedCompareStore(inttexrwtest[uv], value, value+1);
-    return inttexrwtest[uv];
+    intbufrwtest[u] = 90;
+    InterlockedCompareStore(intbufrwtest[u], value, value+1);
+    return intbufrwtest[u];
   }
-#endif // #if SM_6_0 || SM_6_2 || SM_6_6
 #if SM_6_6
   if(IN.tri == 94)
   {
@@ -1328,7 +1317,8 @@ void main()
     MakeUAV(narrowtypedbuf).Format(DXGI_FORMAT_R16_FLOAT).CreateGPU(32);
 
     MakeUAV(smiley).Format(DXGI_FORMAT_R8G8B8A8_UNORM).CreateGPU(33);
-    MakeUAV(smiley).Format(DXGI_FORMAT_R32_SINT).CreateGPU(34);
+    ID3D12ResourcePtr atomicBuffer = MakeBuffer().Size(1024).UAV();
+    MakeUAV(atomicBuffer).Format(DXGI_FORMAT_R32_UINT).CreateGPU(34);
 
     float structdata[220];
     for(int i = 0; i < 220; i++)
