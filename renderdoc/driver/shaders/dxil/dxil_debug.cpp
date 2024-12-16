@@ -2062,15 +2062,28 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint32_t texCoords[3] = {0, 0, 0};
             uint32_t elemIdx = 0;
             ShaderVariable arg;
-            if(!texData)
+            if((dxOpCode == DXOp::BufferLoad) || (dxOpCode == DXOp::RawBufferLoad) ||
+               (dxOpCode == DXOp::RawBufferStore) || (dxOpCode == DXOp::BufferStore))
             {
+              // BufferLoad(res,index,wot)
+              // BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+              // RawBufferLoad(srv,index,elementOffset,mask,alignment)
+              // RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
               if(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg))
                 elemIdx = arg.value.u32v[0];
               if(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg))
                 dataOffset = arg.value.u64v[0];
+              if(texData)
+              {
+                texCoords[0] = elemIdx;
+                texCoords[1] = (uint32_t)dataOffset;
+              }
             }
-            else
+            else if((dxOpCode == DXOp::TextureLoad) || (dxOpCode == DXOp::TextureStore))
             {
+              RDCASSERT(texData);
+              // TextureLoad(srv,mipLevelOrSampleCount,coord0,coord1,coord2,offset0,offset1,offset2)
+              // TextureStore(srv,coord0,coord1,coord2,value0,value1,value2,value3,mask)
               size_t offsetStart = (dxOpCode == DXOp::TextureLoad) ? 3 : 2;
               if(GetShaderVariable(inst.args[offsetStart], opCode, dxOpCode, arg))
                 texCoords[0] = (int8_t)arg.value.u32v[0];
