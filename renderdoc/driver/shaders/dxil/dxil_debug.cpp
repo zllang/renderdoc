@@ -6153,13 +6153,19 @@ ScopedDebugData *Debugger::FindScopedDebugData(const DXIL::Metadata *md) const
   return NULL;
 }
 
-ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
+const DXIL::Metadata *Debugger::GetMDScope(const DXIL::Metadata *scopeMD) const
 {
   // Iterate upwards to find DIFile, DISubprogram or DILexicalBlock scope
   while((scopeMD->dwarf->type != DIBase::File) && (scopeMD->dwarf->type != DIBase::Subprogram) &&
         (scopeMD->dwarf->type != DIBase::LexicalBlock))
     scopeMD = m_Program->GetDebugScopeParent(scopeMD->dwarf);
 
+  return scopeMD;
+}
+
+ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
+{
+  scopeMD = GetMDScope(scopeMD);
   ScopedDebugData *scope = FindScopedDebugData(scopeMD);
   // Add a new DebugScope
   if(!scope)
@@ -6172,28 +6178,21 @@ ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
     scope->minInstruction = UINT32_MAX;
     scope->maxInstruction = 0;
     // File scope should not have a parent
-    if(scopeMD->dwarf->type != DIBase::File)
+    if(scopeMD->dwarf->type == DIBase::File)
+    {
+      RDCASSERT(!parentScope);
+      scope->parent = NULL;
+      scope->functionName = "File";
+    }
+    else
     {
       RDCASSERT(parentScope);
       scope->parent = AddScopedDebugData(parentScope);
       RDCASSERT(scope->parent);
-    }
-    else
-    {
-      RDCASSERT(!parentScope);
-      scope->parent = NULL;
-    }
-    if(scopeMD->dwarf->type == DIBase::Subprogram)
-    {
-      scope->functionName = *(scopeMD->dwarf->As<DISubprogram>()->name);
-    }
-    else if(scopeMD->dwarf->type == DIBase::CompileUnit)
-    {
-      scope->functionName = "CompileUnit";
-    }
-    else if(scopeMD->dwarf->type == DIBase::File)
-    {
-      scope->functionName = "File";
+      if(scopeMD->dwarf->type == DIBase::Subprogram)
+        scope->functionName = *(scopeMD->dwarf->As<DISubprogram>()->name);
+      else if(scopeMD->dwarf->type == DIBase::CompileUnit)
+        scope->functionName = "CompileUnit";
     }
 
     scope->fileName = m_Program->GetDebugScopeFilePath(scope->md->dwarf);
@@ -6495,6 +6494,7 @@ void Debugger::ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructi
 
 void Debugger::ParseDebugData()
 {
+  // The scopes will have been created when parsing to generate the callstack information
   for(const Function *f : m_Program->m_Functions)
   {
     if(!f->external)
@@ -6509,13 +6509,18 @@ void Debugger::ParseDebugData()
         const Instruction &inst = *(f->instructions[i]);
         if(!DXIL::IsLLVMDebugCall(inst))
         {
-          // Include DebugLoc data for building up the list of scopes
-          uint32_t dbgLoc = inst.debugLoc;
+          // Check the scope exists for this instruction
+          uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
           if(dbgLoc != ~0U)
           {
             activeInstructionIndex = instructionIndex;
             const DebugLocation &debugLoc = m_Program->m_DebugLocations[dbgLoc];
-            AddScopedDebugData(debugLoc.scope);
+            const DXIL::Metadata *debugLocScopeMD = GetMDScope(debugLoc.scope);
+            ScopedDebugData *scope = FindScopedDebugData(debugLocScopeMD);
+            RDCASSERT(scope);
+            if(scope == NULL)
+              scope = AddScopedDebugData(debugLoc.scope);
+            RDCASSERT(scope->md == debugLoc.scope);
           }
           continue;
         }
@@ -6531,10 +6536,6 @@ void Debugger::ParseDebugData()
       }
     }
   }
-
-  // Sort the scopes by instruction index
-  std::sort(m_DebugInfo.scopedDebugDatas.begin(), m_DebugInfo.scopedDebugDatas.end(),
-            [](const ScopedDebugData *a, const ScopedDebugData *b) { return *a < *b; });
 
   DXIL::Program *program = ((DXIL::Program *)m_Program);
   program->m_Locals.clear();
@@ -7476,14 +7477,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
 
       rdcarray<ScopedDebugData *> scopeHierarchy;
       ScopedDebugData *currentScope = NULL;
-      /*
-            ScopedDebugData *currentScope = new ScopedDebugData();
-            currentScope->md = NULL;
-            currentScope->minInstruction = 0;
-            currentScope->maxInstruction = 0;
-            currentScope->functionName.clear();
-      scopeHierarchy.push_back(currentScope);
-      */
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
         uint32_t instructionIndex = i + info.globalInstructionOffset;
@@ -7491,7 +7484,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         ScopedDebugData *thisScope = NULL;
         if(!DXIL::IsLLVMDebugCall(inst))
         {
-          // Include DebugLoc data for building up the list of scopes
+          // Use DebugLoc data for building up the list of scopes
           uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
           if(dbgLoc != ~0U)
           {
@@ -7500,7 +7493,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           }
         }
         if(currentScope)
-          currentScope->maxInstruction = instructionIndex;
+          currentScope->maxInstruction = instructionIndex - 1;
 
         if(thisScope == currentScope)
           continue;
@@ -7509,7 +7502,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           continue;
 
         currentScope = thisScope;
-        thisScope->minInstruction = instructionIndex;
+        thisScope->minInstruction = RDCMIN(thisScope->minInstruction, instructionIndex);
         thisScope->maxInstruction = instructionIndex;
         // Walk upwards from this scope to find where to append to the scope hierarchy
         {
@@ -7538,6 +7531,10 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       }
     }
   }
+
+  // Sort the scopes by instruction index
+  std::sort(m_DebugInfo.scopedDebugDatas.begin(), m_DebugInfo.scopedDebugDatas.end(),
+            [](const ScopedDebugData *a, const ScopedDebugData *b) { return *a < *b; });
 
   ParseDebugData();
 

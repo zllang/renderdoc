@@ -529,6 +529,7 @@ private:
   void CalcActiveMask(rdcarray<bool> &activeMask);
   void ParseDbgOpDeclare(const DXIL::Instruction &inst, uint32_t instructionIndex);
   void ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructionIndex);
+  const DXIL::Metadata *GetMDScope(const DXIL::Metadata *scopeMD) const;
   ScopedDebugData *AddScopedDebugData(const DXIL::Metadata *scopeMD);
   ScopedDebugData *FindScopedDebugData(const DXIL::Metadata *md) const;
   ScopedDebugData *FindScopedDebugData(const uint32_t instructionIndex) const;
