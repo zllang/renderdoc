@@ -1657,13 +1657,35 @@ void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *st
 
 void ThreadState::FillCallstack(ShaderDebugState &state)
 {
+  if(m_FunctionInfo->callstacks.size() == 1)
+  {
+    state.callstack = m_FunctionInfo->callstacks.begin()->second;
+    return;
+  }
+
   auto it = m_FunctionInfo->callstacks.upper_bound(state.nextInstruction);
+  if(it == m_FunctionInfo->callstacks.end())
+  {
+    RDCWARN("No callstack entry found for instruction %u", state.nextInstruction);
+    state.callstack.clear();
+    state.callstack.push_back(m_FunctionInfo->function->name);
+    return;
+  }
+
   if(it != m_FunctionInfo->callstacks.begin())
     --it;
+
   if(it->first <= m_FunctionInstructionIdx)
+  {
     state.callstack = it->second;
+  }
   else
+  {
+    RDCWARN("No callstack entry found for instruction %u", state.nextInstruction);
     state.callstack.clear();
+    state.callstack.push_back(m_FunctionInfo->function->name);
+    return;
+  }
 }
 
 bool IsNopInstruction(const Instruction &inst)
@@ -7528,6 +7550,13 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
             callstack.push_back(scope->functionName);
         }
         info.callstacks[instructionIndex] = callstack;
+      }
+      // If there is no callstack for the function then use the function name
+      if(info.callstacks.empty())
+      {
+        FunctionInfo::Callstack callstack;
+        callstack.push_back(f->name);
+        info.callstacks[0] = callstack;
       }
     }
   }
