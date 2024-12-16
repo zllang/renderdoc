@@ -2390,6 +2390,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             // CBufferLoadLegacy(handle,regIndex)
             Id handleId = GetArgumentId(1);
+            if(handleId == DXILDebug::INVALID_ID)
+              break;
 
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
@@ -2760,14 +2762,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               RDCASSERT(!ThreadsAreDiverged(workgroups));
               Id id = GetArgumentId(1);
-              if(dxOpCode == DXOp::DerivCoarseX)
-                result.value = DDX(false, opCode, dxOpCode, workgroups, id);
-              else if(dxOpCode == DXOp::DerivCoarseY)
-                result.value = DDY(false, opCode, dxOpCode, workgroups, id);
-              else if(dxOpCode == DXOp::DerivFineX)
-                result.value = DDX(true, opCode, dxOpCode, workgroups, id);
-              else if(dxOpCode == DXOp::DerivFineY)
-                result.value = DDY(true, opCode, dxOpCode, workgroups, id);
+              if(id != DXILDebug::INVALID_ID)
+              {
+                if(dxOpCode == DXOp::DerivCoarseX)
+                  result.value = DDX(false, opCode, dxOpCode, workgroups, id);
+                else if(dxOpCode == DXOp::DerivCoarseY)
+                  result.value = DDY(false, opCode, dxOpCode, workgroups, id);
+                else if(dxOpCode == DXOp::DerivFineX)
+                  result.value = DDX(true, opCode, dxOpCode, workgroups, id);
+                else if(dxOpCode == DXOp::DerivFineY)
+                  result.value = DDY(true, opCode, dxOpCode, workgroups, id);
+              }
             }
             break;
           }
@@ -5829,10 +5834,14 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
       {
         if(uvDDXY[i])
         {
-          delta = DDX(false, opCode, dxOpCode, workgroups, GetArgumentId(3 + i));
-          ddx.value.f32v[i] = delta.f32v[0];
-          delta = DDY(false, opCode, dxOpCode, workgroups, GetArgumentId(3 + i));
-          ddy.value.f32v[i] = delta.f32v[0];
+          Id id = GetArgumentId(3 + i);
+          if(id != DXILDebug::INVALID_ID)
+          {
+            delta = DDX(false, opCode, dxOpCode, workgroups, id);
+            ddx.value.f32v[i] = delta.f32v[0];
+            delta = DDY(false, opCode, dxOpCode, workgroups, id);
+            ddy.value.f32v[i] = delta.f32v[0];
+          }
         }
       }
     }
@@ -5924,6 +5933,8 @@ DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
 ResourceReferenceInfo ThreadState::GetResource(Id handleId, bool &annotatedHandle)
 {
   ResourceReferenceInfo resRefInfo;
+  if(handleId == DXILDebug::INVALID_ID)
+    return resRefInfo;
   RDCASSERT(handleId < m_Live.size());
   RDCASSERT(m_Live[handleId]);
   RDCASSERT(IsVariableAssigned(handleId));
@@ -5992,6 +6003,9 @@ ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
                              const rdcarray<ThreadState> &quad, const Id &id) const
 {
   RDCASSERT(!ThreadsAreDiverged(quad));
+  if(id == DXILDebug::INVALID_ID)
+    return ShaderValue();
+
   uint32_t index = ~0U;
   int quadIndex = m_WorkgroupIndex;
 
