@@ -3762,39 +3762,37 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             break;
           }
           // Likely to implement when required
+          case DXOp::BufferUpdateCounter:
+          case DXOp::CBufferLoad:
+
+          // MSAA
+          case DXOp::EvalSnapped:
+          case DXOp::EvalSampleIndex:
+          case DXOp::EvalCentroid:
+
+          // SM6.1
+          case DXOp::AttributeAtVertex:
+            // Pixel shader: load input signature attributes for a specific vertexID (0-2)
+
           // SM6.7
+          case DXOp::TextureStoreSample:
+            // stores texel data at specified sample index
+          case DXOp::TextureGatherRaw:
+            // Gather raw elements from 4 texels with no type conversions (SRV type is constrained)
           case DXOp::QuadVote:
             // QuadVote(cond,op)
 
-          // SM 6.1
-          case DXOp::AttributeAtVertex:
-            // Pixel shader: load input signature attributes for a specific vertexID
-            // VertexID ranges from 0 to 2.
-
+          // SM 6.8
           case DXOp::StartVertexLocation:
             // SV_BaseVertexLocation
             // BaseVertexLocation from DrawIndexedInstanced or StartVertexLocation from DrawInstanced
           case DXOp::StartInstanceLocation:
             // SV_StartInstanceLocation
             // StartInstanceLocation from Draw*Instanced
+
+          // Needed for debugger support of multi-threaded compute execution
           case DXOp::BarrierByMemoryType:
           case DXOp::BarrierByMemoryHandle:
-          case DXOp::BarrierByNodeRecordHandle:
-          case DXOp::BufferUpdateCounter:
-            // For UAV buffer with counter: must be RWRawBuffer
-            // atomically increments/decrements the hidden 32-bit counter stored with a Count or Append UAV
-
-          case DXOp::CBufferLoad:
-          case DXOp::CycleCounterLegacy:
-          // MSAA
-          case DXOp::TextureStoreSample:
-            // stores texel data at specified sample index
-          case DXOp::EvalSnapped:
-          case DXOp::EvalSampleIndex:
-          case DXOp::EvalCentroid:
-          // SM6.7
-          case DXOp::TextureGatherRaw:
-            // Gather raw elements from 4 texels with no type conversions (SRV type is constrained)
 
           // No plans to implement
           case DXOp::CheckAccessFullyMapped:
@@ -3930,12 +3928,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::NodeOutputIsValid:
           case DXOp::GetRemainingRecursionLevels:
           case DXOp::FinishedCrossGroupSharing:
+          case DXOp::BarrierByNodeRecordHandle:
 
           // Unknown Instructions
           case DXOp::TempRegLoad:
           case DXOp::TempRegStore:
           case DXOp::MinPrecXRegLoad:
           case DXOp::MinPrecXRegStore:
+          case DXOp::CycleCounterLegacy:
 
           case DXOp::NumOpCodes:
             RDCERR("Unhandled dx.op method `%s` %s", callFunc->name.c_str(), ToStr(dxOpCode).c_str());
