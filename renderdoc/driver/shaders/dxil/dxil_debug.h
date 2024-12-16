@@ -251,9 +251,9 @@ struct ThreadState
   void Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderValue &ret) const;
 
   ShaderValue DDX(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
-                  const rdcarray<ThreadState> &quad, const Id &id) const;
+                  const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const;
   ShaderValue DDY(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
-                  const rdcarray<ThreadState> &quad, const Id &id) const;
+                  const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const;
 
   void ProcessScopeChange(const rdcarray<bool> &oldLive, const rdcarray<bool> &newLive);
 

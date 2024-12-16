@@ -2761,18 +2761,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             else
             {
               RDCASSERT(!ThreadsAreDiverged(workgroups));
-              Id id = GetArgumentId(1);
-              if(id != DXILDebug::INVALID_ID)
-              {
-                if(dxOpCode == DXOp::DerivCoarseX)
-                  result.value = DDX(false, opCode, dxOpCode, workgroups, id);
-                else if(dxOpCode == DXOp::DerivCoarseY)
-                  result.value = DDY(false, opCode, dxOpCode, workgroups, id);
-                else if(dxOpCode == DXOp::DerivFineX)
-                  result.value = DDX(true, opCode, dxOpCode, workgroups, id);
-                else if(dxOpCode == DXOp::DerivFineY)
-                  result.value = DDY(true, opCode, dxOpCode, workgroups, id);
-              }
+              if(dxOpCode == DXOp::DerivCoarseX)
+                result.value = DDX(false, opCode, dxOpCode, workgroups, inst.args[1]);
+              else if(dxOpCode == DXOp::DerivCoarseY)
+                result.value = DDY(false, opCode, dxOpCode, workgroups, inst.args[1]);
+              else if(dxOpCode == DXOp::DerivFineX)
+                result.value = DDX(true, opCode, dxOpCode, workgroups, inst.args[1]);
+              else if(dxOpCode == DXOp::DerivFineY)
+                result.value = DDY(true, opCode, dxOpCode, workgroups, inst.args[1]);
             }
             break;
           }
@@ -3568,7 +3564,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERT(!ThreadsAreDiverged(workgroups));
             // QuadOp(value,op)
             // QuadReadLaneAt(value,quadLane)
-            Id id = GetArgumentId(1);
             ShaderVariable b;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
             uint32_t lane = UINT32_MAX;
@@ -3625,7 +3620,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             if(lane < workgroups.size())
             {
               ShaderVariable var;
-              RDCASSERT(workgroups[lane].GetLiveVariable(id, opCode, dxOpCode, var));
+              RDCASSERT(workgroups[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, var));
               result.value = var.value;
             }
             else
@@ -4062,6 +4057,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::ExtractVal:
     {
       Id src = GetArgumentId(0);
+      if(src == DXILDebug::INVALID_ID)
+        break;
       RDCASSERT(IsVariableAssigned(src));
       const ShaderVariable &srcVal = m_Variables[src];
       RDCASSERT(srcVal.members.empty());
@@ -4100,6 +4097,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     {
       // Load(ptr)
       Id ptrId = GetArgumentId(0);
+      if(ptrId == DXILDebug::INVALID_ID)
+        break;
       RDCASSERT(m_Memory.m_AllocPointers.count(ptrId) == 1);
       ShaderVariable arg;
       RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, arg));
@@ -4115,6 +4114,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       size_t allocSize = 0;
       void *allocMemoryBackingPtr = NULL;
       Id ptrId = GetArgumentId(0);
+      if(ptrId == DXILDebug::INVALID_ID)
+        break;
       auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
       RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
 
@@ -4166,6 +4167,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     {
       const DXIL::Type *resultType = inst.type->inner;
       Id ptrId = GetArgumentId(0);
+      if(ptrId == DXILDebug::INVALID_ID)
+        break;
 
       RDCASSERT(IsVariableAssigned(ptrId));
       RDCASSERT(m_Memory.m_Allocs.count(ptrId) == 1);
@@ -5074,6 +5077,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       void *baseMemoryBackingPtr = NULL;
       Id baseMemoryId = DXILDebug::INVALID_ID;
       Id ptrId = GetArgumentId(0);
+      if(ptrId == DXILDebug::INVALID_ID)
+        break;
       {
         auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
         RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
@@ -5834,14 +5839,10 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
       {
         if(uvDDXY[i])
         {
-          Id id = GetArgumentId(3 + i);
-          if(id != DXILDebug::INVALID_ID)
-          {
-            delta = DDX(false, opCode, dxOpCode, workgroups, id);
-            ddx.value.f32v[i] = delta.f32v[0];
-            delta = DDY(false, opCode, dxOpCode, workgroups, id);
-            ddy.value.f32v[i] = delta.f32v[0];
-          }
+          delta = DDX(false, opCode, dxOpCode, workgroups, inst.args[3 + i]);
+          ddx.value.f32v[i] = delta.f32v[0];
+          delta = DDY(false, opCode, dxOpCode, workgroups, inst.args[3 + i]);
+          ddy.value.f32v[i] = delta.f32v[0];
         }
       }
     }
@@ -6000,11 +6001,9 @@ void ThreadState::Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderVa
 }
 
 ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
-                             const rdcarray<ThreadState> &quad, const Id &id) const
+                             const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const
 {
   RDCASSERT(!ThreadsAreDiverged(quad));
-  if(id == DXILDebug::INVALID_ID)
-    return ShaderValue();
 
   uint32_t index = ~0U;
   int quadIndex = m_WorkgroupIndex;
@@ -6027,14 +6026,14 @@ ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
   ShaderValue ret;
   ShaderVariable a;
   ShaderVariable b;
-  RDCASSERT(quad[index + 1].GetLiveVariable(id, opCode, dxOpCode, a));
-  RDCASSERT(quad[index].GetLiveVariable(id, opCode, dxOpCode, b));
+  RDCASSERT(quad[index + 1].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
+  RDCASSERT(quad[index].GetShaderVariable(dxilValue, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
 }
 
 ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
-                             const rdcarray<ThreadState> &quad, const Id &id) const
+                             const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const
 {
   RDCASSERT(!ThreadsAreDiverged(quad));
   uint32_t index = ~0U;
@@ -6058,8 +6057,8 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
   ShaderValue ret;
   ShaderVariable a;
   ShaderVariable b;
-  RDCASSERT(quad[index + 2].GetLiveVariable(id, opCode, dxOpCode, a));
-  RDCASSERT(quad[index].GetLiveVariable(id, opCode, dxOpCode, b));
+  RDCASSERT(quad[index + 2].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
+  RDCASSERT(quad[index].GetShaderVariable(dxilValue, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
 }
