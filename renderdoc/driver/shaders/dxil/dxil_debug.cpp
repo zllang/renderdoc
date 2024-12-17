@@ -2078,8 +2078,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
 
             uint32_t stride = fmt.stride;
-            RDCASSERT(!((stride == 1) ^ byteAddress));
-
             RDCASSERTNOTEQUAL(stride, 0);
             RDCASSERTNOTEQUAL(fmt.compType, CompType::Typeless);
 
