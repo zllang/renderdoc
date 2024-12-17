@@ -524,19 +524,20 @@ InterpolationMode GetInterpolationModeForInputParam(const SigParameter &sig,
     }
     for(size_t j = 0; j < entryPoint->inputs.size(); ++j)
     {
-      const EntryPointInterface::Signature &dxilSig = entryPoint->inputs[j];
-      if(dxilSig.startRow == (int32_t)sig.regIndex)
+      const EntryPointInterface::Signature &dxilParam = entryPoint->inputs[j];
+      int row = sig.regIndex;
+      if((dxilParam.startRow <= row) && (row < (int)(dxilParam.startRow + dxilParam.rows)))
       {
         const int firstElem = sig.regChannelMask & 0x1   ? 0
                               : sig.regChannelMask & 0x2 ? 1
                               : sig.regChannelMask & 0x4 ? 2
                               : sig.regChannelMask & 0x8 ? 3
                                                          : -1;
-        if(dxilSig.startCol == firstElem)
+        if(dxilParam.startCol == firstElem)
         {
-          if(sig.semanticName == dxilSig.name)
+          if(sig.semanticName == dxilParam.name)
           {
-            return (InterpolationMode)dxilSig.interpolation;
+            return (InterpolationMode)dxilParam.interpolation;
           }
         }
       }

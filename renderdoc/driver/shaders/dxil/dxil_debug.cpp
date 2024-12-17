@@ -1755,10 +1755,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint32_t rowIdx = arg.value.u32v[0];
             RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg));
             uint32_t colIdx = arg.value.u32v[0];
-            const ShaderVariable &a = m_Input.members[inputIdx];
-            RDCASSERT(rowIdx < a.rows, rowIdx, a.rows);
-            RDCASSERT(colIdx < a.columns, colIdx, a.columns);
-            const uint32_t c = a.ColMajor() ? rowIdx * a.columns + colIdx : colIdx * a.rows + rowIdx;
+            const ShaderVariable &var = m_Input.members[inputIdx];
+            RDCASSERT(rowIdx < var.rows, rowIdx, var.rows);
+            RDCASSERT(colIdx < var.columns, colIdx, var.columns);
+            ShaderVariable &a = (var.rows <= 1) ? m_Input.members[inputIdx]
+                                                : m_Input.members[inputIdx].members[rowIdx];
+            const uint32_t c = colIdx;
 
 #undef _IMPL
 #define _IMPL(I, S, U) comp<I>(result, 0) = comp<I>(a, c)
@@ -7642,6 +7644,21 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       v.rows = (uint8_t)sig.rows;
       v.columns = (uint8_t)sig.cols;
       v.type = VarTypeForComponentType(sig.type);
+      if(v.rows <= 1)
+      {
+        v.rows = 1;
+      }
+      else
+      {
+        v.members.resize(v.rows);
+        for(uint32_t r = 0; r < v.rows; r++)
+        {
+          v.members[r].rows = 1;
+          v.members[r].columns = (uint8_t)sig.cols;
+          v.members[r].type = v.type;
+          v.members[r].name = StringFormat::Fmt("[%u]", r);
+        }
+      }
 
       SourceVariableMapping inputMapping;
       inputMapping.name = v.name;
@@ -7649,13 +7666,24 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       inputMapping.rows = sig.rows;
       inputMapping.columns = sig.cols;
       inputMapping.variables.reserve(sig.cols);
-      inputMapping.signatureIndex = sig.startRow;
-      for(uint32_t c = 0; c < sig.cols; ++c)
+      inputMapping.signatureIndex = i;
+      if(v.rows <= 1)
+      {
+        inputMapping.variables.reserve(sig.cols);
+        for(uint32_t c = 0; c < sig.cols; ++c)
+        {
+          DebugVariableReference ref;
+          ref.type = DebugVariableType::Input;
+          ref.name = inStruct.name + "." + v.name;
+          ref.component = c;
+          inputMapping.variables.push_back(ref);
+        }
+      }
+      else
       {
         DebugVariableReference ref;
         ref.type = DebugVariableType::Input;
         ref.name = inStruct.name + "." + v.name;
-        ref.component = c;
         inputMapping.variables.push_back(ref);
       }
     }

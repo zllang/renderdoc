@@ -3174,21 +3174,26 @@ struct PSInitialData
       if(packedRegister >= 0)
       {
         int dxilInputIdx = -1;
+        int dxilArrayIdx = 0;
         int packedElement = inputElement.elem;
+        int row = packedRegister;
         // Find the DXIL Input index and element from that matches the register and element
         for(int j = 0; j < dxilInputs.count(); ++j)
         {
           const DXIL::EntryPointInterface::Signature &dxilParam = dxilInputs[j];
-          if((dxilParam.startRow == (int32_t)packedRegister) && (dxilParam.startCol == packedElement))
+          if((dxilParam.startRow <= row) && (row < (int)(dxilParam.startRow + dxilParam.rows)) &&
+             (dxilParam.startCol == packedElement))
           {
             dxilInputIdx = j;
+            dxilArrayIdx = row - dxilParam.startRow;
             break;
           }
         }
         RDCASSERT(dxilInputIdx >= 0);
+        RDCASSERT(dxilArrayIdx >= 0);
 
-        psInputDatas.emplace_back(dxilInputIdx, inputElement.numwords, inputElement.sysattribute,
-                                  inputElement.included, data);
+        psInputDatas.emplace_back(dxilInputIdx, dxilArrayIdx, inputElement.numwords,
+                                  inputElement.sysattribute, inputElement.included, data);
       }
 
       if(inputElement.included)
@@ -3228,7 +3233,11 @@ struct PSInitialData
         }
         else
         {
-          rawout = &invar.value.s32v[outElement];
+          if(invar.rows <= 1)
+            rawout = &invar.value.s32v[outElement];
+          else
+            rawout = &invar.members[psInput.array].value.s32v[outElement];
+
           memcpy(rawout, psInput.data, psInput.numwords * 4);
         }
       }

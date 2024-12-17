@@ -66,9 +66,11 @@ void GetInterpolationModeForInputParams(const rdcarray<SigParameter> &stageInput
 
 struct PSInputData
 {
-  PSInputData(int inputIndex, int numWords, ShaderBuiltin sysAttribute, bool inc, void *pData)
+  PSInputData(int inputIndex, int arrayIndex, int numWords, ShaderBuiltin sysAttribute, bool inc,
+              void *pData)
   {
     input = inputIndex;
+    array = arrayIndex;
     numwords = numWords;
     sysattribute = sysAttribute;
     included = inc;
@@ -78,6 +80,7 @@ struct PSInputData
   void *data;
   ShaderBuiltin sysattribute;
   int input;
+  int array;
   int numwords;
   bool included;
 };

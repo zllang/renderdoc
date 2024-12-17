@@ -175,7 +175,8 @@ bool DXIL::FindSigParameter(const rdcarray<SigParameter> &inputSig,
 {
   for(const SigParameter &param : inputSig)
   {
-    if(dxilParam.startRow == (int32_t)param.regIndex)
+    int row = param.regIndex;
+    if((dxilParam.startRow <= row) && (row < (int)(dxilParam.startRow + dxilParam.rows)))
     {
       const int firstElem = param.regChannelMask & 0x1   ? 0
                             : param.regChannelMask & 0x2 ? 1
