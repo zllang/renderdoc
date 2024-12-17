@@ -7082,24 +7082,34 @@ void Debugger::ParseDebugData()
               }
               else if(bytesRemaining > 0)
               {
-                RDCASSERTEQUAL(byteOffset, 0);
-
                 // walk down until we get to a scalar type, if we get there. This means arrays of
                 // basic types will get the right type
                 while(typeWalk && typeWalk->baseType != NULL && typeWalk->type == VarType::Unknown)
                   typeWalk = &m_DebugInfo.types[typeWalk->baseType];
 
+                const TypeData &scalar = m_DebugInfo.types[typeWalk->baseType];
+                uint32_t elemCount = 1;
+
+                if(scalar.vecSize > 0)
+                  elemCount = scalar.vecSize;
+                else if(!scalar.structMembers.empty())
+                  elemCount = (uint32_t)scalar.structMembers.size();
+                RDCASSERT(elemCount > 0);
+                elemCount = RDCMAX(elemCount, 1U);
+
+                uint32_t elementSize = scalar.sizeInBytes / elemCount;
+                uint32_t mappingCount = bytesRemaining / elementSize;
+
                 usage->type = typeWalk->type;
                 usage->debugVarSSAName = mapping.debugVarSSAName;
-                usage->debugVarComponent = 0;
+                usage->debugVarComponent = byteOffset / elementSize;
                 usage->rows = 1U;
                 usage->columns = 1U;
                 usage->emitSourceVar = true;
                 usage->children.clear();
                 usage->debugVarSuffix.clear();
 
-                const TypeData &scalar = m_DebugInfo.types[typeWalk->baseType];
-                bytesRemaining -= scalar.sizeInBytes;
+                bytesRemaining -= mappingCount * elementSize;
                 RDCASSERTEQUAL(bytesRemaining, 0);
               }
             }
