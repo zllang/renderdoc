@@ -51,7 +51,7 @@ RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
 //   ComputeDXILTypeByteSize does not consider byte alignment
 //   GetElementPtr: only handles a two indexes
 //   Sample*: Argument 10 which is called Clamp is not used
-//   ShuffleVector: mask entries might be undef meaning "don’t care"
+//   ShuffleVector: mask entries might be undef meaning "don't care"
 
 // normal is not zero, not subnormal, not infinite, not NaN
 inline bool RDCISNORMAL(float input)
