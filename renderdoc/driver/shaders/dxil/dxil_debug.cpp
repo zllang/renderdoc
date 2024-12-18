@@ -5285,9 +5285,6 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
   RDCASSERTEQUAL(m_ActiveGlobalInstructionIdx, m_GlobalInstructionIdx);
   if(m_State)
   {
-    if(!m_Ended)
-      m_State->nextInstruction = m_GlobalInstructionIdx + 1;
-
     m_State->flags = ShaderEvents::NoEvent;
     m_State->changes.clear();
 
@@ -5319,9 +5316,6 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
     }
   }
   ExecuteInstruction(apiWrapper, workgroups);
-
-  if(m_State && m_Ended)
-    --m_State->nextInstruction;
 
   m_State = NULL;
 }
@@ -7947,6 +7941,8 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
     CalcActiveMask(activeMask);
 
     // step all active members of the workgroup
+    ShaderDebugState state;
+    bool hasDebugState = false;
     for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
     {
       if(activeMask[lane])
@@ -7961,13 +7957,9 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
 
         if(lane == m_ActiveLaneIndex)
         {
-          ShaderDebugState state;
-
+          hasDebugState = true;
           state.stepIndex = m_Steps;
           thread.StepNext(&state, apiWrapper, m_Workgroups);
-          thread.FillCallstack(state);
-
-          ret.push_back(std::move(state));
           m_Steps++;
         }
         else
@@ -7980,6 +7972,14 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
     {
       if(activeMask[lane])
         m_Workgroups[lane].StepOverNopInstructions();
+    }
+    // Update UI state after the execute and step over nops to make sure state.nextInstruction is in sync
+    if(hasDebugState)
+    {
+      ThreadState &thread = m_Workgroups[m_ActiveLaneIndex];
+      state.nextInstruction = thread.m_ActiveGlobalInstructionIdx;
+      thread.FillCallstack(state);
+      ret.push_back(std::move(state));
     }
   }
   return ret;
