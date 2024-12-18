@@ -6158,21 +6158,6 @@ void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
   return;
 }
 
-ScopedDebugData *Debugger::FindScopedDebugData(const uint32_t instructionIndex) const
-{
-  ScopedDebugData *scope = NULL;
-  // Scopes are sorted with increasing minInstruction
-  for(ScopedDebugData *s : m_DebugInfo.scopedDebugDatas)
-  {
-    uint32_t scopeMinInstruction = s->minInstruction;
-    if((scopeMinInstruction <= instructionIndex) && (instructionIndex <= s->maxInstruction))
-      scope = s;
-    else if(scopeMinInstruction > instructionIndex)
-      break;
-  }
-  return scope;
-}
-
 ScopedDebugData *Debugger::FindScopedDebugData(const DXIL::Metadata *md) const
 {
   for(ScopedDebugData *s : m_DebugInfo.scopedDebugDatas)
@@ -6205,7 +6190,6 @@ ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
 
     scope = new ScopedDebugData();
     scope->md = scopeMD;
-    scope->minInstruction = UINT32_MAX;
     scope->maxInstruction = 0;
     // File scope should not have a parent
     if(scopeMD->dwarf->type == DIBase::File)
@@ -6651,6 +6635,9 @@ void Debugger::ParseDebugData()
 
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
+        if(f->instructions[i]->debugLoc == ~0U)
+          continue;
+
         uint32_t instructionIndex = i + info.globalInstructionOffset;
 
         DXIL::Program::LocalSourceVariable localSrcVar;
@@ -6658,7 +6645,8 @@ void Debugger::ParseDebugData()
         localSrcVar.endInst = instructionIndex;
 
         // For each instruction - find which scope it belongs
-        const ScopedDebugData *scope = FindScopedDebugData(instructionIndex);
+        const DebugLocation &debugLoc = m_Program->m_DebugLocations[f->instructions[i]->debugLoc];
+        const ScopedDebugData *scope = FindScopedDebugData(GetMDScope(debugLoc.scope));
         // track which mappings we've processed, so if the same variable has mappings in multiple
         // scopes we only pick the innermost.
         rdcarray<LocalMapping> processed;
@@ -7624,7 +7612,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           continue;
 
         currentScope = thisScope;
-        thisScope->minInstruction = RDCMIN(thisScope->minInstruction, instructionIndex);
         thisScope->maxInstruction = instructionIndex;
         // Walk upwards from this scope to find where to append to the scope hierarchy
         {

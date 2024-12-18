@@ -477,17 +477,9 @@ struct ScopedDebugData
   rdcstr functionName;
   rdcstr fileName;
   uint32_t line;
-  uint32_t minInstruction;
   uint32_t maxInstruction;
 
-  bool operator<(const ScopedDebugData &o) const
-  {
-    if(minInstruction != o.minInstruction)
-      return minInstruction < o.minInstruction;
-    if(maxInstruction != o.maxInstruction)
-      return maxInstruction < o.maxInstruction;
-    return line < o.line;
-  }
+  bool operator<(const ScopedDebugData &o) const { return line < o.line; }
 };
 
 struct TypeData
@@ -537,7 +529,6 @@ private:
   const DXIL::Metadata *GetMDScope(const DXIL::Metadata *scopeMD) const;
   ScopedDebugData *AddScopedDebugData(const DXIL::Metadata *scopeMD);
   ScopedDebugData *FindScopedDebugData(const DXIL::Metadata *md) const;
-  ScopedDebugData *FindScopedDebugData(const uint32_t instructionIndex) const;
   const TypeData &AddDebugType(const DXIL::Metadata *typeMD);
   void AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t instructionIndex,
                         bool isDeclare, int32_t byteOffset, uint32_t countBytes, Id debugSSAId,
