@@ -6621,6 +6621,9 @@ void Debugger::ParseDebugData()
           {
             const LocalMapping &mapping = s->localMappings[m];
 
+            if(mapping.instIndex > instructionIndex)
+              continue;
+
             // see if this mapping is superceded by a later mapping in this scope for this
             // instruction. This is a bit inefficient but simple. The alternative would be to do
             // record start and end points for each mapping and update the end points, but this is
@@ -6632,6 +6635,9 @@ void Debugger::ParseDebugData()
               for(size_t n = innerStart; n < countLocalMappings; n++)
               {
                 const LocalMapping &laterMapping = s->localMappings[n];
+
+                if(laterMapping.instIndex > instructionIndex)
+                  continue;
 
                 // if this mapping will supercede and starts later
                 if(laterMapping.isSourceSupersetOf(mapping) &&
