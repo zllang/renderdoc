@@ -7614,7 +7614,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         if(it != info.maxExecPointPerId.end())
         {
           const ExecutionPoint &current = it->second;
-          const uint32_t scopeEndInst = scope->maxInstruction + 1;
+          uint32_t scopeEndInst = scope->maxInstruction + 1;
+          scopeEndInst = RDCMIN(scopeEndInst, (uint32_t)info.instructionToBlock.size() - 1);
           const uint32_t scopeEndBlock = info.instructionToBlock[scopeEndInst];
           ExecutionPoint scopeEnd(scopeEndBlock, scopeEndInst);
           if(scopeEnd.IsAfter(current, info.controlFlow))
