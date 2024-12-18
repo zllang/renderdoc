@@ -80,7 +80,7 @@ bool isUndef(const Value *v)
 }
 
 // Detect the DXC output which uses a load from global variable called "dx.nothing.*" instead of a Nop
-bool DXIL::IsDXCNop(const Instruction &inst)
+bool IsDXCNop(const Instruction &inst)
 {
   if(inst.op != Operation::Load)
     return false;
@@ -100,18 +100,18 @@ bool DXIL::IsDXCNop(const Instruction &inst)
   return false;
 }
 
-bool DXIL::IsLLVMDebugCall(const Instruction &inst)
+bool IsLLVMDebugCall(const Instruction &inst)
 {
   return ((inst.op == Operation::Call) && (inst.getFuncCall()->family == FunctionFamily::LLVMDbg));
 }
 
-bool DXIL::IsLLVMIntrinsicCall(const Instruction &inst)
+bool IsLLVMIntrinsicCall(const Instruction &inst)
 {
   return ((inst.op == Operation::Call) &&
           (inst.getFuncCall()->family == FunctionFamily::LLVMInstrinsic));
 }
 
-bool DXIL::ShouldIgnoreSourceMapping(const Instruction &inst)
+bool ShouldIgnoreSourceMapping(const Instruction &inst)
 {
   // Do not set source mapping for handle creation instructions
   if(inst.op == Operation::Call)
@@ -136,7 +136,7 @@ bool DXIL::ShouldIgnoreSourceMapping(const Instruction &inst)
 }
 
 // true if the Value is an SSA value i.e. from an instruction, not a constant etc.
-bool DXIL::IsSSA(const Value *dxilValue)
+bool IsSSA(const Value *dxilValue)
 {
   if(const Instruction *inst = cast<Instruction>(dxilValue))
     return true;
@@ -157,7 +157,7 @@ bool DXIL::IsSSA(const Value *dxilValue)
   return false;
 }
 
-DXILDebug::Id DXIL::GetSSAId(const DXIL::Value *value)
+DXILDebug::Id GetSSAId(const DXIL::Value *value)
 {
   if(const Instruction *inst = cast<Instruction>(value))
     return inst->slot;
@@ -170,8 +170,8 @@ DXILDebug::Id DXIL::GetSSAId(const DXIL::Value *value)
   return DXILDebug::INVALID_ID;
 }
 
-bool DXIL::FindSigParameter(const rdcarray<SigParameter> &inputSig,
-                            const EntryPointInterface::Signature &dxilParam, SigParameter &sigParam)
+bool FindSigParameter(const rdcarray<SigParameter> &inputSig,
+                      const EntryPointInterface::Signature &dxilParam, SigParameter &sigParam)
 {
   for(const SigParameter &param : inputSig)
   {
@@ -197,7 +197,7 @@ bool DXIL::FindSigParameter(const rdcarray<SigParameter> &inputSig,
 }
 
 // Replace '.' -> '_'
-void DXIL::SanitiseName(rdcstr &name)
+void SanitiseName(rdcstr &name)
 {
   for(size_t c = 0; c < name.size(); ++c)
   {
