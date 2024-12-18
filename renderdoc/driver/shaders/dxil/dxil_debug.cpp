@@ -6536,7 +6536,6 @@ void Debugger::ParseDebugData()
     {
       const FunctionInfo &info = m_FunctionInfos[f];
       uint32_t countInstructions = (uint32_t)f->instructions.size();
-      uint32_t activeInstructionIndex = 0;
 
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
@@ -6548,7 +6547,6 @@ void Debugger::ParseDebugData()
           uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
           if(dbgLoc != ~0U)
           {
-            activeInstructionIndex = instructionIndex;
             const DebugLocation &debugLoc = m_Program->m_DebugLocations[dbgLoc];
             const DXIL::Metadata *debugLocScopeMD = GetMDScope(debugLoc.scope);
             ScopedDebugData *scope = FindScopedDebugData(debugLocScopeMD);
@@ -6563,8 +6561,8 @@ void Debugger::ParseDebugData()
         const Function *dbgFunc = inst.getFuncCall();
         switch(dbgFunc->llvmIntrinsicOp)
         {
-          case LLVMIntrinsicOp::DbgDeclare: ParseDbgOpDeclare(inst, activeInstructionIndex); break;
-          case LLVMIntrinsicOp::DbgValue: ParseDbgOpValue(inst, activeInstructionIndex); break;
+          case LLVMIntrinsicOp::DbgDeclare: ParseDbgOpDeclare(inst, instructionIndex); break;
+          case LLVMIntrinsicOp::DbgValue: ParseDbgOpValue(inst, instructionIndex); break;
           case LLVMIntrinsicOp::Unknown:
           default: RDCASSERT("Unsupported LLVM debug operation", dbgFunc->llvmIntrinsicOp); break;
         };
