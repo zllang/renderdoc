@@ -4100,9 +4100,26 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       Id ptrId = GetArgumentId(0);
       if(ptrId == DXILDebug::INVALID_ID)
         break;
-      RDCASSERT(m_Memory.m_AllocPointers.count(ptrId) == 1);
+
+      auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
+      RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
+
+      const MemoryTracking::AllocPointer &ptr = itPtr->second;
+      Id baseMemoryId = ptr.baseMemoryId;
+
+      auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
+      RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
+      const MemoryTracking::Alloc &alloc = itAlloc->second;
       ShaderVariable arg;
-      RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, arg));
+      if(alloc.global)
+      {
+        RDCASSERT(IsVariableAssigned(baseMemoryId));
+        arg = m_Variables[baseMemoryId];
+      }
+      else
+      {
+        RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, arg));
+      }
       result.value = arg.value;
       break;
     }
@@ -5098,7 +5115,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERT(baseMemoryBackingPtr);
       RDCASSERTNOTEQUAL(baseMemoryId, DXILDebug::INVALID_ID);
 
-      RDCASSERTEQUAL(resultId, DXILDebug::INVALID_ID);
+      RDCASSERTNOTEQUAL(resultId, DXILDebug::INVALID_ID);
       RDCASSERT(IsVariableAssigned(baseMemoryId));
       const ShaderVariable a = m_Variables[baseMemoryId];
 
@@ -5107,7 +5124,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERT(GetShaderVariable(inst.args[newValueArgIdx], opCode, dxOpCode, b));
       const uint32_t c = 0;
 
-      ShaderVariable res;
+      ShaderVariable res = a;
 
       if(opCode == Operation::AtomicExchange)
       {
@@ -5417,8 +5434,13 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
   }
   else if(const GlobalVar *gv = cast<GlobalVar>(dxilValue))
   {
-    var.value.u64v[0] = gv->initialiser->getU64();
-    return true;
+    if(gv->initialiser)
+    {
+      var.value.u64v[0] = gv->initialiser->getU64();
+      return true;
+    }
+    RDCERR("Unhandled DXIL GlobalVar no initialiser");
+    return false;
   }
 
   if(const Instruction *inst = cast<Instruction>(dxilValue))
@@ -6246,7 +6268,6 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
       {
         case DW_ATE_boolean:
         {
-          RDCASSERTEQUAL(sizeInBits, 8);
           typeData.type = VarType ::Bool;
           break;
         }
