@@ -7089,7 +7089,152 @@ void Debugger::ParseDebugData()
                 usage->rows = rows;
                 usage->columns = columns;
 
-                if(bytesRemaining == 0)
+                if(bytesRemaining > 0)
+                {
+                  if(usage->children.isEmpty())
+                  {
+                    // Matrices are stored as [row][col]
+                    const char swizzle[] = "xyzw";
+                    usage->children.resize(rows);
+                    for(uint32_t r = 0; r < rows; ++r)
+                    {
+                      usage->children[r].emitSourceVar = false;
+                      usage->children[r].name = usage->name + StringFormat::Fmt(".row%u", r);
+                      usage->children[r].type = scalar.type;
+                      usage->children[r].debugVarSSAName = usage->debugVarSSAName;
+                      usage->children[r].debugVarComponent = 0;
+                      usage->children[r].rows = 1U;
+                      usage->children[r].columns = columns;
+                      usage->children[r].offset = usage->offset + r * rows;
+                      usage->children[r].children.resize(columns);
+                      for(uint32_t c = 0; c < columns; ++c)
+                      {
+                        usage->children[r].children[c].emitSourceVar = false;
+                        usage->children[r].children[c].name =
+                            usage->name + StringFormat::Fmt(".row%u.%c", r, swizzle[RDCMIN(c, 3U)]);
+                        usage->children[r].children[c].type = scalar.type;
+                        usage->children[r].children[c].debugVarSSAName = usage->debugVarSSAName;
+                        usage->children[r].children[c].debugVarComponent = r;
+                        usage->children[r].children[c].rows = 1U;
+                        usage->children[r].children[c].columns = 1U;
+                        usage->children[r].children[c].offset = usage->children[r].offset + c;
+                      }
+                    }
+                  }
+                  RDCASSERTEQUAL(usage->children.size(), rows);
+
+                  // assigning to a single element
+                  if(bytesRemaining == scalar.sizeInBytes)
+                  {
+                    bytesRemaining -= scalar.sizeInBytes;
+                    uint32_t componentIndex = byteOffset / scalar.sizeInBytes;
+                    uint32_t row, col;
+
+                    if(typeWalk->colMajorMat)
+                    {
+                      col = componentIndex % columns;
+                      row = componentIndex / columns;
+                    }
+                    else
+                    {
+                      col = componentIndex % rows;
+                      row = componentIndex / rows;
+                    }
+                    RDCASSERT(row < rows, row, rows);
+                    RDCASSERT(col < columns, col, columns);
+
+                    RDCASSERTEQUAL(usage->children[row].children.size(), columns);
+                    usage->children[row].children[col].emitSourceVar =
+                        !usage->children[row].emitSourceVar;
+                    usage->children[row].children[col].debugVarSSAName = mapping.debugVarSSAName;
+                    usage->children[row].children[col].debugVarComponent = 0;
+
+                    // try to recombine matrix rows to a single source var display
+                    if(!usage->children[row].emitSourceVar)
+                    {
+                      bool collapseVector = true;
+                      for(uint32_t c = 0; c < columns; ++c)
+                      {
+                        collapseVector = usage->children[row].children[c].emitSourceVar;
+                        if(!collapseVector)
+                          break;
+                      }
+                      if(collapseVector)
+                      {
+                        usage->children[row].emitSourceVar = true;
+                        for(uint32_t c = 0; c < columns; ++c)
+                          usage->children[row].children[c].emitSourceVar = false;
+                      }
+                    }
+                  }
+                  else
+                  {
+                    // assigning to a vector (row or column)
+                    uint32_t vecSize = (typeWalk->colMajorMat) ? columns : rows;
+                    if(bytesRemaining == scalar.sizeInBytes * vecSize)
+                    {
+                      uint32_t componentIndex = byteOffset / scalar.sizeInBytes;
+                      if(typeWalk->colMajorMat)
+                      {
+                        uint32_t col = componentIndex % columns;
+                        RDCASSERT(col < columns, col, columns);
+                        // one remaining index selects a column within the matrix.
+                        // source vars are displayed as row-major, need <rows> mappings
+                        for(uint32_t r = 0; r < rows; ++r)
+                        {
+                          RDCASSERTEQUAL(usage->children[r].children.size(), columns);
+                          usage->children[r].children[col].emitSourceVar =
+                              !usage->children[r].emitSourceVar;
+                          usage->children[r].children[col].debugVarSSAName = mapping.debugVarSSAName;
+                          usage->children[r].children[col].debugVarComponent = r;
+                        }
+                      }
+                      else
+                      {
+                        uint32_t row = componentIndex % rows;
+                        RDCASSERT(row < rows, row, rows);
+                        RDCASSERTEQUAL(usage->children.size(), rows);
+                        RDCASSERTEQUAL(usage->children[row].children.size(), columns);
+                        // one remaining index selects a row within the matrix.
+                        // source vars are displayed as row-major, need <rows> mappings
+                        for(uint32_t c = 0; c < columns; ++c)
+                        {
+                          usage->children[row].children[c].emitSourceVar =
+                              !usage->children[row].emitSourceVar;
+                          usage->children[row].children[c].debugVarSSAName = mapping.debugVarSSAName;
+                          usage->children[row].children[c].debugVarComponent = c;
+                        }
+                      }
+                    }
+                    else
+                    {
+                      RDCERR("Unhandled matrix source variable mapping %u %u", bytesRemaining,
+                             byteOffset);
+                    }
+                  }
+                  // try to recombine matrix rows to a single source var display
+                  for(uint32_t r = 0; r < rows; ++r)
+                  {
+                    if(!usage->children[r].emitSourceVar)
+                    {
+                      bool collapseVector = true;
+                      RDCASSERTEQUAL(usage->children[r].children.size(), columns);
+                      for(uint32_t c = 0; c < columns; ++c)
+                      {
+                        collapseVector = usage->children[r].children[c].emitSourceVar;
+                        if(!collapseVector)
+                          break;
+                      }
+                      if(collapseVector)
+                      {
+                        usage->children[r].emitSourceVar = true;
+                        for(uint32_t c = 0; c < columns; ++c)
+                          usage->children[r].children[c].emitSourceVar = false;
+                      }
+                    }
+                  }
+                }
+                else
                 {
                   // Remove mappings : this mapping covers everything
                   usage->debugVarSSAName = mapping.debugVarSSAName;
