@@ -1905,7 +1905,6 @@ void Program::MakeDXCDisassemblyString()
       {
         Instruction &inst = *func.instructions[funcIdx];
 
-        inst.disassemblyLine = m_DisassemblyInstructionLine;
         m_Disassembly += "  ";
         if(!inst.getName().empty())
           m_Disassembly += StringFormat::Fmt("%c%s = ", dxilIdentifier,
