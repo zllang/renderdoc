@@ -103,6 +103,7 @@ struct FunctionInfo
   rdcarray<uint32_t> uniformBlocks;
   DXIL::ControlFlow controlFlow;
   std::map<uint32_t, Callstack> callstacks;
+  rdcarray<uint32_t> instructionToBlock;
 };
 
 struct StackFrame
@@ -461,6 +462,7 @@ struct LocalMapping
   const DXIL::DILocalVariable *variable;
   rdcstr sourceVarName;
   rdcstr debugVarSSAName;
+  Id debugVarSSAId;
   int32_t byteOffset;
   uint32_t countBytes;
   uint32_t instIndex;
@@ -538,7 +540,7 @@ private:
   ScopedDebugData *FindScopedDebugData(const uint32_t instructionIndex) const;
   const TypeData &AddDebugType(const DXIL::Metadata *typeMD);
   void AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t instructionIndex,
-                        bool isDeclare, int32_t byteOffset, uint32_t countBytes,
+                        bool isDeclare, int32_t byteOffset, uint32_t countBytes, Id debugSSAId,
                         const rdcstr &debugVarSSAName);
   void ParseDebugData();
 

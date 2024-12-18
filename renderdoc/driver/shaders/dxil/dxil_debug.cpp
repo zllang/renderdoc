@@ -6410,7 +6410,7 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
 
 void Debugger::AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t instructionIndex,
                                 bool isDeclare, int32_t byteOffset, uint32_t countBytes,
-                                const rdcstr &debugVarSSAName)
+                                Id debugVarSSAId, const rdcstr &debugVarSSAName)
 {
   RDCASSERT(localVariableMD);
   RDCASSERTEQUAL(localVariableMD->dwarf->type, DIBase::Type::LocalVariable);
@@ -6423,6 +6423,7 @@ void Debugger::AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t 
   localMapping.variable = localVariable;
   localMapping.sourceVarName = sourceVarName;
   localMapping.debugVarSSAName = debugVarSSAName;
+  localMapping.debugVarSSAId = debugVarSSAId;
   localMapping.byteOffset = byteOffset;
   localMapping.countBytes = countBytes;
   localMapping.instIndex = instructionIndex;
@@ -6446,8 +6447,9 @@ void Debugger::ParseDbgOpDeclare(const DXIL::Instruction &inst, uint32_t instruc
   const Instruction *allocaInst = cast<Instruction>(allocaInstMD->value);
   RDCASSERT(allocaInst);
   RDCASSERTEQUAL(allocaInst->op, Operation::Alloca);
-  rdcstr resultId;
-  Program::MakeResultId(*allocaInst, resultId);
+  Id resultId = Program::GetResultSSAId(*allocaInst);
+  rdcstr resultName;
+  Program::MakeResultId(*allocaInst, resultName);
   int32_t byteOffset = 0;
 
   // arg 1 is DILocalVariable metadata
@@ -6478,14 +6480,16 @@ void Debugger::ParseDbgOpDeclare(const DXIL::Instruction &inst, uint32_t instruc
     }
   }
 
-  AddLocalVariable(localVariableMD, instructionIndex, true, byteOffset, countBytes, resultId);
+  AddLocalVariable(localVariableMD, instructionIndex, true, byteOffset, countBytes, resultId,
+                   resultName);
 }
 
 void Debugger::ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructionIndex)
 {
   // arg 0 is metadata containing the new value
   const Metadata *valueMD = cast<Metadata>(inst.args[0]);
-  rdcstr resultId = m_Program->GetArgId(valueMD->value);
+  Id resultId = GetSSAId(valueMD->value);
+  rdcstr resultName = m_Program->GetArgId(valueMD->value);
   // arg 1 is i64 byte offset in the source variable where the new value is written
   int64_t value = 0;
   RDCASSERT(getival<int64_t>(inst.args[1], value));
@@ -6519,7 +6523,8 @@ void Debugger::ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructi
     }
   }
 
-  AddLocalVariable(localVariableMD, instructionIndex, false, byteOffset, countBytes, resultId);
+  AddLocalVariable(localVariableMD, instructionIndex, false, byteOffset, countBytes, resultId,
+                   resultName);
 }
 
 void Debugger::ParseDebugData()
@@ -6615,6 +6620,7 @@ void Debugger::ParseDebugData()
           {
             const LocalMapping &mapping = s->localMappings[m];
 
+            // TODO: this should be using ExecutionPoint::IsAfter()
             if(mapping.instIndex > instructionIndex)
               continue;
 
@@ -6630,9 +6636,11 @@ void Debugger::ParseDebugData()
               {
                 const LocalMapping &laterMapping = s->localMappings[n];
 
+                // TODO: this should be using ExecutionPoint::IsAfter()
                 if(laterMapping.instIndex > instructionIndex)
                   continue;
 
+                // TODO: this should be using ExecutionPoint::IsAfter()
                 // if this mapping will supercede and starts later
                 if(laterMapping.isSourceSupersetOf(mapping) &&
                    laterMapping.instIndex > mapping.instIndex)
@@ -7383,6 +7391,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   // all SSA Ids referenced
   // maximum execution point per SSA reference
   // uniform control blocks
+  // block index from a function local instruction index
   for(const Function *f : m_Program->m_Functions)
   {
     if(!f->external)
@@ -7422,8 +7431,11 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       FunctionInfo::ExecutionPointPerId &ssaMaxExecPoints = info.maxExecPointPerId;
 
       uint32_t curBlock = 0;
+      info.instructionToBlock.resize(countInstructions);
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
+        const ExecutionPoint current(curBlock, i);
+        info.instructionToBlock[i] = current.block;
         const Instruction &inst = *(f->instructions[i]);
         if(DXIL::IsDXCNop(inst) || IsLLVMDebugCall(inst) || DXIL::IsLLVMIntrinsicCall(inst))
           continue;
@@ -7438,7 +7450,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           RDCASSERTEQUAL(ssaRefs.count(resultId), 0);
           ssaRefs.insert(resultId);
 
-          const ExecutionPoint current(curBlock, i);
           auto it = ssaMaxExecPoints.find(resultId);
           if(it == ssaMaxExecPoints.end())
             ssaMaxExecPoints[resultId] = current;
@@ -7590,6 +7601,29 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
             [](const ScopedDebugData *a, const ScopedDebugData *b) { return *a < *b; });
 
   ParseDebugData();
+
+  // Extend the life time of any SSA ID which is mapped to a source variable
+  // to the end of the scope the source variable is used in
+  for(auto funcInfosIt = m_FunctionInfos.begin(); funcInfosIt != m_FunctionInfos.end(); ++funcInfosIt)
+  {
+    FunctionInfo &info = funcInfosIt->second;
+    for(ScopedDebugData *scope : m_DebugInfo.scopedDebugDatas)
+    {
+      for(LocalMapping &localMapping : scope->localMappings)
+      {
+        auto it = info.maxExecPointPerId.find(localMapping.debugVarSSAId);
+        if(it != info.maxExecPointPerId.end())
+        {
+          const ExecutionPoint &current = it->second;
+          const uint32_t scopeEndInst = scope->maxInstruction + 1;
+          const uint32_t scopeEndBlock = info.instructionToBlock[scopeEndInst];
+          ExecutionPoint scopeEnd(scopeEndBlock, scopeEndInst);
+          if(scopeEnd.IsAfter(current, info.controlFlow))
+            it->second = scopeEnd;
+        }
+      }
+    }
+  }
 
   // Add inputs to the shader trace
   // Use the DXIL reflection data to map the input signature to input variables
