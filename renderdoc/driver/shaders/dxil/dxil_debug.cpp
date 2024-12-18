@@ -6342,24 +6342,93 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
         case DW_TAG_class_type:
         case DW_TAG_structure_type:
         {
-          typeData.name = *compositeType->name;
-          typeData.type = VarType::Struct;
           typeData.sizeInBytes = (uint32_t)(compositeType->sizeInBits / 8);
           typeData.alignInBytes = (uint32_t)(compositeType->alignInBits / 8);
-          const Metadata *elementsMD = compositeType->elements;
-          size_t countMembers = elementsMD->children.size();
-          for(size_t i = 0; i < countMembers; ++i)
+
+          bool isVector = compositeType->name->beginsWith("vector<");
+          bool isMatrix = !isVector && compositeType->name->beginsWith("matrix<");
+
+          if((compositeType->templateParams) && (isVector || isMatrix))
           {
-            const Metadata *memberMD = elementsMD->children[i];
-            const DXIL::DIBase *memberBase = memberMD->dwarf;
-            RDCASSERTEQUAL(memberBase->type, DXIL::DIBase::DerivedType);
-            const DXIL::DIDerivedType *member = memberBase->As<DIDerivedType>();
-            RDCASSERTEQUAL(member->tag, DXIL::DW_TAG_member);
-            // const TypeData &memberType = AddDebugType(member->base);
-            AddDebugType(member->base);
-            typeData.structMembers.push_back({*member->name, member->base});
-            uint32_t offset = (uint32_t)member->offsetInBits / 8;
-            typeData.memberOffsets.push_back(offset);
+            const Metadata *params = compositeType->templateParams;
+            uint32_t countParams = (uint32_t)params->children.size();
+            if(isVector)
+              RDCASSERTEQUAL(countParams, 2);
+            else if(isMatrix)
+              RDCASSERTEQUAL(countParams, 3);
+            // Vector needs at least two parameters
+            isVector &= (countParams >= 2);
+            // Matrix needs at least three parameters
+            isMatrix &= (countParams >= 3);
+          }
+
+          if((compositeType->templateParams) && (isVector || isMatrix))
+          {
+            const Metadata *params = compositeType->templateParams;
+            {
+              RDCASSERTEQUAL(params->children[1]->dwarf->type, DXIL::DIBase::TemplateValueParameter);
+              const DITemplateValueParameter *firstDim =
+                  params->children[1]->dwarf->As<DITemplateValueParameter>();
+
+              // don't need the template value parameter name, it should be 'element_count' or
+              // 'row_count', just need the value
+              RDCASSERT(getival<uint32_t>(firstDim->value->value, typeData.vecSize));
+            }
+
+            if(isMatrix)
+            {
+              RDCASSERTEQUAL(params->children[2]->dwarf->type, DXIL::DIBase::TemplateValueParameter);
+              const DITemplateValueParameter *secondDim =
+                  params->children[1]->dwarf->As<DITemplateValueParameter>();
+
+              // don't need the template value parameter name, it should be 'col_count', just need the value
+              RDCASSERT(getival<uint32_t>(secondDim->value->value, typeData.matSize));
+
+              // for now treat all matrices as column major. This way secondDim = matSize =
+              // columns and we don't need to flip for matrices
+              typeData.colMajorMat = true;
+            }
+
+            RDCASSERTEQUAL(params->children[0]->dwarf->type, DXIL::DIBase::TemplateTypeParameter);
+            const DITemplateTypeParameter *baseType =
+                params->children[0]->dwarf->As<DITemplateTypeParameter>();
+
+            typeData.baseType = baseType->type;
+
+            // don't need the template type parameter name, it should be 'element', just need the base type
+            const TypeData &baseTypeData = AddDebugType(typeData.baseType);
+
+            typeData.type = baseTypeData.type;
+
+            if(isVector)
+              typeData.name =
+                  StringFormat::Fmt("%s%u", ToStr(typeData.type).c_str(), typeData.vecSize);
+            else if(isMatrix)
+              typeData.name = StringFormat::Fmt("%s%ux%u", ToStr(typeData.type).c_str(),
+                                                typeData.vecSize, typeData.matSize);
+          }
+          else
+          {
+            typeData.name = *compositeType->name;
+
+            RDCASSERT(!isVector && !isMatrix, isVector, isMatrix, typeData.name);
+
+            typeData.type = VarType::Struct;
+            const Metadata *elementsMD = compositeType->elements;
+            size_t countMembers = elementsMD->children.size();
+            for(size_t i = 0; i < countMembers; ++i)
+            {
+              const Metadata *memberMD = elementsMD->children[i];
+              const DXIL::DIBase *memberBase = memberMD->dwarf;
+              RDCASSERTEQUAL(memberBase->type, DXIL::DIBase::DerivedType);
+              const DXIL::DIDerivedType *member = memberBase->As<DIDerivedType>();
+              RDCASSERTEQUAL(member->tag, DXIL::DW_TAG_member);
+              // const TypeData &memberType = AddDebugType(member->base);
+              AddDebugType(member->base);
+              typeData.structMembers.push_back({*member->name, member->base});
+              uint32_t offset = (uint32_t)member->offsetInBits / 8;
+              typeData.memberOffsets.push_back(offset);
+            }
           }
           break;
         }
@@ -6753,12 +6822,12 @@ void Debugger::ParseDebugData()
 
                 if(typeWalk->colMajorMat)
                 {
-                  rows = RDCMAX(1U, vec.vecSize);
+                  rows = RDCMAX(1U, typeWalk->vecSize);
                   columns = RDCMAX(1U, typeWalk->matSize);
                 }
                 else
                 {
-                  columns = RDCMAX(1U, vec.vecSize);
+                  columns = RDCMAX(1U, typeWalk->vecSize);
                   rows = RDCMAX(1U, typeWalk->matSize);
                 }
               }
@@ -6821,12 +6890,12 @@ void Debugger::ParseDebugData()
                     elementType = scalar.type;
                     if(childType->colMajorMat)
                     {
-                      childRows = RDCMAX(1U, vec.vecSize);
+                      childRows = RDCMAX(1U, childType->vecSize);
                       childColumns = RDCMAX(1U, childType->matSize);
                     }
                     else
                     {
-                      childColumns = RDCMAX(1U, vec.vecSize);
+                      childColumns = RDCMAX(1U, childType->vecSize);
                       childRows = RDCMAX(1U, childType->matSize);
                     }
                   }
@@ -6945,12 +7014,12 @@ void Debugger::ParseDebugData()
                         elementType = scalar.type;
                         if(memberType->colMajorMat)
                         {
-                          memberRows = RDCMAX(1U, vec.vecSize);
+                          memberRows = RDCMAX(1U, memberType->vecSize);
                           memberColumns = RDCMAX(1U, memberType->matSize);
                         }
                         else
                         {
-                          memberColumns = RDCMAX(1U, vec.vecSize);
+                          memberColumns = RDCMAX(1U, memberType->vecSize);
                           memberRows = RDCMAX(1U, memberType->matSize);
                         }
                       }
@@ -7000,19 +7069,16 @@ void Debugger::ParseDebugData()
 
                 if(typeWalk->colMajorMat)
                 {
-                  rows = RDCMAX(1U, vec.vecSize);
+                  rows = RDCMAX(1U, typeWalk->vecSize);
                   columns = RDCMAX(1U, typeWalk->matSize);
                 }
                 else
                 {
-                  columns = RDCMAX(1U, vec.vecSize);
+                  columns = RDCMAX(1U, typeWalk->vecSize);
                   rows = RDCMAX(1U, typeWalk->matSize);
                 }
                 usage->rows = rows;
                 usage->columns = columns;
-
-                RDCERR("Matrix types not handled yet %s %u %u", typeWalk->name.c_str(), byteOffset,
-                       bytesRemaining);
 
                 if(bytesRemaining == 0)
                 {
