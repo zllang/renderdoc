@@ -6611,12 +6611,13 @@ void Debugger::ParseDebugData()
         }
 
         // Iterate over the scopes downwards (parent->child)
-        for(const ScopedDebugData *s : scopes)
+        for(size_t s = 0; s < scopes.size(); ++s)
         {
-          size_t countLocalMappings = s->localMappings.size();
+          scope = scopes[scopes.size() - 1 - s];
+          size_t countLocalMappings = scope->localMappings.size();
           for(size_t m = 0; m < countLocalMappings; m++)
           {
-            const LocalMapping &mapping = s->localMappings[m];
+            const LocalMapping &mapping = scope->localMappings[m];
 
             // TODO: this should be using ExecutionPoint::IsAfter()
             if(mapping.instIndex > instructionIndex)
@@ -6632,7 +6633,7 @@ void Debugger::ParseDebugData()
               bool supercede = false;
               for(size_t n = innerStart; n < countLocalMappings; n++)
               {
-                const LocalMapping &laterMapping = s->localMappings[n];
+                const LocalMapping &laterMapping = scope->localMappings[n];
 
                 // TODO: this should be using ExecutionPoint::IsAfter()
                 if(laterMapping.instIndex > instructionIndex)
