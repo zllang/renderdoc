@@ -2969,7 +2969,6 @@ void ShaderViewer::combineStructures(RDTreeWidgetItem *root, int skipPrefixLengt
 
     VariableTag tag;
     tag.absoluteRefPath = prefix;
-    parent->setTag(QVariant::fromValue(tag));
 
     // add all the children (stripping the prefix from their name)
     for(RDTreeWidgetItem *item : matches)
@@ -2982,7 +2981,14 @@ void ShaderViewer::combineStructures(RDTreeWidgetItem *root, int skipPrefixLengt
         parent->setBackground(item->background());
       if(item->foreground().color().isValid())
         parent->setForeground(item->foreground());
+
+      VariableTag childTag = item->tag().value<VariableTag>();
+
+      // take max updateID when combining
+      tag.updateID = qMax(tag.updateID, childTag.updateID);
     }
+
+    parent->setTag(QVariant::fromValue(tag));
 
     // recurse and combine members of this object if a struct
     if(!isLeafArray)
@@ -4733,7 +4739,8 @@ RDTreeWidgetItem *ShaderViewer::makeSourceVariableNode(const ShaderVariable &var
   tag.absoluteRefPath = baseTag.absoluteRefPath + sep + var.name;
   tag.expanded = true;
   tag.modified = HasChanged(baseTag.absoluteRefPath + sep + var.name);
-  tag.updateID = CalcUpdateID(tag.updateID, baseTag.absoluteRefPath + sep + var.name);
+  tag.updateID = CalcUpdateID(tag.updateID, debugVarPath);
+  tag.updateID = CalcUpdateID(tag.updateID, debugName);
 
   for(const ShaderVariable &child : var.members)
   {
