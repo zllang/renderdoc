@@ -2391,15 +2391,20 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             if(handleId == DXILDebug::INVALID_ID)
               break;
 
+            // Find the cbuffer variable from the handleId
+            auto itVar = m_Variables.find(handleId);
+            if(itVar == m_Variables.end())
+            {
+              RDCERR("Unknown cbuffer handle %u", handleId);
+              break;
+            }
+
             ShaderVariable arg;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
             uint32_t regIndex = arg.value.u32v[0];
 
             RDCASSERT(m_Live[handleId]);
             RDCASSERT(IsVariableAssigned(handleId));
-            // Find the cbuffer variable from the handleId
-            auto itVar = m_Variables.find(handleId);
-            RDCASSERT(itVar != m_Variables.end());
             const ShaderVariable &cbufferVar = itVar->second;
 
             // Find the cbuffer index in the global state (matching by name)
@@ -4057,8 +4062,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       Id src = GetArgumentId(0);
       if(src == DXILDebug::INVALID_ID)
         break;
+      auto itVar = m_Variables.find(src);
+      if(itVar == m_Variables.end())
+      {
+        RDCERR("Unknown variable Id %u", src);
+        break;
+      }
       RDCASSERT(IsVariableAssigned(src));
-      const ShaderVariable &srcVal = m_Variables[src];
+      const ShaderVariable &srcVal = itVar->second;
       RDCASSERT(srcVal.members.empty());
       RDCASSERTEQUAL(inst.args.size(), 2);
       uint32_t idx = ~0U;
@@ -4099,7 +4110,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         break;
 
       auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
-      RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
+      if(itPtr == m_Memory.m_AllocPointers.end())
+      {
+        RDCWARN("Unknown memory pointer Id %u", ptrId);
+        break;
+      }
 
       const MemoryTracking::AllocPointer &ptr = itPtr->second;
       Id baseMemoryId = ptr.baseMemoryId;
@@ -4132,7 +4147,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       if(ptrId == DXILDebug::INVALID_ID)
         break;
       auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
-      RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
+      if(itPtr == m_Memory.m_AllocPointers.end())
+      {
+        RDCWARN("Unknown memory pointer Id %u", ptrId);
+        break;
+      }
 
       const MemoryTracking::AllocPointer &ptr = itPtr->second;
       baseMemoryId = ptr.baseMemoryId;
@@ -4184,10 +4203,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       Id ptrId = GetArgumentId(0);
       if(ptrId == DXILDebug::INVALID_ID)
         break;
+      auto itVar = m_Variables.find(ptrId);
+      if(itVar == m_Variables.end())
+      {
+        RDCERR("Unknown variable Id %u", ptrId);
+        break;
+      }
 
       RDCASSERT(IsVariableAssigned(ptrId));
       RDCASSERT(m_Memory.m_Allocs.count(ptrId) == 1);
-      RDCASSERT(m_Variables.count(ptrId) == 1);
 
       // arg[1..] : indices 1...N
       rdcarray<uint64_t> indexes;
@@ -5948,15 +5972,12 @@ DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
 ResourceReferenceInfo ThreadState::GetResource(Id handleId, bool &annotatedHandle)
 {
   ResourceReferenceInfo resRefInfo;
-  if(handleId == DXILDebug::INVALID_ID)
-    return resRefInfo;
-  RDCASSERT(handleId < m_Live.size());
-  RDCASSERT(m_Live[handleId]);
-  RDCASSERT(IsVariableAssigned(handleId));
   auto it = m_Variables.find(handleId);
   if(it != m_Variables.end())
   {
-    const ShaderVariable &var = m_Variables.at(handleId);
+    RDCASSERT(m_Live[handleId]);
+    RDCASSERT(IsVariableAssigned(handleId));
+    const ShaderVariable &var = it->second;
     bool directAccess = var.IsDirectAccess();
     ShaderBindIndex bindIndex;
     ShaderDirectAccess access;
