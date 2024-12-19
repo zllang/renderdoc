@@ -5396,14 +5396,15 @@ void Program::ParseReferences(const DXBC::Reflection *reflection)
                 // If the underlying handle points to a known resource then duplicate the resource
                 // and register it as resultIdStr
                 DXILDebug::Id handleId = GetSSAId(inst.args[1]);
-                const ResourceReference *resRef = GetResourceReference(handleId);
+                const ResourceReference *pResRef = GetResourceReference(handleId);
                 rdcstr baseResource = GetArgId(inst, 1);
                 rdcstr resBaseName = "typed_descriptor";
-                if(resRef)
+                if(pResRef)
                 {
-                  resBaseName = resRef->resourceBase.name;
+                  const ResourceReference resRef = *pResRef;
+                  resBaseName = resRef.resourceBase.name;
                   m_ResourceByIdHandles[resultId] = m_ResourceByIdHandles.size();
-                  m_ResourceReferences.push_back(*resRef);
+                  m_ResourceReferences.push_back(resRef);
                 }
                 uint32_t annotateHandleCount = m_ResourceAnnotateCounts[resBaseName];
                 rdcstr resName = "__" + resBaseName + "_" + ToStr(annotateHandleCount);
