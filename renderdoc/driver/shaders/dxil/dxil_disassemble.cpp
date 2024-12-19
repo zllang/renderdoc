@@ -135,7 +135,7 @@ bool ShouldIgnoreSourceMapping(const Instruction &inst)
   return false;
 }
 
-// true if the Value is an SSA value i.e. from an instruction, not a constant etc.
+// true if the Value has an SSA value i.e. from an instruction, global variable,  a constant etc.
 bool IsSSA(const Value *dxilValue)
 {
   if(const Instruction *inst = cast<Instruction>(dxilValue))
@@ -143,7 +143,7 @@ bool IsSSA(const Value *dxilValue)
   if(const GlobalVar *gv = cast<GlobalVar>(dxilValue))
     return true;
   if(const Constant *c = cast<Constant>(dxilValue))
-    return false;
+    return true;
   if(const Literal *lit = cast<Literal>(dxilValue))
     return false;
   if(const Block *block = cast<Block>(dxilValue))
@@ -164,9 +164,8 @@ DXILDebug::Id GetSSAId(const DXIL::Value *value)
   if(const GlobalVar *gv = cast<GlobalVar>(value))
     return gv->ssaId;
   if(const Constant *c = cast<Constant>(value))
-    return DXILDebug::INVALID_ID;
+    return c->ssaId;
 
-  RDCERR("Unhandled DXIL::Value type");
   return DXILDebug::INVALID_ID;
 }
 
@@ -1168,6 +1167,23 @@ void Program::SettleIDs()
       g->ssaId = m_NextSSAId++;
   }
 
+  // assign SSA ID for constants
+  for(size_t i = 0; i < m_Functions.size(); i++)
+  {
+    Function &func = *m_Functions[i];
+    for(Instruction *inst : func.instructions)
+    {
+      for(const Value *arg : inst->args)
+      {
+        if(arg && arg->kind() == Constant::Kind)
+        {
+          Constant *c = (Constant *)arg;
+          if(c->ssaId == ~0U)
+            c->ssaId = m_NextSSAId++;
+        }
+      }
+    }
+  }
   rdcarray<Metadata *> &metaSlots = m_MetaSlots;
   uint32_t &nextMetaSlot = m_NextMetaSlot;
   for(size_t i = 0; i < m_Functions.size(); i++)

@@ -987,6 +987,8 @@ struct Constant : public ForwardReferencableValue<Constant>
   rdcstr str;
   // used during encoding to sort constants by number of uses...
   uint32_t refCount = 0;
+  // unique global ID used by the debugger and disassembly similar to Instruction member variable slot
+  uint32_t ssaId = ~0U;
 
   bool isUndef() const { return (flags & 0x1) != 0; }
   bool isNULL() const { return (flags & 0x2) != 0; }
