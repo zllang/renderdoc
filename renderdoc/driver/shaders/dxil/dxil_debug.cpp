@@ -7806,6 +7806,9 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           if(!scope->functionName.empty())
             callstack.push_back(scope->functionName);
         }
+        // If there is no callstack then use the function name
+        if(callstack.empty())
+          callstack.push_back(f->name);
         info.callstacks[instructionIndex] = callstack;
       }
       // If there is no callstack for the function then use the function name
