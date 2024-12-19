@@ -248,8 +248,6 @@ public:
   void endUpdate();
   void setColumnAlignment(int column, Qt::Alignment align);
 
-  int sizeHintForColumn(int column) const { return QTreeView::sizeHintForColumn(column); }
-
   RDTreeWidgetItem *itemForIndex(QModelIndex idx) const;
 
   void copyItem(QPoint pos, RDTreeWidgetItem *item);

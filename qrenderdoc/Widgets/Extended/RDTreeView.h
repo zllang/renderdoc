@@ -178,6 +178,8 @@ public:
   using QTreeView::expandAll;
   using QTreeView::collapseAll;
 
+  using QTreeView::sizeHintForColumn;
+
 signals:
   void leave(QEvent *e);
   void keyPress(QKeyEvent *e);
