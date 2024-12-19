@@ -656,6 +656,11 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
     ui->watch->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     ui->watch->header()->setSectionResizeMode(3, QHeaderView::Interactive);
 
+    // registers last as it can be quite long (easier to do here than modify all the node creation)
+    ui->sourceVars->header()->moveSection(1, 3);
+    ui->constants->header()->moveSection(1, 3);
+    ui->watch->header()->moveSection(1, 3);
+
     ui->watch->header()->resizeSection(0, 80);
 
     ui->watch->setItemDelegate(new FullEditorDelegate(ui->watch));
@@ -4204,6 +4209,9 @@ void ShaderViewer::updateDebugState()
         ui->constants->addTopLevelItem(node);
       }
     }
+
+    ui->constants->header()->resizeSection(
+        3, qMax(ui->constants->header()->sectionSize(3), ui->constants->sizeHintForColumn(3)));
   }
 
   {
@@ -4270,6 +4278,9 @@ void ShaderViewer::updateDebugState()
 
     for(RDTreeWidgetItem *n : nodes)
       ui->sourceVars->addTopLevelItem(n);
+
+    ui->sourceVars->header()->resizeSection(
+        3, qMax(ui->sourceVars->header()->sectionSize(3), ui->sourceVars->sizeHintForColumn(3)));
 
     ui->sourceVars->endUpdate();
 
@@ -4697,6 +4708,9 @@ void ShaderViewer::updateWatchVariables()
     item->setText(3, error);
     item->setTag(QVariant::fromValue(tag));
   }
+
+  ui->watch->header()->resizeSection(
+      3, qMax(ui->watch->header()->sectionSize(3), ui->watch->sizeHintForColumn(3)));
 
   ui->watch->endUpdate();
 
