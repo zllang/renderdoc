@@ -31,10 +31,9 @@
 RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
 
-// TODO: ParseDebugData()
-//       Set the maximum instruction of the current scope
-//       Create new scope starting from the current instruction
-//       End up with multiple scopes with the same source MD but different instruction ranges
+// TODO: Remove asserts using ^
+// TODO: Support global shared memory pointers created as Constants using getElementPtr inside the constant
+// TODO: re-implement callstacks using scopes and inlined at metadata
 // TODO: Assert m_Block in ThreadState is correct per instruction
 // TODO: Automatically execute phi instructions after a branch
 // TODO: Support MSAA
