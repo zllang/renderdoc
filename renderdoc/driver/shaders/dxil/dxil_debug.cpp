@@ -6709,6 +6709,7 @@ void Debugger::ParseDebugData()
       const FunctionInfo &info = m_FunctionInfos[f];
       uint32_t countInstructions = (uint32_t)f->instructions.size();
 
+      program->m_Locals.reserve(countInstructions);
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
         if(f->instructions[i]->debugLoc == ~0U)
