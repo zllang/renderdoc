@@ -4155,11 +4155,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       const MemoryTracking::AllocPointer &ptr = itPtr->second;
       baseMemoryId = ptr.baseMemoryId;
       baseMemoryBackingPtr = ptr.backingMemory;
+      allocSize = ptr.size;
 
       auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
       RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
       const MemoryTracking::Alloc &alloc = itAlloc->second;
-      allocSize = alloc.size;
       allocMemoryBackingPtr = alloc.backingMemory;
 
       RDCASSERT(baseMemoryBackingPtr);
@@ -5124,11 +5124,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         const MemoryTracking::AllocPointer &ptr = itPtr->second;
         baseMemoryId = ptr.baseMemoryId;
         baseMemoryBackingPtr = ptr.backingMemory;
+        allocSize = ptr.size;
 
         auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
         RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
         const MemoryTracking::Alloc &alloc = itAlloc->second;
-        allocSize = alloc.size;
         allocMemoryBackingPtr = alloc.backingMemory;
       }
 
@@ -5136,8 +5136,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       RDCASSERTNOTEQUAL(baseMemoryId, DXILDebug::INVALID_ID);
 
       RDCASSERTNOTEQUAL(resultId, DXILDebug::INVALID_ID);
-      RDCASSERT(IsVariableAssigned(baseMemoryId));
-      const ShaderVariable a = m_Variables[baseMemoryId];
+      RDCASSERT(IsVariableAssigned(ptrId));
+      const ShaderVariable a = m_Variables[ptrId];
 
       size_t newValueArgIdx = (opCode == Operation::CompareExchange) ? 2 : 1;
       ShaderVariable b;
@@ -5252,21 +5252,33 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, res);
 
       ShaderVariableChange change;
-      change.before = a;
+      if(m_State)
+        change.before = a;
 
       UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocMemoryBackingPtr);
 
       // record the change to the base memory variable
-      change.after = m_Variables[baseMemoryId];
       if(m_State)
+      {
+        change.after = m_Variables[baseMemoryId];
         m_State->changes.push_back(change);
+      }
 
-      // Update the ptr variable value
-      // Set the result to be the ptr variable which will then be recorded as a change
+      // record the change to the ptr variable value
       RDCASSERT(IsVariableAssigned(ptrId));
-      result = m_Variables[ptrId];
+      if(m_State)
+        change.before = m_Variables[ptrId];
+      // Update the ptr variable value
+      m_Variables[ptrId].value = res.value;
+
+      if(m_State)
+      {
+        change.after = m_Variables[ptrId];
+        m_State->changes.push_back(change);
+      }
+
+      RDCASSERT(IsVariableAssigned(ptrId));
       result.value = res.value;
-      resultId = ptrId;
       break;
     }
     case Operation::AddrSpaceCast:
@@ -5626,6 +5638,7 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
   {
     for(uint32_t i = 0; i < baseMemory.members.size(); ++i)
     {
+      RDCASSERT(elementSize < sizeof(ShaderValue), elementSize);
       memcpy(&baseMemory.members[i].value.f32v[0], src, elementSize);
       src += elementSize;
     }
