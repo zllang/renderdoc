@@ -848,6 +848,11 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
         const rdcarray<DXIL::Value *> &members = constant->getMembers();
         value = members[0];
       }
+      if(constant->op == Operation::GetElementPtr)
+      {
+        RDCLOG("Unsupported Constant Op %s", ToStr(constant->op).c_str());
+        return true;
+      }
       RDCASSERT(ConvertDXILValueToShaderValue(value, var.type, 0, var.value));
       return true;
     }
@@ -1646,6 +1651,11 @@ void ThreadState::EnterEntryPoint(const Function *function, ShaderDebugState *st
   {
     m_Variables[gv.id] = gv.var;
     m_Assigned[gv.id] = true;
+  }
+  for(const GlobalConstant &c : m_GlobalState.constants)
+  {
+    m_Variables[c.id] = c.var;
+    m_Assigned[c.id] = true;
   }
 
   // Start with the global memory allocations
@@ -5972,7 +5982,7 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
 
 rdcstr ThreadState::GetArgumentName(uint32_t i) const
 {
-  return m_Program.GetArgId(*m_CurrentInstruction, i);
+  return m_Program.GetArgumentName(m_CurrentInstruction->args[i]);
 }
 
 DXILDebug::Id ThreadState::GetArgumentId(uint32_t i) const
@@ -6597,7 +6607,7 @@ void Debugger::ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructi
   // arg 0 is metadata containing the new value
   const Metadata *valueMD = cast<Metadata>(inst.args[0]);
   Id resultId = GetSSAId(valueMD->value);
-  rdcstr resultName = m_Program->GetArgId(valueMD->value);
+  rdcstr resultName = m_Program->GetArgumentName(valueMD->value);
   // arg 1 is i64 byte offset in the source variable where the new value is written
   int64_t value = 0;
   RDCASSERT(getival<int64_t>(inst.args[1], value));
@@ -7625,6 +7635,38 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     m_GlobalState.globals.push_back(globalVar);
     m_LiveGlobals[globalVar.id] = true;
   }
+  // Find all the constants and create them as shader variables and store them in the global state
+  for(const Function *f : m_Program->m_Functions)
+  {
+    if(!f->external)
+    {
+      for(Instruction *inst : f->instructions)
+      {
+        for(const Value *arg : inst->args)
+        {
+          if(arg && arg->kind() == ValueKind::Constant)
+          {
+            Constant *c = (Constant *)arg;
+            // Ignore if already created
+            if(m_LiveGlobals[c->ssaId])
+            {
+              continue;
+            }
+
+            GlobalConstant constantVar;
+            ConvertDXILTypeToShaderVariable(c->type, constantVar.var);
+            ConvertDXILConstantToShaderVariable(c, constantVar.var);
+            constantVar.var.name = m_Program->GetArgumentName(c);
+            constantVar.id = c->ssaId;
+            Id id = c->ssaId;
+            RDCASSERTNOTEQUAL(id, DXILDebug::INVALID_ID);
+            m_GlobalState.constants.push_back(constantVar);
+            m_LiveGlobals[constantVar.id] = true;
+          }
+        }
+      }
+    }
+  }
 
   rdcstr entryPoint = reflection.entryPoint;
   rdcstr entryFunction = m_Program->GetEntryFunction();
@@ -7732,8 +7774,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           if(!DXIL::IsSSA(arg))
             continue;
           Id argId = GetSSAId(arg);
-          // Add GlobalVar args to the SSA refs (they won't be the result of an instruction)
-          if(cast<GlobalVar>(arg))
+          // Add GlobalVar and Constant args to the SSA refs (they won't be the result of an instruction)
+          if(cast<GlobalVar>(arg) || cast<Constant>(arg))
           {
             if(ssaRefs.count(argId) == 0)
               ssaRefs.insert(argId);
@@ -8221,6 +8263,10 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
     // globals won't be filled out by entering the entry point, ensure their change is registered.
     for(const GlobalVariable &gv : m_GlobalState.globals)
       initial.changes.push_back({ShaderVariable(), gv.var});
+
+    // constants won't be filled out by entering the entry point, ensure their change is registered.
+    for(const GlobalConstant &c : m_GlobalState.constants)
+      initial.changes.push_back({ShaderVariable(), c.var});
 
     ret.push_back(std::move(initial));
 

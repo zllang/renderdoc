@@ -6090,6 +6090,14 @@ rdcstr Program::GetArgId(const Value *v) const
   return ret;
 }
 
+rdcstr Program::GetArgumentName(const DXIL::Value *v) const
+{
+  if(const DXIL::Constant *c = cast<Constant>(v))
+    return StringFormat::Fmt("%c%u", '_', c->ssaId);
+
+  return GetArgId(v);
+}
+
 DXILDebug::Id Program::GetResultSSAId(const DXIL::Instruction &inst)
 {
   return inst.slot;

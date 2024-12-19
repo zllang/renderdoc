@@ -121,6 +121,12 @@ struct GlobalVariable
   ShaderVariable var;
 };
 
+struct GlobalConstant
+{
+  Id id;
+  ShaderVariable var;
+};
+
 struct ResourceReferenceInfo
 {
   ResourceReferenceInfo() : resClass(DXIL::ResourceClass::Invalid) {}
@@ -408,6 +414,8 @@ struct GlobalState
   rdcarray<ShaderVariable> samplers;
   // Globals across workgroups including inputs (immutable) and outputs (mutable)
   rdcarray<GlobalVariable> globals;
+  // Constants across workgroups
+  rdcarray<GlobalConstant> constants;
   // Memory created for global variables
   MemoryTracking memory;
 };
