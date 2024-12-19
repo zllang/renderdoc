@@ -1699,9 +1699,6 @@ bool IsNopInstruction(const Instruction &inst)
       return true;
   }
 
-  if(IsDXCNop(inst))
-    return true;
-
   if(inst.op == Operation::NoOp)
     return true;
 
@@ -7656,7 +7653,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         const ExecutionPoint current(curBlock, i);
         info.instructionToBlock[i] = current.block;
         const Instruction &inst = *(f->instructions[i]);
-        if(DXIL::IsDXCNop(inst) || IsLLVMDebugCall(inst) || DXIL::IsLLVMIntrinsicCall(inst))
+        if(IsLLVMDebugCall(inst) || DXIL::IsLLVMIntrinsicCall(inst))
           continue;
 
         // Stack allocations last until the end of the function

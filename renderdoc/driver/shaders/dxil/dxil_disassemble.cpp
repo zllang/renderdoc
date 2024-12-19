@@ -3287,20 +3287,11 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                                            func.blocks[curBlock]->id);
       DisassemblyAddNewLine(1);
 
-      uint32_t lastNonNopDisassemblyLine = 0;
-
       for(size_t funcIdx = 0; funcIdx < func.instructions.size(); funcIdx++)
       {
         Instruction &inst = *func.instructions[funcIdx];
 
-        if(IsDXCNop(inst))
-        {
-          inst.disassemblyLine = lastNonNopDisassemblyLine;
-          continue;
-        }
-
         inst.disassemblyLine = m_DisassemblyInstructionLine;
-        lastNonNopDisassemblyLine = inst.disassemblyLine;
 
         rdcstr resultTypeStr;
         if(!inst.type->isVoid())
@@ -4994,6 +4985,9 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
         }
         if(!resultIdStr.empty())
           lineStr = resultTypeStr + resultIdStr + " = " + lineStr;
+
+        if(IsDXCNop(inst))
+          lineStr = "nop";
 
         if(!lineStr.empty())
         {
