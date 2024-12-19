@@ -6386,9 +6386,13 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
               // don't need the template value parameter name, it should be 'col_count', just need the value
               RDCASSERT(getival<uint32_t>(secondDim->value->value, typeData.matSize));
 
-              // for now treat all matrices as column major. This way secondDim = matSize =
-              // columns and we don't need to flip for matrices
-              typeData.colMajorMat = true;
+              // treat all matrices as row major. n rows of vector<m>
+              uint32_t rows = typeData.vecSize;
+              uint32_t cols = typeData.matSize;
+
+              typeData.colMajorMat = false;
+              typeData.vecSize = cols;
+              typeData.matSize = rows;
             }
 
             RDCASSERTEQUAL(params->children[0]->dwarf->type, DXIL::DIBase::TemplateTypeParameter);
@@ -6407,7 +6411,7 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
                   StringFormat::Fmt("%s%u", ToStr(typeData.type).c_str(), typeData.vecSize);
             else if(isMatrix)
               typeData.name = StringFormat::Fmt("%s%ux%u", ToStr(typeData.type).c_str(),
-                                                typeData.vecSize, typeData.matSize);
+                                                typeData.matSize, typeData.vecSize);
           }
           else
           {
@@ -7129,8 +7133,8 @@ void Debugger::ParseDebugData()
 
                     if(typeWalk->colMajorMat)
                     {
-                      col = componentIndex % columns;
-                      row = componentIndex / columns;
+                      row = componentIndex % columns;
+                      col = componentIndex / columns;
                     }
                     else
                     {
