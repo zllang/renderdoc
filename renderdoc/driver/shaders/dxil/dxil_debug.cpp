@@ -7829,6 +7829,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   for(auto funcInfosIt = m_FunctionInfos.begin(); funcInfosIt != m_FunctionInfos.end(); ++funcInfosIt)
   {
     FunctionInfo &info = funcInfosIt->second;
+    const ControlFlow &controlFlow = info.controlFlow;
+    const rdcarray<uint32_t> loopBlocks = controlFlow.GetLoopBlocks();
     for(ScopedDebugData *scope : m_DebugInfo.scopedDebugDatas)
     {
       for(LocalMapping &localMapping : scope->localMappings)
@@ -7841,7 +7843,13 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           scopeEndInst = RDCMIN(scopeEndInst, (uint32_t)info.instructionToBlock.size() - 1);
           const uint32_t scopeEndBlock = info.instructionToBlock[scopeEndInst];
           ExecutionPoint scopeEnd(scopeEndBlock, scopeEndInst);
-          if(scopeEnd.IsAfter(current, info.controlFlow))
+          if(loopBlocks.contains(scopeEnd.block))
+          {
+            uint32_t nextUniformBlock = controlFlow.GetNextUniformBlock(scopeEnd.block);
+            scopeEnd.block = nextUniformBlock;
+            scopeEnd.instruction = info.function->blocks[nextUniformBlock]->startInstructionIdx + 1;
+          }
+          if(scopeEnd.IsAfter(current, controlFlow))
             it->second = scopeEnd;
         }
       }
