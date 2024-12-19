@@ -6469,7 +6469,14 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
             {
               const Metadata *memberMD = elementsMD->children[i];
               const DXIL::DIBase *memberBase = memberMD->dwarf;
+              // Ignore member functions
+              if(memberBase->type == DXIL::DIBase::Subprogram)
+                continue;
               RDCASSERTEQUAL(memberBase->type, DXIL::DIBase::DerivedType);
+              // Ignore anything that isn't DIBase::DerivedType
+              if(memberBase->type != DXIL::DIBase::DerivedType)
+                continue;
+
               const DXIL::DIDerivedType *member = memberBase->As<DIDerivedType>();
               RDCASSERTEQUAL(member->tag, DXIL::DW_TAG_member);
               // const TypeData &memberType = AddDebugType(member->base);
