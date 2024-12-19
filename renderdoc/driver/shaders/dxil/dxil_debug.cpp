@@ -6233,7 +6233,8 @@ ScopedDebugData *Debugger::FindScopedDebugData(const DXIL::Metadata *md) const
 const DXIL::Metadata *Debugger::GetMDScope(const DXIL::Metadata *scopeMD) const
 {
   // Iterate upwards to find DIFile, DISubprogram or DILexicalBlock scope
-  while((scopeMD->dwarf->type != DIBase::File) && (scopeMD->dwarf->type != DIBase::Subprogram) &&
+  while(scopeMD && (scopeMD->dwarf->type != DIBase::File) &&
+        (scopeMD->dwarf->type != DIBase::Subprogram) &&
         (scopeMD->dwarf->type != DIBase::LexicalBlock))
     scopeMD = m_Program->GetDebugScopeParent(scopeMD->dwarf);
 
@@ -6243,6 +6244,8 @@ const DXIL::Metadata *Debugger::GetMDScope(const DXIL::Metadata *scopeMD) const
 ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
 {
   scopeMD = GetMDScope(scopeMD);
+  if(scopeMD == NULL)
+    return NULL;
   ScopedDebugData *scope = FindScopedDebugData(scopeMD);
   // Add a new DebugScope
   if(!scope)
@@ -6518,6 +6521,7 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
       switch(derivedType->tag)
       {
         case DW_TAG_const_type:
+        case DW_TAG_pointer_type:
         case DW_TAG_typedef: typeData = AddDebugType(derivedType->base); break;
         default:
           RDCERR("Unhandled DIDerivedType DIDerivedType Tag type %s",
