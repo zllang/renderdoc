@@ -7145,7 +7145,7 @@ void Debugger::ParseDebugData()
                 usage->rows = rows;
                 usage->columns = columns;
 
-                if(bytesRemaining > 0)
+                if((bytesRemaining > 0) && (bytesRemaining != scalar.sizeInBytes * rows * columns))
                 {
                   if(usage->children.isEmpty())
                   {
@@ -7179,6 +7179,8 @@ void Debugger::ParseDebugData()
                   }
                   RDCASSERTEQUAL(usage->children.size(), rows);
 
+                  // assigning to a vector (row or column)
+                  uint32_t vecSize = (typeWalk->colMajorMat) ? columns : rows;
                   // assigning to a single element
                   if(bytesRemaining == scalar.sizeInBytes)
                   {
@@ -7224,50 +7226,45 @@ void Debugger::ParseDebugData()
                       usage->children[row].emitSourceVar = true;
                     }
                   }
-                  else
+                  // Assigning to a row/col
+                  else if(bytesRemaining == scalar.sizeInBytes * vecSize)
                   {
-                    // assigning to a vector (row or column)
-                    uint32_t vecSize = (typeWalk->colMajorMat) ? columns : rows;
-                    if(bytesRemaining == scalar.sizeInBytes * vecSize)
+                    uint32_t componentIndex = byteOffset / scalar.sizeInBytes;
+                    if(typeWalk->colMajorMat)
                     {
-                      uint32_t componentIndex = byteOffset / scalar.sizeInBytes;
-                      if(typeWalk->colMajorMat)
+                      uint32_t col = componentIndex % columns;
+                      RDCASSERT(col < columns, col, columns);
+                      // one remaining index selects a column within the matrix.
+                      // source vars are displayed as row-major, need <rows> mappings
+                      for(uint32_t r = 0; r < rows; ++r)
                       {
-                        uint32_t col = componentIndex % columns;
-                        RDCASSERT(col < columns, col, columns);
-                        // one remaining index selects a column within the matrix.
-                        // source vars are displayed as row-major, need <rows> mappings
-                        for(uint32_t r = 0; r < rows; ++r)
-                        {
-                          RDCASSERTEQUAL(usage->children[r].children.size(), columns);
-                          usage->children[r].children[col].emitSourceVar =
-                              !usage->children[r].emitSourceVar;
-                          usage->children[r].children[col].debugVarSSAName = mapping.debugVarSSAName;
-                          usage->children[r].children[col].debugVarComponent = r;
-                        }
-                      }
-                      else
-                      {
-                        uint32_t row = componentIndex % rows;
-                        RDCASSERT(row < rows, row, rows);
-                        RDCASSERTEQUAL(usage->children.size(), rows);
-                        RDCASSERTEQUAL(usage->children[row].children.size(), columns);
-                        // one remaining index selects a row within the matrix.
-                        // source vars are displayed as row-major, need <rows> mappings
-                        for(uint32_t c = 0; c < columns; ++c)
-                        {
-                          usage->children[row].children[c].emitSourceVar =
-                              !usage->children[row].emitSourceVar;
-                          usage->children[row].children[c].debugVarSSAName = mapping.debugVarSSAName;
-                          usage->children[row].children[c].debugVarComponent = c;
-                        }
+                        RDCASSERTEQUAL(usage->children[r].children.size(), columns);
+                        usage->children[r].children[col].emitSourceVar =
+                            !usage->children[r].emitSourceVar;
+                        usage->children[r].children[col].debugVarSSAName = mapping.debugVarSSAName;
+                        usage->children[r].children[col].debugVarComponent = r;
                       }
                     }
                     else
                     {
-                      RDCERR("Unhandled matrix source variable mapping %u %u", bytesRemaining,
-                             byteOffset);
+                      uint32_t row = componentIndex % rows;
+                      RDCASSERT(row < rows, row, rows);
+                      RDCASSERTEQUAL(usage->children.size(), rows);
+                      RDCASSERTEQUAL(usage->children[row].children.size(), columns);
+                      // one remaining index selects a row within the matrix.
+                      // source vars are displayed as row-major, need <rows> mappings
+                      for(uint32_t c = 0; c < columns; ++c)
+                      {
+                        usage->children[row].children[c].emitSourceVar =
+                            !usage->children[row].emitSourceVar;
+                        usage->children[row].children[c].debugVarSSAName = mapping.debugVarSSAName;
+                        usage->children[row].children[c].debugVarComponent = c;
+                      }
                     }
+                  }
+                  else
+                  {
+                    RDCERR("Unhandled matrix assignment");
                   }
                   // try to recombine matrix rows to a single source var display
                   for(uint32_t r = 0; r < rows; ++r)
@@ -7313,7 +7310,7 @@ void Debugger::ParseDebugData()
                 usage->rows = 1U;
                 usage->columns = columns;
 
-                if(bytesRemaining > 0)
+                if(bytesRemaining == scalar.sizeInBytes)
                 {
                   bytesRemaining -= scalar.sizeInBytes;
                   RDCASSERTEQUAL(bytesRemaining, 0);
@@ -7454,7 +7451,6 @@ void Debugger::ParseDebugData()
             }
             else
             {
-              RDCASSERTEQUAL(n->rows * n->columns, (uint32_t)n->children.count());
               for(int32_t c = 0; c < n->children.count(); ++c)
                 sourceVar.variables.push_back(DebugVariableReference(
                     DebugVariableType::Variable,
