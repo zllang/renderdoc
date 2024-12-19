@@ -2186,7 +2186,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 numComps = 0;
                 // Modify the correct components
                 const uint32_t valueStart = (dxOpCode == DXOp::TextureStore) ? 5 : 4;
-                for(uint32_t c = 0; c < 4; ++c)
+                for(uint32_t c = 0; c < (uint32_t)fmt.numComps; ++c)
                 {
                   if(GetShaderVariable(inst.args[c + valueStart], opCode, dxOpCode, arg))
                   {
