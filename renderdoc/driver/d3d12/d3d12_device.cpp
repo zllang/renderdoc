@@ -2429,7 +2429,6 @@ HRESULT WrappedID3D12Device::Present(ID3D12GraphicsCommandList *pOverlayCommandL
           {
             const UINT64 waitCounter = m_CurOverlay - MaxOverlayInFlight;
             UINT64 counter = m_OverlayFence->GetCompletedValue();
-            RDCLOG("we are %llu behind", m_CurOverlay - counter);
             if(counter < waitCounter)
             {
               m_OverlayFence->SetEventOnCompletion(waitCounter, m_OverlaySyncHandle);
