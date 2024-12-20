@@ -4258,12 +4258,23 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
       result.type = baseType;
       result.rows = (uint8_t)countElems;
-      backingMemory += offset;
-      m_Memory.m_AllocPointers[resultId] = {ptrId, backingMemory, size};
 
       RDCASSERT(offset + size <= alloc.size);
-      RDCASSERT(size < sizeof(result.value.f32v));
-      memcpy(&result.value.f32v[0], backingMemory, size);
+      if(offset + size <= alloc.size)
+      {
+        backingMemory += offset;
+        m_Memory.m_AllocPointers[resultId] = {ptrId, backingMemory, size};
+
+        RDCASSERT(size < sizeof(result.value.f32v));
+        if(size < sizeof(ShaderValue))
+          memcpy(&result.value, backingMemory, size);
+        else
+          RDCERR("Size %u too large MAX %u for GetElementPtr", size, sizeof(ShaderValue));
+      }
+      else
+      {
+        RDCERR("Invalid GEP offset %u size %u for alloc size %u", offset, size, alloc.size);
+      }
       break;
     }
     case Operation::Bitcast:
@@ -5641,15 +5652,21 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
   {
     RDCASSERTEQUAL(baseMemory.rows, 1);
     RDCASSERTEQUAL(baseMemory.columns, 1);
-    RDCASSERT(elementSize < sizeof(ShaderValue), elementSize);
-    memcpy(&baseMemory.value.f32v[0], src, elementSize);
+    if(elementSize < sizeof(ShaderValue))
+      memcpy(&baseMemory.value, src, elementSize);
+    else
+      RDCERR("Updating MemoryVariable elementSize %u too large max %u", elementSize,
+             sizeof(ShaderValue));
   }
   else
   {
     for(uint32_t i = 0; i < baseMemory.members.size(); ++i)
     {
-      RDCASSERT(elementSize < sizeof(ShaderValue), elementSize);
-      memcpy(&baseMemory.members[i].value.f32v[0], src, elementSize);
+      if(elementSize < sizeof(ShaderValue))
+        memcpy(&baseMemory.members[i].value, src, elementSize);
+      else
+        RDCERR("Updating MemoryVariable member %u elementSize %u too large max %u", i, elementSize,
+               sizeof(ShaderValue));
       src += elementSize;
     }
   }
