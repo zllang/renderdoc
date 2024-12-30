@@ -896,6 +896,29 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(loopBlocks.contains(12U));
       REQUIRE(loopBlocks.contains(68U));
     }
+    {
+      // Specific loop case where a block (2) in a loop is only in a single path
+      // 0 -> 1 -> 3 - 1
+      // 0 -> 1 -> 2 -> 3
+      // 3 -> 4 -> END
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 3});
+      inputs.push_back({3, 1});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({3, 4});
+      controlFlow.Construct(inputs);
+      uniformBlocks = controlFlow.GetUniformBlocks();
+      REQUIRE(2 == uniformBlocks.count());
+      REQUIRE(uniformBlocks.contains(0U));
+      REQUIRE(uniformBlocks.contains(4U));
+      loopBlocks = controlFlow.GetLoopBlocks();
+      REQUIRE(3 == loopBlocks.count());
+      REQUIRE(loopBlocks.contains(1U));
+      REQUIRE(loopBlocks.contains(2U));
+      REQUIRE(loopBlocks.contains(3U));
+    }
   };
 };
 #endif    // ENABLED(ENABLE_UNIT_TESTS)
