@@ -130,8 +130,6 @@ int32_t ControlFlow::BlockInAnyPath(uint32_t block, uint32_t pathIdx, int32_t st
   if(endNode == PATH_END)
     return -1;
 
-  m_CheckedPaths[pathIdx] = true;
-
   // Check any paths linked to by the end node of the current path
   const rdcarray<uint32_t> &childPathsToCheck = m_BlockPathLinks.at(endNode);
   for(uint32_t childPathIdx : childPathsToCheck)
