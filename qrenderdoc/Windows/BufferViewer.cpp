@@ -2564,6 +2564,7 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
 
   ui->fovGuess->setValue(90.0);
 
+  ui->controlType->setCurrentIndex(0);
   on_controlType_currentIndexChanged(0);
 
   QObject::connect(ui->inTable->selectionModel(), &QItemSelectionModel::selectionChanged, this,
