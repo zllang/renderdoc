@@ -1108,7 +1108,7 @@ ResourceReferenceInfo D3D12APIWrapper::GetResourceReferenceInfo(const DXDebug::B
       }
       else
       {
-        RDCERR("Unknown SRV resource at Descriptor Index %s", descriptorIndex);
+        RDCERR("Unknown SRV resource at Descriptor Index %u", descriptorIndex);
         return ResourceReferenceInfo();
       }
       break;
