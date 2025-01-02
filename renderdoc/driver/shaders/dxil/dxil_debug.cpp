@@ -2160,14 +2160,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               data += dataOffset;
               int numComps = fmt.numComps;
+              int maxNumComps = fmt.numComps;
               // Clamp the number of components to read based on the amount of data in the buffer
               if(!texData)
               {
                 RDCASSERTNOTEQUAL(numElems, 0);
-                int maxNumComps = (int)((dataSize - dataOffset) / fmt.byteWidth);
-                fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
+                const int maxNumCompsData = (int)((dataSize - dataOffset) / fmt.byteWidth);
                 size_t maxOffset = (firstElem + numElems) * stride + structOffset;
-                maxNumComps = (int)((maxOffset - dataOffset) / fmt.byteWidth);
+                const int maxNumCompsOffset = (int)((maxOffset - dataOffset) / fmt.byteWidth);
+                maxNumComps = RDCMIN(maxNumCompsData, maxNumCompsOffset);
                 fmt.numComps = RDCMIN(fmt.numComps, maxNumComps);
               }
 
@@ -2186,7 +2187,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 numComps = 0;
                 // Modify the correct components
                 const uint32_t valueStart = (dxOpCode == DXOp::TextureStore) ? 5 : 4;
-                for(uint32_t c = 0; c < (uint32_t)fmt.numComps; ++c)
+                const uint32_t numArgs = RDCMIN(4, maxNumComps);
+                for(uint32_t c = 0; c < numArgs; ++c)
                 {
                   if(GetShaderVariable(inst.args[c + valueStart], opCode, dxOpCode, arg))
                   {
@@ -2196,7 +2198,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                     ++numComps;
                   }
                 }
-                fmt.numComps = numComps;
+                fmt.numComps = RDCMIN(numComps, maxNumComps);
                 TypedUAVStore(fmt, (byte *)data, result.value);
               }
             }
