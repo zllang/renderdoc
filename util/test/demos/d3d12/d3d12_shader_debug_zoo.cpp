@@ -172,6 +172,7 @@ RWBuffer<float> narrowtypeduav : register(u6);
 
 RWTexture2D<float4> floattexrwtest : register(u7);
 RWBuffer<int> intbufrwtest : register(u8);
+RWBuffer<int> oneintbufrwtest : register(u9);
 
 Buffer<float> narrowtypedsrv : register(t102);
 
@@ -896,6 +897,14 @@ float4 main(v2f IN) : SV_Target0
     return float4(unpacked.x, unpacked.y, unpacked.z, unpacked.w);
   }
 #endif // #if SM_6_6
+  if(IN.tri == 99)
+  {
+    // use this to ensure the compiler doesn't know we're using fixed locations
+    uint z = intval - IN.tri - 7;
+    uint z2 = uint(zero);
+    oneintbufrwtest[z] = 10;
+    return oneintbufrwtest[z2];
+  }
 
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
@@ -1090,6 +1099,7 @@ void main()
             multiRangeParam,
             uavParam(D3D12_SHADER_VISIBILITY_PIXEL, 0, 21),
             srvParam(D3D12_SHADER_VISIBILITY_PIXEL, 0, 20),
+            tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 9, 1, 100),
         },
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, 1, &staticSamp);
 
@@ -1319,6 +1329,8 @@ void main()
     MakeUAV(smiley).Format(DXGI_FORMAT_R8G8B8A8_UNORM).CreateGPU(33);
     ID3D12ResourcePtr atomicBuffer = MakeBuffer().Size(1024).UAV();
     MakeUAV(atomicBuffer).Format(DXGI_FORMAT_R32_UINT).CreateGPU(34);
+    ID3D12ResourcePtr oneIntBuffer = MakeBuffer().Size(4).UAV();
+    MakeUAV(oneIntBuffer).Format(DXGI_FORMAT_R32_SINT).CreateGPU(100);
 
     float structdata[220];
     for(int i = 0; i < 220; i++)
@@ -1575,6 +1587,7 @@ void main()
         cmd->SetGraphicsRootUnorderedAccessView(5, rootDummy->GetGPUVirtualAddress());
         cmd->SetGraphicsRootShaderResourceView(6,
                                                rootStruct->GetGPUVirtualAddress() + renderDataSize);
+        cmd->SetGraphicsRootDescriptorTable(7, m_CBVUAVSRV->GetGPUDescriptorHandleForHeapStart());
 
         cmd->SetPipelineState(psos[i]);
 
