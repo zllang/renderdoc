@@ -6500,10 +6500,13 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
                 continue;
 
               const DXIL::DIDerivedType *member = memberBase->As<DIDerivedType>();
-              RDCASSERTEQUAL(member->tag, DXIL::DW_TAG_member);
-              // const TypeData &memberType = AddDebugType(member->base);
+              // Ignore any member tag that isn't DXIL::DW_TAG_member
+              if(member->tag != DXIL::DW_TAG_member)
+                continue;
               AddDebugType(member->base);
-              typeData.structMembers.push_back({*member->name, member->base});
+              RDCASSERT(member->name);
+              rdcstr memberName = member->name ? *member->name : "NULL";
+              typeData.structMembers.push_back({memberName, member->base});
               uint32_t offset = (uint32_t)member->offsetInBits / 8;
               typeData.memberOffsets.push_back(offset);
             }
