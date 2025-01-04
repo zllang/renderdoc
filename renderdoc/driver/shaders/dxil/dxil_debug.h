@@ -192,7 +192,7 @@ struct MemoryTracking
   struct Alloc
   {
     void *backingMemory;
-    size_t size;
+    uint64_t size;
     bool global;
   };
 
@@ -200,7 +200,7 @@ struct MemoryTracking
   {
     Id baseMemoryId;
     void *backingMemory;
-    size_t size;
+    uint64_t size;
   };
 
   std::map<Id, Alloc> m_Allocs;
@@ -251,7 +251,7 @@ struct ThreadState
   bool GetPhiVariable(const Id &id, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
                       ShaderVariable &var) const;
   bool GetVariableHelper(DXIL::Operation op, DXIL::DXOp dxOpCode, ShaderVariable &var) const;
-  void UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize, const ShaderVariable &var);
+  void UpdateBackingMemoryFromVariable(void *ptr, uint64_t &allocSize, const ShaderVariable &var);
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
 
   void PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, DXIL::Operation opCode,

@@ -32,15 +32,14 @@ RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
 
 // TODO: Remove asserts using ^
-// TODO: Support global shared memory pointers created as Constants using getElementPtr inside the constant
+// TODO: Extend support for Compound Constants: arithmetic, logical ops
 // TODO: re-implement callstacks using scopes and inlined at metadata
 // TODO: Assert m_Block in ThreadState is correct per instruction
 // TODO: Automatically execute phi instructions after a branch
 // TODO: Support MSAA
 // TODO: Support UAVs with counter
-// TODO: Extend support for Compound Constants: Vector, GetElementPtr
-// TODO: Extend debug data parsing for DW_TAG_array_type for the base element type
-// TODO: Extend debug data parsing:  N-dimensional arrays, mapping covers whole sub-array
+// TODO: Extend debug data parsing: DW_TAG_array_type for the base element type
+// TODO: Extend debug data parsing: N-dimensional arrays, mapping covers whole sub-array
 
 // Notes:
 //   The phi node capture variables are not shown in the UI
@@ -48,7 +47,7 @@ RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
 //   Does it make sense to use ShaderVariable GPU pointers
 //   ExtractVal: only handles one index
 //   ComputeDXILTypeByteSize does not consider byte alignment
-//   GetElementPtr: only handles a two indexes
+//   GetElementPtr: only handles two indexes
 //   Sample*: Argument 10 which is called Clamp is not used
 //   ShuffleVector: mask entries might be undef meaning "don't care"
 
@@ -93,6 +92,36 @@ inline bool RDCISNORMAL(double input)
 
 using namespace DXIL;
 using namespace DXDebug;
+
+const uint32_t POINTER_MAGIC = 0xBEAFDEAF;
+
+static void EncodePointer(DXILDebug::Id ptrId, uint64_t offset, uint64_t size, ShaderVariable &var)
+{
+  var.type = VarType::GPUPointer;
+  var.value.u32v[0] = ptrId;
+  var.value.u32v[1] = POINTER_MAGIC;
+  var.value.u64v[1] = offset;
+  var.value.u64v[2] = size;
+}
+
+static bool DecodePointer(DXILDebug::Id &ptrId, uint64_t &offset, uint64_t &size,
+                          const ShaderVariable &var)
+{
+  if(var.type != VarType::GPUPointer)
+  {
+    RDCERR("Calling DecodePointer on non-pointer type %s", ToStr(var.type).c_str());
+    return false;
+  }
+  if(var.value.u32v[1] != POINTER_MAGIC)
+  {
+    RDCERR("Calling DecodePointer on non encoded pointer type %u", var.value.u32v[1]);
+    return false;
+  }
+  ptrId = var.value.u32v[0];
+  offset = var.value.u64v[1];
+  size = var.value.u64v[2];
+  return true;
+}
 
 static bool OperationFlushing(const Operation op, DXOp dxOpCode)
 {
@@ -848,13 +877,98 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
         const rdcarray<DXIL::Value *> &members = constant->getMembers();
         value = members[0];
       }
-      if(constant->op == Operation::GetElementPtr)
+      if(constant->op == Operation::NoOp)
       {
-        RDCLOG("Unsupported Constant Op %s", ToStr(constant->op).c_str());
+        RDCASSERT(ConvertDXILValueToShaderValue(value, var.type, 0, var.value));
         return true;
       }
-      RDCASSERT(ConvertDXILValueToShaderValue(value, var.type, 0, var.value));
-      return true;
+      else if(constant->op == Operation::GetElementPtr)
+      {
+        const rdcarray<DXIL::Value *> &members = constant->getMembers();
+        RDCASSERT(members.size() >= 3, members.size());
+        value = members[0];
+        const GlobalVar *gv = cast<GlobalVar>(value);
+        if(!gv)
+        {
+          RDCERR("Constant GetElementPtr first member is not a GlobalVar");
+          return false;
+        }
+        const DXIL::Type *elementType = gv->type;
+        if(elementType->type != Type::TypeKind::Pointer)
+        {
+          RDCERR("Constant GetElementPtr global variable is not a Pointer");
+          return false;
+        }
+        elementType = elementType->inner;
+        VarType baseType = ConvertDXILTypeToVarType(elementType);
+        uint32_t elementSize = GetElementByteSize(baseType);
+        uint32_t countElems = RDCMAX(1U, elementType->elemCount);
+        uint64_t size = countElems * GetElementByteSize(baseType);
+
+        DXILDebug::Id ptrId = gv->ssaId;
+        // members[1..] : indices 1...N
+        rdcarray<uint64_t> indexes;
+        indexes.reserve(members.size() - 1);
+        for(uint32_t a = 1; a < members.size(); ++a)
+        {
+          value = members[a];
+          VarType argType = ConvertDXILTypeToVarType(value->type);
+          ShaderValue argValue;
+          memset(&argValue, 0, sizeof(argValue));
+          RDCASSERT(ConvertDXILValueToShaderValue(value, argType, 0, argValue));
+          indexes.push_back(argValue.u64v[0]);
+        }
+        // Index 0 is in ptr terms as if pointer was an array of pointers
+        RDCASSERTEQUAL(indexes[0], 0);
+        uint64_t offset = 0;
+
+        if(indexes.size() > 1)
+          offset += indexes[1] * elementSize;
+        RDCASSERT(indexes.size() <= 2);
+        // Encode the pointer allocation: ptrId, offset, size
+        EncodePointer(ptrId, offset, size, var);
+        return true;
+      }
+      // case Operation::Trunc:
+      // case Operation::ZExt:
+      // case Operation::SExt:
+      // case Operation::FToU:
+      // case Operation::FToS:
+      // case Operation::UToF:
+      // case Operation::SToF:
+      // case Operation::FPTrunc:
+      // case Operation::FPExt:
+      // case Operation::PtrToI:
+      // case Operation::IToPtr:
+      // case Operation::Bitcast:
+      // case Operation::AddrSpaceCast:
+      // case Operation::Select:
+      // case Operation::IEqual:
+      // plus other integer comparisons
+      // case Operation::FOrdEqual:
+      // plus other fp comparisons
+      // case Operation::ExtractElement:
+      // case Operation::ExtractVal:
+      // case Operation::FAdd:
+      // case Operation::FSub:
+      // case Operation::FMul:
+      // case Operation::FDiv:
+      // case Operation::FRem:
+      // case Operation::Add:
+      // case Operation::Sub:
+      // case Operation::Mul:
+      // case Operation::UDiv:
+      // case Operation::SDiv:
+      // case Operation::URem:
+      // case Operation::SRem:
+      // case Operation::ShiftLeft:
+      // case Operation::LogicalShiftRight:
+      // case Operation::ArithShiftRight:
+      // case Operation::And:
+      // case Operation::Or:
+      // case Operation::Xor:
+      RDCLOG("Unsupported Constant Op %s", ToStr(constant->op).c_str());
+      return false;
     }
     return false;
   }
@@ -4152,7 +4266,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       // Store(ptr, value)
       Id baseMemoryId = DXILDebug::INVALID_ID;
       void *baseMemoryBackingPtr = NULL;
-      size_t allocSize = 0;
+      uint64_t allocSize = 0;
       void *allocMemoryBackingPtr = NULL;
       Id ptrId = GetArgumentId(0);
       if(ptrId == DXILDebug::INVALID_ID)
@@ -4267,8 +4381,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         backingMemory += offset;
         m_Memory.m_AllocPointers[resultId] = {ptrId, backingMemory, size};
 
-        RDCASSERT(size < sizeof(result.value.f32v));
-        if(size < sizeof(ShaderValue))
+        RDCASSERT(size <= sizeof(ShaderValue));
+        if(size <= sizeof(ShaderValue))
           memcpy(&result.value, backingMemory, size);
         else
           RDCERR("Size %u too large MAX %u for GetElementPtr", size, sizeof(ShaderValue));
@@ -5133,7 +5247,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::AtomicUMin:
     case Operation::CompareExchange:
     {
-      size_t allocSize = 0;
+      uint64_t allocSize = 0;
       void *allocMemoryBackingPtr = NULL;
       void *baseMemoryBackingPtr = NULL;
       Id baseMemoryId = DXILDebug::INVALID_ID;
@@ -5617,7 +5731,7 @@ void ThreadState::MarkResourceAccess(const rdcstr &name, const ResourceReference
     accessed.push_back(resRefInfo.binding);
 }
 
-void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize,
+void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, uint64_t &allocSize,
                                                   const ShaderVariable &var)
 {
   // Memory copy from value to backing memory
@@ -5626,7 +5740,7 @@ void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, size_t &allocSize,
     RDCASSERTEQUAL(var.rows, 1);
     const size_t elementSize = GetElementByteSize(var.type);
     RDCASSERT(elementSize <= allocSize);
-    RDCASSERT(elementSize < sizeof(var.value.f32v));
+    RDCASSERT(elementSize <= sizeof(ShaderValue));
     const size_t varMemSize = var.columns * elementSize;
     memcpy(ptr, &var.value.f32v[0], varMemSize);
     allocSize -= varMemSize;
@@ -5654,7 +5768,7 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
   {
     RDCASSERTEQUAL(baseMemory.rows, 1);
     RDCASSERTEQUAL(baseMemory.columns, 1);
-    if(elementSize < sizeof(ShaderValue))
+    if(elementSize <= sizeof(ShaderValue))
       memcpy(&baseMemory.value, src, elementSize);
     else
       RDCERR("Updating MemoryVariable elementSize %u too large max %u", elementSize,
@@ -5664,7 +5778,7 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
   {
     for(uint32_t i = 0; i < baseMemory.members.size(); ++i)
     {
-      if(elementSize < sizeof(ShaderValue))
+      if(elementSize <= sizeof(ShaderValue))
         memcpy(&baseMemory.members[i].value, src, elementSize);
       else
         RDCERR("Updating MemoryVariable member %u elementSize %u too large max %u", i, elementSize,
@@ -6131,6 +6245,7 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
   }
 
   ShaderValue ret;
+  memset(&ret, 0, sizeof(ret));
   ShaderVariable a;
   ShaderVariable b;
   RDCASSERT(quad[index + 2].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
@@ -7633,10 +7748,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   MemoryTracking &globalMemory = m_GlobalState.memory;
   for(const DXIL::GlobalVar *gv : m_Program->m_GlobalVars)
   {
-    // Ignore DXIL global variables which start with "dx.nothing."
-    if(gv->name.beginsWith("dx.nothing."))
-      continue;
-
     GlobalVariable globalVar;
     rdcstr n = DXBC::BasicDemangle(gv->name);
     DXIL::SanitiseName(n);
@@ -7656,7 +7767,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           RDCASSERT(itAlloc != globalMemory.m_Allocs.end());
           const MemoryTracking::Alloc &alloc = itAlloc->second;
           void *allocMemoryBackingPtr = alloc.backingMemory;
-          size_t allocSize = alloc.size;
+          uint64_t allocSize = alloc.size;
           state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
           RDCASSERTEQUAL(allocSize, 0);
         }
@@ -7672,6 +7783,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     {
       for(Instruction *inst : f->instructions)
       {
+        if(IsNopInstruction(*inst))
+          continue;
         for(const Value *arg : inst->args)
         {
           if(arg && arg->kind() == ValueKind::Constant)
@@ -7684,14 +7797,44 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
             }
 
             GlobalConstant constantVar;
-            ConvertDXILTypeToShaderVariable(c->type, constantVar.var);
-            ConvertDXILConstantToShaderVariable(c, constantVar.var);
-            constantVar.var.name = m_Program->GetArgumentName(c);
-            constantVar.id = c->ssaId;
+            ShaderVariable &var = constantVar.var;
+            ConvertDXILTypeToShaderVariable(c->type, var);
+            ConvertDXILConstantToShaderVariable(c, var);
+            var.name = m_Program->GetArgumentName(c);
             Id id = c->ssaId;
             RDCASSERTNOTEQUAL(id, DXILDebug::INVALID_ID);
+            constantVar.id = id;
+            if(var.type == VarType::GPUPointer)
+            {
+              Id ptrId;
+              uint64_t offset;
+              uint64_t size;
+              // Decode the pointer allocation: ptrId, offset, size
+              RDCASSERT(DecodePointer(ptrId, offset, size, var));
+
+              auto it = globalMemory.m_Allocs.find(ptrId);
+              if(it != globalMemory.m_Allocs.end())
+              {
+                const MemoryTracking::Alloc &alloc = it->second;
+                uint8_t *backingMemory = (uint8_t *)alloc.backingMemory;
+                RDCASSERT(offset + size <= alloc.size);
+                if(offset + size <= alloc.size)
+                {
+                  backingMemory += offset;
+                  globalMemory.m_AllocPointers[id] = {ptrId, backingMemory, size};
+                }
+                else
+                {
+                  RDCERR("Invalid GEP offset %u size %u for alloc size %u", offset, size, alloc.size);
+                }
+              }
+              else
+              {
+                RDCERR("Failed to find allocation for Constant global variable pointer %u", ptrId);
+              }
+            }
             m_GlobalState.constants.push_back(constantVar);
-            m_LiveGlobals[constantVar.id] = true;
+            m_LiveGlobals[id] = true;
           }
         }
       }
