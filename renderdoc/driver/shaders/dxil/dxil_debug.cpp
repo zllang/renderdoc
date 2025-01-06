@@ -967,7 +967,7 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
       // case Operation::And:
       // case Operation::Or:
       // case Operation::Xor:
-      RDCLOG("Unsupported Constant Op %s", ToStr(constant->op).c_str());
+      RDCERR("Unsupported Constant Op %s", ToStr(constant->op).c_str());
       return false;
     }
     return false;
