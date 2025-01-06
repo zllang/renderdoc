@@ -1255,6 +1255,38 @@ static DXBC::CBufferVariableType MakeCBufferVariableType(const TypeInfo &typeInf
   return ret;
 }
 
+// DXIL wonderfully provides us with offsets that are completely useless/pointless for structured
+// buffers. We need to recalculate them now based on tight packing
+void RecalculateScalarOffsetsSizes(DXBC::CBufferVariableType &type)
+{
+  uint32_t offset = 0;
+  uint32_t pendingOffsetIncr = 0;
+  uint32_t lastBitfieldOffset = 0;
+  for(DXBC::CBufferVariable &var : type.members)
+  {
+    // if we encounter a non-bitfield, or the offset goes backwards, apply the 'real' offset now
+    if(var.bitFieldSize == 0 || var.bitFieldOffset < lastBitfieldOffset)
+    {
+      offset += pendingOffsetIncr;
+      pendingOffsetIncr = 0;
+    }
+
+    var.offset = offset;
+
+    // all bitfields share the same offset, which will be incremented at the next bitfield boundary (above)
+    if(var.bitFieldSize > 0)
+    {
+      pendingOffsetIncr = var.type.bytesize;
+      lastBitfieldOffset = var.bitFieldOffset + var.bitFieldSize;
+      continue;
+    }
+
+    offset += var.type.rows * var.type.cols * VarTypeByteSize(var.type.varType) * var.type.elements;
+
+    RecalculateScalarOffsetsSizes(var.type);
+  }
+}
+
 static void AddResourceBind(DXBC::Reflection *refl, const TypeInfo &typeInfo, const Metadata *r,
                             const bool srv)
 {
@@ -1464,6 +1496,7 @@ static void AddResourceBind(DXBC::Reflection *refl, const TypeInfo &typeInfo, co
       if(!typeInfo.structData.empty())
       {
         refl->ResourceBinds[bind.name] = MakeCBufferVariableType(typeInfo, baseType->inner);
+        RecalculateScalarOffsetsSizes(refl->ResourceBinds[bind.name]);
       }
       else
       {
