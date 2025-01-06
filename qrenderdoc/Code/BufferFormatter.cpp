@@ -1224,6 +1224,7 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
     bool isPadding = false;
     bool isPointer = false;
 
+    uint32_t specifiedOffset = ~0U;
     if(structMatch.hasMatch() && structelems.contains(structMatch.captured(1)))
     {
       StructFormatData &structContext = structelems[structMatch.captured(1)];
@@ -1257,7 +1258,6 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
       if(varName.isEmpty())
         varName = lit("data");
 
-      uint32_t specifiedOffset = ~0U;
       for(const Annotation &annot : annotations)
       {
         if(annot.name == lit("offset") || annot.name == lit("byte_offset"))
@@ -1834,19 +1834,7 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
             break;
           }
 
-          uint32_t specifiedOffset = annot.param.toUInt();
-
-          if(specifiedOffset < cur->offset)
-          {
-            reportError(tr("Specified byte offset %1 overlaps with previous data.\n"
-                           "This value must be at byte offset %2 at minimum.")
-                            .arg(specifiedOffset)
-                            .arg(cur->offset));
-            success = false;
-            break;
-          }
-
-          cur->offset = specifiedOffset;
+          specifiedOffset = annot.param.toUInt();
         }
         else if(annot.name == lit("pad") || annot.name == lit("padding"))
         {
@@ -2100,6 +2088,28 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
           cur->offset = AlignUp(cur->offset, 16U);
         }
       }
+    }
+
+    if(specifiedOffset != ~0U)
+    {
+      if(specifiedOffset < cur->offset)
+      {
+        reportError(tr("Specified byte offset %1 overlaps with previous data.\n"
+                       "This value must be at byte offset %2 at minimum.")
+                        .arg(specifiedOffset)
+                        .arg(cur->offset));
+        success = false;
+        break;
+      }
+
+      // if we're bitfield packing and we just specified an offset based padding, reset current position
+      if(specifiedOffset > cur->offset)
+      {
+        el.bitFieldOffset = bitfieldCurPos = 0;
+        bitfieldCurPos += el.bitFieldSize;
+      }
+
+      cur->offset = specifiedOffset;
     }
 
     el.byteOffset = cur->offset;
