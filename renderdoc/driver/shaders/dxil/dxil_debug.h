@@ -538,9 +538,7 @@ private:
   ScopedDebugData *AddScopedDebugData(const DXIL::Metadata *scopeMD);
   ScopedDebugData *FindScopedDebugData(const DXIL::Metadata *md) const;
   const TypeData &AddDebugType(const DXIL::Metadata *typeMD);
-  void AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t instructionIndex,
-                        bool isDeclare, int32_t byteOffset, uint32_t countBytes, Id debugSSAId,
-                        const rdcstr &debugVarSSAName);
+  void AddLocalVariable(const DXIL::SourceMappingInfo &srcMapping, uint32_t instructionIndex);
   void ParseDebugData();
 
   rdcarray<ThreadState> m_Workgroups;

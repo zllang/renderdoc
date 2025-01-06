@@ -6674,123 +6674,40 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
   return m_DebugInfo.types[typeMD];
 }
 
-void Debugger::AddLocalVariable(const DXIL::Metadata *localVariableMD, uint32_t instructionIndex,
-                                bool isDeclare, int32_t byteOffset, uint32_t countBytes,
-                                Id debugVarSSAId, const rdcstr &debugVarSSAName)
+void Debugger::AddLocalVariable(const DXIL::SourceMappingInfo &srcMapping, uint32_t instructionIndex)
 {
-  RDCASSERT(localVariableMD);
-  RDCASSERTEQUAL(localVariableMD->dwarf->type, DIBase::Type::LocalVariable);
-  const DILocalVariable *localVariable = localVariableMD->dwarf->As<DILocalVariable>();
+  ScopedDebugData *scope = AddScopedDebugData(srcMapping.localVariable->scope);
 
-  ScopedDebugData *scope = AddScopedDebugData(localVariable->scope);
-
-  rdcstr sourceVarName = m_Program->GetDebugVarName(localVariable);
   LocalMapping localMapping;
-  localMapping.variable = localVariable;
-  localMapping.sourceVarName = sourceVarName;
-  localMapping.debugVarSSAName = debugVarSSAName;
-  localMapping.debugVarSSAId = debugVarSSAId;
-  localMapping.byteOffset = byteOffset;
-  localMapping.countBytes = countBytes;
+  localMapping.sourceVarName = m_Program->GetDebugVarName(srcMapping.localVariable);
+  localMapping.variable = srcMapping.localVariable;
+  localMapping.debugVarSSAName = srcMapping.dbgVarName;
+  localMapping.debugVarSSAId = srcMapping.dbgVarId;
+  localMapping.byteOffset = srcMapping.srcByteOffset;
+  localMapping.countBytes = srcMapping.srcCountBytes;
+  localMapping.isDeclare = srcMapping.isDeclare;
   localMapping.instIndex = instructionIndex;
-  localMapping.isDeclare = isDeclare;
 
   scope->localMappings.push_back(localMapping);
 
-  const DXIL::Metadata *typeMD = localVariable->type;
+  const DXIL::Metadata *typeMD = srcMapping.localVariable->type;
   if(m_DebugInfo.types.count(typeMD) == 0)
     AddDebugType(typeMD);
 
-  if(m_DebugInfo.locals.count(localVariable) == 0)
-    m_DebugInfo.locals[localVariable] = localMapping;
+  if(m_DebugInfo.locals.count(srcMapping.localVariable) == 0)
+    m_DebugInfo.locals[srcMapping.localVariable] = localMapping;
 }
 
 void Debugger::ParseDbgOpDeclare(const DXIL::Instruction &inst, uint32_t instructionIndex)
 {
-  // arg 0 contains the SSA Id of the alloca result which represents the local variable (a pointer)
-  const Metadata *allocaInstMD = cast<Metadata>(inst.args[0]);
-  RDCASSERT(allocaInstMD);
-  const Instruction *allocaInst = cast<Instruction>(allocaInstMD->value);
-  RDCASSERT(allocaInst);
-  RDCASSERTEQUAL(allocaInst->op, Operation::Alloca);
-  Id resultId = Program::GetResultSSAId(*allocaInst);
-  rdcstr resultName;
-  Program::MakeResultId(*allocaInst, resultName);
-  int32_t byteOffset = 0;
-
-  // arg 1 is DILocalVariable metadata
-  const Metadata *localVariableMD = cast<Metadata>(inst.args[1]);
-
-  // arg 2 is DIExpression metadata
-  const Metadata *expressionMD = cast<Metadata>(inst.args[2]);
-  uint32_t countBytes = 0;
-  if(expressionMD)
-  {
-    if(expressionMD->dwarf->type == DIBase::Type::Expression)
-    {
-      const DIExpression *expression = expressionMD->dwarf->As<DXIL::DIExpression>();
-      switch(expression->op)
-      {
-        case DXIL::DW_OP::DW_OP_bit_piece:
-          byteOffset += (uint32_t)(expression->evaluated.bit_piece.offset / 8);
-          countBytes = (uint32_t)(expression->evaluated.bit_piece.size / 8);
-          break;
-        case DXIL::DW_OP::DW_OP_none: break;
-        case DXIL::DW_OP::DW_OP_nop: break;
-        default: RDCERR("Unhandled DIExpression op %s", ToStr(expression->op).c_str()); break;
-      }
-    }
-    else
-    {
-      RDCERR("Unhandled Expression Metadata %s", ToStr(expressionMD->dwarf->type).c_str());
-    }
-  }
-
-  AddLocalVariable(localVariableMD, instructionIndex, true, byteOffset, countBytes, resultId,
-                   resultName);
+  DXIL::SourceMappingInfo sourceMappingInfo = m_Program->ParseDbgOpDeclare(inst);
+  AddLocalVariable(sourceMappingInfo, instructionIndex);
 }
 
 void Debugger::ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructionIndex)
 {
-  // arg 0 is metadata containing the new value
-  const Metadata *valueMD = cast<Metadata>(inst.args[0]);
-  Id resultId = GetSSAId(valueMD->value);
-  rdcstr resultName = m_Program->GetArgumentName(valueMD->value);
-  // arg 1 is i64 byte offset in the source variable where the new value is written
-  int64_t value = 0;
-  RDCASSERT(getival<int64_t>(inst.args[1], value));
-  int32_t byteOffset = (int32_t)(value);
-
-  // arg 2 is DILocalVariable metadata
-  const Metadata *localVariableMD = cast<Metadata>(inst.args[2]);
-
-  // arg 3 is DIExpression metadata
-  uint32_t countBytes = 0;
-  const Metadata *expressionMD = cast<Metadata>(inst.args[3]);
-  if(expressionMD)
-  {
-    if(expressionMD->dwarf->type == DIBase::Type::Expression)
-    {
-      const DIExpression *expression = expressionMD->dwarf->As<DXIL::DIExpression>();
-      switch(expression->op)
-      {
-        case DXIL::DW_OP::DW_OP_bit_piece:
-          byteOffset += (uint32_t)(expression->evaluated.bit_piece.offset / 8);
-          countBytes = (uint32_t)(expression->evaluated.bit_piece.size / 8);
-          break;
-        case DXIL::DW_OP::DW_OP_none: break;
-        case DXIL::DW_OP::DW_OP_nop: break;
-        default: RDCERR("Unhandled DIExpression op %s", ToStr(expression->op).c_str()); break;
-      }
-    }
-    else
-    {
-      RDCERR("Unhandled Expression Metadata %s", ToStr(expressionMD->dwarf->type).c_str());
-    }
-  }
-
-  AddLocalVariable(localVariableMD, instructionIndex, false, byteOffset, countBytes, resultId,
-                   resultName);
+  DXIL::SourceMappingInfo sourceMappingInfo = m_Program->ParseDbgOpValue(inst);
+  AddLocalVariable(sourceMappingInfo, instructionIndex);
 }
 
 void Debugger::ParseDebugData()

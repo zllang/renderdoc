@@ -27,8 +27,10 @@
 #include <algorithm>
 #include "common/formatting.h"
 #include "maths/half_convert.h"
+#include "strings/string_utils.h"
 #include "dxil_bytecode.h"
 #include "dxil_common.h"
+#include "dxil_debuginfo.h"
 
 #if ENABLED(DXC_COMPATIBLE_DISASM) && ENABLED(RDOC_RELEASE)
 
@@ -4343,6 +4345,40 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
             }
             else if(callFunc->family == FunctionFamily::LLVMDbg)
             {
+              SourceMappingInfo sourceMappingInfo;
+              switch(callFunc->llvmIntrinsicOp)
+              {
+                case LLVMIntrinsicOp::DbgDeclare:
+                  lineStr = "DbgDeclare";
+                  sourceMappingInfo = ParseDbgOpDeclare(inst);
+                  break;
+                case LLVMIntrinsicOp::DbgValue:
+                  lineStr = "DbgValue";
+                  sourceMappingInfo = ParseDbgOpValue(inst);
+                  break;
+                default: break;
+              }
+              if(sourceMappingInfo.localVariable)
+              {
+                rdcstr sourceVarName = GetDebugVarName(sourceMappingInfo.localVariable);
+                rdcstr functionName = GetFunctionScopeName(sourceMappingInfo.localVariable);
+
+                commentStr += StringFormat::Fmt(
+                    "Function '%s' Variable '%s' Offset %u Count %u bytes maps to %s",
+                    functionName.c_str(), sourceVarName.c_str(), sourceMappingInfo.srcByteOffset,
+                    sourceMappingInfo.srcCountBytes, sourceMappingInfo.dbgVarName.c_str());
+
+                uint32_t dbgLoc = inst.debugLoc;
+                if(dbgLoc != ~0U)
+                {
+                  const DebugLocation &debugLoc = m_DebugLocations[dbgLoc];
+
+                  rdcstr shaderFilePath = standardise_directory_separator(
+                      GetDebugScopeFilePath(sourceMappingInfo.localVariable));
+                  commentStr += StringFormat::Fmt(
+                      " ; File:%s Line:%u", get_basename(shaderFilePath).c_str(), debugLoc.line);
+                }
+              }
             }
             else if(callFunc->family == FunctionFamily::LLVMInstrinsic)
             {
@@ -6128,6 +6164,95 @@ void Program::MakeResultId(const DXIL::Instruction &inst, rdcstr &resultId)
     resultId = StringFormat::Fmt("%c%s", '_', escapeStringIfNeeded(inst.getName()).c_str());
   else if(inst.slot != ~0U)
     resultId = StringFormat::Fmt("%c%s", '_', ToStr(inst.slot).c_str());
+}
+
+rdcpair<int32_t, int32_t> Program::ParseDIExpressionMD(const Metadata *expressionMD) const
+{
+  rdcpair<int32_t, int32_t> ret;
+  ret.first = 0;
+  ret.second = 0;
+
+  if(expressionMD)
+  {
+    if(expressionMD->dwarf->type == DIBase::Type::Expression)
+    {
+      const DIExpression *expression = expressionMD->dwarf->As<DXIL::DIExpression>();
+      switch(expression->op)
+      {
+        case DXIL::DW_OP::DW_OP_bit_piece:
+          ret.first = (uint32_t)(expression->evaluated.bit_piece.offset / 8);
+          ret.second = (uint32_t)(expression->evaluated.bit_piece.size / 8);
+          break;
+        case DXIL::DW_OP::DW_OP_none: break;
+        case DXIL::DW_OP::DW_OP_nop: break;
+        default: RDCERR("Unhandled DIExpression op %s", ToStr(expression->op).c_str()); break;
+      }
+    }
+    else
+    {
+      RDCERR("Unhandled Expression Metadata %s", ToStr(expressionMD->dwarf->type).c_str());
+    }
+  }
+  return ret;
+}
+
+SourceMappingInfo Program::ParseDbgOpValue(const DXIL::Instruction &inst) const
+{
+  SourceMappingInfo ret;
+  ret.isDeclare = false;
+
+  // arg 0 is metadata containing the new value
+  const Metadata *valueMD = cast<Metadata>(inst.args[0]);
+  ret.dbgVarId = GetSSAId(valueMD->value);
+  ret.dbgVarName = GetArgumentName(valueMD->value);
+
+  // arg 1 is i64 byte offset in the source variable where the new value is written
+  int64_t value = 0;
+  RDCASSERT(getival<int64_t>(inst.args[1], value));
+  ret.srcByteOffset = (int32_t)(value);
+
+  // arg 2 is DILocalVariable metadata
+  const Metadata *localVariableMD = cast<Metadata>(inst.args[2]);
+  RDCASSERT(localVariableMD);
+  RDCASSERTEQUAL(localVariableMD->dwarf->type, DIBase::Type::LocalVariable);
+  ret.localVariable = localVariableMD->dwarf->As<DILocalVariable>();
+
+  // arg 3 is DIExpression metadata
+  const Metadata *expressionMD = cast<Metadata>(inst.args[3]);
+  rdcpair<int32_t, int32_t> srcMapping = ParseDIExpressionMD(expressionMD);
+  ret.srcByteOffset += srcMapping.first;
+  ret.srcCountBytes = srcMapping.second;
+
+  return ret;
+}
+
+SourceMappingInfo Program::ParseDbgOpDeclare(const DXIL::Instruction &inst) const
+{
+  SourceMappingInfo ret;
+  ret.isDeclare = true;
+
+  // arg 0 contains the SSA Id of the alloca result which represents the local variable (a pointer)
+  const Metadata *allocaInstMD = cast<Metadata>(inst.args[0]);
+  RDCASSERT(allocaInstMD);
+  const Instruction *allocaInst = cast<Instruction>(allocaInstMD->value);
+  RDCASSERT(allocaInst);
+  RDCASSERTEQUAL(allocaInst->op, Operation::Alloca);
+  ret.dbgVarId = Program::GetResultSSAId(*allocaInst);
+  Program::MakeResultId(*allocaInst, ret.dbgVarName);
+
+  // arg 1 is DILocalVariable metadata
+  const Metadata *localVariableMD = cast<Metadata>(inst.args[1]);
+  RDCASSERT(localVariableMD);
+  RDCASSERTEQUAL(localVariableMD->dwarf->type, DIBase::Type::LocalVariable);
+  ret.localVariable = localVariableMD->dwarf->As<DILocalVariable>();
+
+  // arg 2 is DIExpression metadata
+  const Metadata *expressionMD = cast<Metadata>(inst.args[2]);
+  rdcpair<int32_t, int32_t> srcMapping = ParseDIExpressionMD(expressionMD);
+  ret.srcByteOffset = srcMapping.first;
+  ret.srcCountBytes = srcMapping.second;
+
+  return ret;
 }
 
 };    // namespace DXIL

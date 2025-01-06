@@ -54,6 +54,8 @@ namespace DXIL
 static const rdcstr DXIL_FAKE_OUTPUT_STRUCT_NAME("_OUT");
 static const rdcstr DXIL_FAKE_INPUT_STRUCT_NAME("_IN");
 
+struct DILocalVariable;
+
 enum class FunctionFamily : uint8_t
 {
   Unknown,
@@ -1580,6 +1582,16 @@ struct ResourceReference
   uint32_t resourceIndex;
 };
 
+struct SourceMappingInfo
+{
+  const DILocalVariable *localVariable;
+  int32_t srcByteOffset;
+  int32_t srcCountBytes;
+  DXILDebug::Id dbgVarId;
+  rdcstr dbgVarName;
+  bool isDeclare;
+};
+
 class Program : public DXBC::IDebugInfo
 {
   friend DXILDebug::Debugger;
@@ -1652,6 +1664,9 @@ protected:
   rdcstr GetDebugScopeFilePath(const DIBase *d) const;
   uint64_t GetDebugScopeLine(const DIBase *d) const;
   const Metadata *GetDebugScopeParent(const DIBase *d) const;
+  SourceMappingInfo ParseDbgOpValue(const DXIL::Instruction &inst) const;
+  SourceMappingInfo ParseDbgOpDeclare(const DXIL::Instruction &inst) const;
+  rdcpair<int32_t, int32_t> ParseDIExpressionMD(const Metadata *expressionMD) const;
 
   rdcstr GetValueSymtabString(Value *v);
   void SetValueSymtabString(Value *v, const rdcstr &s);
