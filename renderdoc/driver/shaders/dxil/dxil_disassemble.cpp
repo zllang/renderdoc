@@ -113,10 +113,10 @@ bool IsLLVMIntrinsicCall(const Instruction &inst)
 
 bool ShouldIgnoreSourceMapping(const Instruction &inst)
 {
-  // Do not set source mapping for handle creation instructions
   if(inst.op == Operation::Call)
   {
     rdcstr funcCallName = inst.getFuncCall()->name;
+    // Do not set source mapping for handle creation instructions
     if(funcCallName.beginsWith("dx.op."))
     {
       DXOp dxOpCode = DXOp::NumOpCodes;
@@ -129,6 +129,24 @@ bool ShouldIgnoreSourceMapping(const Instruction &inst)
         case DXOp::CreateHandleFromHeap:
         case DXOp::AnnotateHandle: return true;
         default: break;
+      }
+    }
+    else if(funcCallName.beginsWith("llvm."))
+    {
+      // Do not set source mapping for LLVM debug instructions
+      if(funcCallName.beginsWith("llvm.dbg."))
+      {
+        return true;
+      }
+      // Do not set source mapping for LLVM lifetime instructions
+      else if(funcCallName.beginsWith("llvm.lifetime."))
+      {
+        return true;
+      }
+      // Do not set source mapping for LLVM invariant instructions
+      else if(funcCallName.beginsWith("llvm.invariant"))
+      {
+        return true;
       }
     }
   }
