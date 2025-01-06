@@ -2743,6 +2743,8 @@ QString BufferFormatter::DeclareStruct(Packing::Rules pack, ResourceId shader,
   ret += innerSkippedPrefixString;
 
   uint32_t offset = 0;
+  uint32_t bitfieldOffset = 0;
+  uint32_t bitfieldAdvance = 0;
 
   uint32_t structAlignment = 1;
 
@@ -2751,6 +2753,18 @@ QString BufferFormatter::DeclareStruct(Packing::Rules pack, ResourceId shader,
     const uint32_t alignment = GetAlignment(pack, members[i]);
     const uint32_t vecsize = GetVarStraddleSize(members[i]);
     structAlignment = std::max(structAlignment, alignment);
+
+    // resolve any bitfield here before calculating offset padding
+    if(members[i].bitFieldSize == 0 && bitfieldOffset > 0)
+    {
+      uint32_t bytesUsed = bitfieldOffset / 8;
+
+      // align to the advance (the underlying type's size, e.g. uint or ulong)
+      bytesUsed = AlignUp(bytesUsed, bitfieldAdvance);
+      offset += bytesUsed;
+
+      bitfieldOffset = bitfieldAdvance = 0;
+    }
 
     offset = AlignUp(offset, alignment);
 
@@ -2768,16 +2782,34 @@ QString BufferFormatter::DeclareStruct(Packing::Rules pack, ResourceId shader,
       offset = AlignUp(offset, 16U);
     }
 
-    // if this variable is placed later, add an offset annotation
-    if(offset < members[i].byteOffset)
-      ret += lit("    [[offset(%1)]]\n").arg(members[i].byteOffset);
-    else if(offset > members[i].byteOffset)
-      qCritical() << "Unexpected offset overlap at" << QString(members[i].name) << "in"
-                  << QString(name);
+    // if we're bitfield packing, collate all bits together (with padding as needed) without
+    // updating offset yet and allow 'overlaps' at the byte offset level
+    if(members[i].bitFieldSize != 0)
+    {
+      // declare empty bits if needed
+      if(bitfieldOffset < members[i].bitFieldOffset)
+      {
+        ret += lit("    uint : %1;\n").arg(members[i].bitFieldOffset - bitfieldOffset);
+      }
 
-    offset = members[i].byteOffset;
+      bitfieldOffset = members[i].bitFieldOffset;
+      bitfieldOffset += members[i].bitFieldSize;
 
-    offset += GetVarAdvance(pack, members[i]);
+      bitfieldAdvance = qMax(bitfieldAdvance, GetVarAdvance(pack, members[i]));
+    }
+    else
+    {
+      // if this variable is placed later, add an offset annotation
+      if(offset < members[i].byteOffset)
+        ret += lit("    [[offset(%1)]]\n").arg(members[i].byteOffset);
+      else if(offset > members[i].byteOffset)
+        qCritical() << "Unexpected offset overlap at" << QString(members[i].name) << "in"
+                    << QString(name);
+
+      offset = members[i].byteOffset;
+
+      offset += GetVarAdvance(pack, members[i]);
+    }
 
     QString arraySize;
     if(members[i].type.elements > 1)
