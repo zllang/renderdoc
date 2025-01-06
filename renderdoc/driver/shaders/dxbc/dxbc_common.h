@@ -431,6 +431,9 @@ struct CBufferVariable
   rdcstr name;
   uint32_t offset;    // offset in parent (cbuffer or nested struct)
 
+  uint16_t bitFieldOffset = 0;
+  uint16_t bitFieldSize = 0;
+
   // type details of this variable
   CBufferVariableType type;
 };

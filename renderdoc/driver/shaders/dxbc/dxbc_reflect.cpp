@@ -132,6 +132,8 @@ static ShaderConstant MakeConstantBufferVariable(bool cbufferPacking, const DXBC
   ret.byteOffset = var.offset;
   ret.defaultValue = 0;
   ret.type = MakeShaderConstantType(cbufferPacking, var.type);
+  ret.bitFieldOffset = var.bitFieldOffset;
+  ret.bitFieldSize = var.bitFieldSize;
 
   // fxc emits negative values for offsets of empty structs sometimes. Replace that with a single
   // value so we can say 'use the previous value'
