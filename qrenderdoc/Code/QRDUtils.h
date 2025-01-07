@@ -247,6 +247,8 @@ public:
 
   static QString DeclareStruct(Packing::Rules pack, ResourceId shader, const QString &name,
                                const rdcarray<ShaderConstant> &members, uint32_t requiredByteStride);
+  static QString DeclareEnum(const QString &name, const rdcarray<ShaderConstant> &members,
+                             VarType baseType);
 };
 
 QVariantList GetVariants(ResourceFormat format, const ShaderConstant &var, const byte *&data,
