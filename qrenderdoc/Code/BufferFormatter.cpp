@@ -1446,9 +1446,16 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
           break;
         }
 
+        if(bitfieldCurPos != ~0U)
+          cur->offset += (bitfieldCurPos + 7) / 8;
+
         // all packing rules align structs in the same way as arrays. We already calculated this
         // when calculating the struct's alignment which will be padded to 16B for non-tight arrays
         cur->offset = AlignUp(cur->offset, structContext.alignment);
+
+        // reset any bitfield packing to start at 0 at the new location
+        if(bitfieldCurPos != ~0U)
+          bitfieldCurPos = 0;
 
         if(specifiedOffset != ~0U)
         {
