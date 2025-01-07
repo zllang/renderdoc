@@ -30,6 +30,7 @@
 #include "../3rdparty/md5/md5.h"
 #include "../renderdoc_app.h"
 #include "../win32/win32_window.h"
+#include "3rdparty/fmt/core.h"
 #include "dx/official/dxcapi.h"
 
 typedef HRESULT(WINAPI *PFN_CREATE_DXGI_FACTORY1)(REFIID, void **);
@@ -134,12 +135,61 @@ DevicePointers PrepareCreateDeviceFromDLL(const std::string &d3d12path, bool deb
 
       if(mod)
       {
-        DWORD *version = (DWORD *)GetProcAddress(mod, "D3D12SDKVersion");
+        DWORD *sdkVersion = (DWORD *)GetProcAddress(mod, "D3D12SDKVersion");
 
-        if(version)
+        std::string d3d12CoreVersion = fmt::format("1.{0}", *sdkVersion);
+
         {
-          hr = config1->CreateDeviceFactory(*version, path.c_str(), __uuidof(ID3D12DeviceFactory),
-                                            (void **)&devfactory);
+          using PFN_VerQueryValueA = decltype(&VerQueryValueA);
+
+          PFN_VerQueryValueA queryValue = NULL;
+
+          HMODULE version = LoadLibraryA("version.dll");
+          if(version)
+          {
+            queryValue = (PFN_VerQueryValueA)GetProcAddress(version, "VerQueryValueA");
+
+            if(queryValue)
+            {
+              HRSRC verRes = FindResource(mod, MAKEINTRESOURCE(1), RT_VERSION);
+              if(verRes)
+              {
+                DWORD sz = SizeofResource(mod, verRes);
+                HGLOBAL data = LoadResource(mod, verRes);
+
+                if(data && sz > 0)
+                {
+                  void *buf = LockResource(data);
+
+                  byte *tmpBuf = new byte[sz];
+                  memcpy(tmpBuf, buf, sz);
+
+                  VS_FIXEDFILEINFO *verInfo = NULL;
+                  UINT size = 0;
+                  if(queryValue(data, "\\", (void **)&verInfo, &size))
+                  {
+                    if(size > 0 && verInfo && verInfo->dwSignature == 0xFEEF04BD)
+                    {
+                      d3d12CoreVersion = fmt::format(
+                          "{0}.{1}.{2}.{3}", verInfo->dwFileVersionMS >> 16,
+                          verInfo->dwFileVersionMS & 0xffff, verInfo->dwFileVersionLS >> 16,
+                          verInfo->dwFileVersionLS & 0xffff);
+                    }
+                  }
+
+                  delete[] tmpBuf;
+                }
+              }
+            }
+          }
+        }
+
+        TEST_LOG("Using D3D12Core.dll from %s (version %s)", path.c_str(), d3d12CoreVersion.c_str());
+
+        if(sdkVersion)
+        {
+          hr = config1->CreateDeviceFactory(*sdkVersion, path.c_str(),
+                                            __uuidof(ID3D12DeviceFactory), (void **)&devfactory);
 
           if(FAILED(hr))
             devfactory = NULL;
@@ -318,7 +368,10 @@ void D3D12GraphicsTest::Prepare(int argc, char **argv)
 
   if(d3d12path.empty())
   {
-    d3d12path = GetCWD() + "/D3D12/d3d12core.dll";
+    d3d12path = GetExecutableName();
+    d3d12path.erase(d3d12path.find_last_of("/\\"));
+    d3d12path += "/D3D12/d3d12core.dll";
+
     FILE *f = fopen(d3d12path.c_str(), "r");
     if(!f)
       d3d12path.clear();
