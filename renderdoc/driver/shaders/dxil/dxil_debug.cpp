@@ -7922,7 +7922,44 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     }
   }
 
-  // Generate scopes and callstacks
+  // Generate scopes
+  for(const Function *f : m_Program->m_Functions)
+  {
+    if(!f->external)
+    {
+      FunctionInfo &info = m_FunctionInfos[f];
+      uint32_t countInstructions = (uint32_t)f->instructions.size();
+
+      ScopedDebugData *currentScope = NULL;
+      for(uint32_t i = 0; i < countInstructions; ++i)
+      {
+        uint32_t instructionIndex = i + info.globalInstructionOffset;
+        const Instruction &inst = *f->instructions[i];
+        ScopedDebugData *thisScope = NULL;
+        // Use DebugLoc data for building up the list of scopes
+        uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
+        if(dbgLoc != ~0U)
+        {
+          const DebugLocation &debugLoc = m_Program->m_DebugLocations[dbgLoc];
+          thisScope = AddScopedDebugData(debugLoc.scope);
+        }
+        if(!thisScope)
+          continue;
+
+        if(currentScope)
+          currentScope->maxInstruction = instructionIndex - 1;
+
+        currentScope = thisScope;
+        thisScope->maxInstruction = instructionIndex;
+      }
+    }
+  }
+
+  // Sort the scopes by instruction index
+  std::sort(m_DebugInfo.scopedDebugDatas.begin(), m_DebugInfo.scopedDebugDatas.end(),
+            [](const ScopedDebugData *a, const ScopedDebugData *b) { return *a < *b; });
+
+  // Generate callstacks
   for(const Function *f : m_Program->m_Functions)
   {
     if(!f->external)
@@ -7931,74 +7968,63 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       uint32_t countInstructions = (uint32_t)f->instructions.size();
 
       rdcarray<ScopedDebugData *> scopeHierarchy;
-      ScopedDebugData *currentScope = NULL;
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
         uint32_t instructionIndex = i + info.globalInstructionOffset;
         const Instruction &inst = *f->instructions[i];
-        ScopedDebugData *thisScope = NULL;
-        if(!DXIL::IsLLVMDebugCall(inst))
-        {
-          // Use DebugLoc data for building up the list of scopes
-          uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
-          if(dbgLoc != ~0U)
-          {
-            const DebugLocation &debugLoc = m_Program->m_DebugLocations[dbgLoc];
-            thisScope = AddScopedDebugData(debugLoc.scope);
-          }
-        }
-        if(currentScope)
-          currentScope->maxInstruction = instructionIndex - 1;
-
-        if(thisScope == currentScope)
+        // Use DebugLoc data for building up the list of scopes
+        uint32_t dbgLoc = ShouldIgnoreSourceMapping(inst) ? ~0U : inst.debugLoc;
+        if(dbgLoc == ~0U)
           continue;
 
-        if(!thisScope)
-          continue;
+        FunctionInfo::Callstack callstack;
 
-        currentScope = thisScope;
-        thisScope->maxInstruction = instructionIndex;
-        // Walk upwards from this scope to find where to append to the scope hierarchy
+        const DebugLocation *debugLoc = &m_Program->m_DebugLocations[dbgLoc];
+        // For each DILocation
+        while(debugLoc)
         {
-          ScopedDebugData *scope = thisScope;
-          while(scope)
+          // Walk scope upwards to make callstack : always a DebugScope
+          const DXIL::Metadata *scopeMD = debugLoc->scope;
+          while(scopeMD)
           {
-            int32_t index = scopeHierarchy.indexOf(thisScope);
-            if(index >= 0)
+            DXIL::DIBase *dwarf = scopeMD->dwarf;
+            if(dwarf)
             {
-              scopeHierarchy.erase(index, scopeHierarchy.count() - index);
-              break;
+              // Walk upwards through all the functions
+              if(dwarf->type == DIBase::Subprogram)
+              {
+                rdcstr funcName = m_Program->GetFunctionScopeName(dwarf);
+                if(!funcName.empty())
+                  callstack.insert(0, funcName);
+                scopeMD = dwarf->As<DISubprogram>()->scope;
+              }
+              else if(dwarf->type == DIBase::LexicalBlock)
+              {
+                scopeMD = dwarf->As<DILexicalBlock>()->scope;
+              }
+              else if(dwarf->type == DIBase::File)
+              {
+                scopeMD = NULL;
+                break;
+              }
+              else
+              {
+                RDCERR("Unhandled scope type %s", ToStr(dwarf->type).c_str());
+                scopeMD = NULL;
+                break;
+              }
             }
-            scope = scope->parent;
           }
+          // Make new DILocation from inlinedAt and walk that DILocation
+          if(debugLoc->inlinedAt)
+            debugLoc = debugLoc->inlinedAt->debugLoc;
+          else
+            debugLoc = NULL;
         }
-        // Add the new scope to the hierarchy and generate the callstack
-        scopeHierarchy.push_back(thisScope);
-
-        FunctionInfo::Callstack callstack;
-        for(ScopedDebugData *scope : scopeHierarchy)
-        {
-          if(!scope->functionName.empty())
-            callstack.push_back(scope->functionName);
-        }
-        // If there is no callstack then use the function name
-        if(callstack.empty())
-          callstack.push_back(f->name);
         info.callstacks[instructionIndex] = callstack;
-      }
-      // If there is no callstack for the function then use the function name
-      if(info.callstacks.empty())
-      {
-        FunctionInfo::Callstack callstack;
-        callstack.push_back(f->name);
-        info.callstacks[0] = callstack;
       }
     }
   }
-
-  // Sort the scopes by instruction index
-  std::sort(m_DebugInfo.scopedDebugDatas.begin(), m_DebugInfo.scopedDebugDatas.end(),
-            [](const ScopedDebugData *a, const ScopedDebugData *b) { return *a < *b; });
 
   ParseDebugData();
 
