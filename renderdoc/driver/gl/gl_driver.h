@@ -604,6 +604,7 @@ private:
   // final check function to ensure we don't try and render with no index or vertex buffer bound, as
   // many drivers will still try to access memory via legacy behaviour even on core profile.
   bool Check_SafeDraw(bool indexed);
+  bool Check_SafeDrawAtEventID(uint32_t eid) const;
 
   void StoreCompressedTexData(ResourceId texId, GLenum target, GLint level, bool subUpdate,
                               GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
