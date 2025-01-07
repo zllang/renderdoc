@@ -158,8 +158,18 @@ static FILE *logFile = NULL;
 #include <android/log.h>
 #endif
 
+static bool debugLogEnabled = true;
+
+void SetDebugLogEnabled(bool enabled)
+{
+  debugLogEnabled = enabled;
+}
+
 void DebugPrint(const char *fmt, ...)
 {
+  if(!debugLogEnabled)
+    return;
+
   va_list args;
   va_start(args, fmt);
 

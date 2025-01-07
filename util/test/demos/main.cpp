@@ -454,6 +454,8 @@ Usage: %s Test_Name [test_options]
 
   if(argc >= 2 && !strcmp(argv[1], "--list-raw"))
   {
+    SetDebugLogEnabled(false);
+
     check_tests(argc, argv);
 
     // output TSV

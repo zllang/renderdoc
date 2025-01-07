@@ -333,6 +333,7 @@ std::string strlower(const std::string &str);
 std::string strupper(const std::string &str);
 std::string trim(const std::string &str);
 
+void SetDebugLogEnabled(bool enabled);
 void DebugPrint(const char *fmt, ...);
 
 #define TEST_ASSERT(cond, fmt, ...)                                                                 \
