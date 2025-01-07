@@ -3181,7 +3181,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             }
 
             uint32_t stride = fmt.stride;
-            RDCASSERT(!((stride == 1) ^ byteAddress));
+            if(byteAddress)
+              RDCASSERTEQUAL(stride, 1);
+            else
+              RDCASSERTNOTEQUAL(stride, 1);
 
             RDCASSERTEQUAL(result.columns, 1);
             RDCASSERTEQUAL(fmt.numComps, result.columns);
@@ -4370,7 +4373,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
       // Ensure global variables use global memory
       // Ensure non-global variables do not use global memory
-      RDCASSERT(!((cast<GlobalVar>(inst.args[0]) != NULL) ^ alloc.global));
+      if(alloc.global)
+        RDCASSERT(cast<GlobalVar>(inst.args[0]));
+      else
+        RDCASSERT(!cast<GlobalVar>(inst.args[0]));
 
       result.type = baseType;
       result.rows = (uint8_t)countElems;
@@ -5423,7 +5429,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   };
 
   // Update the result variable
-  RDCASSERT(!(result.name.empty() ^ (resultId == DXILDebug::INVALID_ID)));
+  if(resultId == DXILDebug::INVALID_ID)
+    RDCASSERT(result.name.empty());
+  else
+    RDCASSERT(!result.name.empty());
+
   if(!result.name.empty() && resultId != DXILDebug::INVALID_ID)
   {
     if(m_State)
