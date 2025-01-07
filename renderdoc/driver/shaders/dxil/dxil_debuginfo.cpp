@@ -415,11 +415,19 @@ rdcstr Program::GetDebugVarName(const DIBase *d) const
 
 rdcstr Program::GetFunctionScopeName(const DIBase *d) const
 {
+  if(d->type == DIBase::Subprogram)
+  {
+    const rdcstr *name = d->As<DISubprogram>()->name;
+    return name ? *name : "";
+  }
+
   const Metadata *scope = NULL;
   if(d->type == DIBase::LocalVariable)
     scope = d->As<DILocalVariable>()->scope;
-  if(d->type == DIBase::GlobalVariable)
+  else if(d->type == DIBase::GlobalVariable)
     scope = d->As<DIGlobalVariable>()->scope;
+  else if(d->type == DIBase::LexicalBlock)
+    scope = d->As<DILexicalBlock>()->scope;
 
   while(scope && scope->dwarf)
   {
