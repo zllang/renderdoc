@@ -2366,7 +2366,7 @@ void D3D12Replay::InitPostMSBuffers(uint32_t eventId)
 
     ID3D12CommandList *l = list;
     m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-    m_pDevice->GPUSync();
+    m_pDevice->InternalQueueWaitForIdle();
 
     GetDebugManager()->ResetDebugAlloc();
 
@@ -2414,7 +2414,7 @@ void D3D12Replay::InitPostMSBuffers(uint32_t eventId)
     list->Close();
 
     m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-    m_pDevice->GPUSync();
+    m_pDevice->InternalQueueWaitForIdle();
 
     GetDebugManager()->ResetDebugAlloc();
 
@@ -2555,7 +2555,7 @@ void D3D12Replay::InitPostMSBuffers(uint32_t eventId)
 
     ID3D12CommandList *l = list;
     m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-    m_pDevice->GPUSync();
+    m_pDevice->InternalQueueWaitForIdle();
 
     GetDebugManager()->ResetDebugAlloc();
 
@@ -3085,7 +3085,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
     {
       if(recreate)
       {
-        m_pDevice->GPUSync();
+        m_pDevice->InternalQueueWaitForIdle();
 
         uint64_t newSize = m_SOBufferSize;
         if(!CreateSOBuffers())
@@ -3184,7 +3184,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
       if(recreate)
       {
-        m_pDevice->GPUSync();
+        m_pDevice->InternalQueueWaitForIdle();
 
         uint64_t newSize = m_SOBufferSize;
         if(!CreateSOBuffers())
@@ -3314,7 +3314,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
     ID3D12CommandList *l = list;
     m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-    m_pDevice->GPUSync();
+    m_pDevice->InternalQueueWaitForIdle();
 
     GetDebugManager()->ResetDebugAlloc();
 
@@ -3589,7 +3589,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
       ID3D12CommandList *l = list;
       m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-      m_pDevice->GPUSync();
+      m_pDevice->InternalQueueWaitForIdle();
 
       // check that things are OK, and resize up if needed
       D3D12_RANGE range;
@@ -3700,7 +3700,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
           l = list;
           m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-          m_pDevice->GPUSync();
+          m_pDevice->InternalQueueWaitForIdle();
 
           GetDebugManager()->ResetDebugAlloc();
 
@@ -3722,7 +3722,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
       l = list;
       m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-      m_pDevice->GPUSync();
+      m_pDevice->InternalQueueWaitForIdle();
 
       GetDebugManager()->ResetDebugAlloc();
 
@@ -3774,7 +3774,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
         ID3D12CommandList *l = list;
         m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-        m_pDevice->GPUSync();
+        m_pDevice->InternalQueueWaitForIdle();
 
         // check that things are OK, and resize up if needed
         D3D12_RANGE range;
@@ -3850,7 +3850,7 @@ void D3D12Replay::InitPostVSBuffers(uint32_t eventId)
 
     ID3D12CommandList *l = list;
     m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-    m_pDevice->GPUSync();
+    m_pDevice->InternalQueueWaitForIdle();
 
     GetDebugManager()->ResetDebugAlloc();
 

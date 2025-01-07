@@ -349,7 +349,7 @@ void D3D12Replay::ReplayLog(uint32_t endEventID, ReplayLogType replayType)
   m_pDevice->ReplayLog(0, endEventID, replayType);
 
   if(replayType == eReplay_WithoutDraw)
-    m_pDevice->GPUSyncAllQueues();
+    m_pDevice->ReplayWorkWaitForIdle();
 }
 
 SDFile *D3D12Replay::GetStructuredFile()
@@ -3726,7 +3726,7 @@ void D3D12Replay::RefreshDerivedReplacements()
     }
   }
 
-  m_pDevice->GPUSync();
+  m_pDevice->DeviceWaitForIdle();
 
   for(ID3D12PipelineState *pipe : deletequeue)
   {
@@ -3740,7 +3740,7 @@ void D3D12Replay::GetTextureData(ResourceId tex, const Subresource &sub,
   bool wasms = false;
   bool resolve = params.resolve;
 
-  m_pDevice->GPUSyncAllQueues();
+  m_pDevice->ReplayWorkWaitForIdle();
 
   ID3D12Resource *resource = NULL;
 

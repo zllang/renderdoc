@@ -909,7 +909,6 @@ struct D3D12OcclusionCallback : public D3D12PixelHistoryCallback
 
     m_pDevice->ExecuteLists();
     m_pDevice->FlushLists(true);
-    m_pDevice->GPUSyncAllQueues();
 
     D3D12_RANGE range;
     range.Begin = 0;
@@ -1512,7 +1511,6 @@ struct D3D12TestsFailedCallback : public D3D12PixelHistoryCallback
 
     m_pDevice->ExecuteLists();
     m_pDevice->FlushLists(true);
-    m_pDevice->GPUSyncAllQueues();
 
     D3D12_RANGE range;
     range.Begin = 0;
@@ -2573,7 +2571,6 @@ struct D3D12PixelHistoryDiscardedFragmentsCallback : D3D12PixelHistoryCallback
 
     m_pDevice->ExecuteLists();
     m_pDevice->FlushLists(true);
-    m_pDevice->GPUSyncAllQueues();
 
     D3D12_RANGE range;
     range.Begin = 0;
@@ -2899,7 +2896,7 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
     D3D12MarkerRegion occlRegion(m_pDevice->GetQueue()->GetReal(), "D3D12OcclusionCallback");
     m_pDevice->ReplayLog(0, events.back().eventId, eReplay_Full);
     m_pDevice->FlushLists(true);
-    m_pDevice->GPUSyncAllQueues();
+    m_pDevice->DeviceWaitForIdle();
     occlCb.FetchOcclusionResults();
     SAFE_RELEASE(pOcclusionQueryHeap);
   }
@@ -2954,7 +2951,7 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
                                          "D3D12ColorAndStencilCallback");
     m_pDevice->ReplayLog(0, events.back().eventId, eReplay_Full);
     m_pDevice->FlushLists(true);
-    m_pDevice->GPUSyncAllQueues();
+    m_pDevice->DeviceWaitForIdle();
   }
 
   // If there are any draw events, do another replay pass, in order to figure
@@ -2976,7 +2973,7 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
                                         drawEvents);
     m_pDevice->ReplayLog(0, events.back().eventId, eReplay_Full);
     m_pDevice->FlushLists(true);
-    m_pDevice->GPUSyncAllQueues();
+    m_pDevice->DeviceWaitForIdle();
     tfCb->FetchOcclusionResults();
     SAFE_RELEASE(pTfOcclusionQueryHeap);
   }
@@ -3133,7 +3130,7 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
                                       "D3D12PixelHistoryPerFragmentCallback");
       m_pDevice->ReplayLog(0, eventsWithFrags.rbegin()->first, eReplay_Full);
       m_pDevice->FlushLists(true);
-      m_pDevice->GPUSyncAllQueues();
+      m_pDevice->DeviceWaitForIdle();
     }
 
     bytebuf fragData;
@@ -3187,7 +3184,7 @@ rdcarray<PixelModification> D3D12Replay::PixelHistory(rdcarray<EventUsage> event
 
       m_pDevice->ReplayLog(0, events.back().eventId, eReplay_Full);
       m_pDevice->FlushLists(true);
-      m_pDevice->GPUSyncAllQueues();
+      m_pDevice->DeviceWaitForIdle();
       discardedCb.FetchOcclusionResults();
       SAFE_RELEASE(pDiscardedFragsOcclusionQueryHeap);
 

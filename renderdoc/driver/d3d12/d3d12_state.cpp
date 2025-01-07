@@ -67,7 +67,7 @@ void D3D12RenderState::ResolvePendingIndirectState(WrappedID3D12Device *device)
   if(indirectState.argsBuf == NULL)
     return;
 
-  device->GPUSync();
+  device->DeviceWaitForIdle();
 
   D3D12_RANGE range = {0, D3D12CommandData::m_IndirectSize};
   byte *mapPtr = NULL;

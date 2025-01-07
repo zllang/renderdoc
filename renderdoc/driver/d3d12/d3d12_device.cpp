@@ -678,9 +678,9 @@ WrappedID3D12Device::WrappedID3D12Device(ID3D12Device *realDevice, D3D12InitPara
   m_HeaderChunk = NULL;
 
   m_Alloc = m_DataUploadAlloc = NULL;
-  m_GPUSyncFence = NULL;
-  m_GPUSyncHandle = NULL;
-  m_GPUSyncCounter = 0;
+  m_WFIFence = NULL;
+  m_WFIHandle = NULL;
+  m_WFICounter = 0;
   m_OverlaySyncHandle = NULL;
 
   initStateCurBatch = 0;
@@ -900,12 +900,9 @@ WrappedID3D12Device::~WrappedID3D12Device()
   for(size_t i = 0; i < m_InternalCmds.freecmds.size(); i++)
     SAFE_RELEASE(m_InternalCmds.freecmds[i]);
 
+  DeviceWaitForIdle();
   for(size_t i = 0; i < m_QueueFences.size(); i++)
-  {
-    GPUSync(m_Queues[i], m_QueueFences[i]);
-
     SAFE_RELEASE(m_QueueFences[i]);
-  }
 
   for(auto it = m_UploadBuffers.begin(); it != m_UploadBuffers.end(); ++it)
   {
@@ -2180,7 +2177,7 @@ bool WrappedID3D12Device::Serialise_MapDataWrite(SerialiserType &ser, ID3D12Reso
       m_CurDataUpload++;
       if(m_CurDataUpload == ARRAY_COUNT(m_DataUploadList))
       {
-        GPUSync();
+        InternalQueueWaitForIdle();
         m_CurDataUpload = 0;
       }
     }
@@ -2331,7 +2328,7 @@ bool WrappedID3D12Device::Serialise_WriteToSubresource(SerialiserType &ser, ID3D
       m_CurDataUpload++;
       if(m_CurDataUpload == ARRAY_COUNT(m_DataUploadList))
       {
-        GPUSync();
+        InternalQueueWaitForIdle();
         m_CurDataUpload = 0;
       }
     }
@@ -2728,7 +2725,7 @@ void WrappedID3D12Device::StartFrameCapture(DeviceOwnedWindow devWnd)
     initStateCurBatch = 0;
     initStateCurList = NULL;
 
-    GPUSyncAllQueues();
+    DeviceWaitForIdle();
 
     // wait until we've synced all queues to check for these
     GetResourceManager()->GetRTManager()->TickASManagement();
@@ -2863,7 +2860,7 @@ bool WrappedID3D12Device::EndFrameCapture(DeviceOwnedWindow devWnd)
 
     m_State = CaptureState::BackgroundCapturing;
 
-    GPUSync();
+    DeviceWaitForIdle();
   }
 
   rdcarray<MapState> maps = GetMaps();
@@ -3217,7 +3214,7 @@ bool WrappedID3D12Device::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 
     m_State = CaptureState::BackgroundCapturing;
 
-    GPUSync();
+    DeviceWaitForIdle();
 
     queues = m_Queues;
   }
@@ -4468,10 +4465,10 @@ void WrappedID3D12Device::CreateInternalResources()
   CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
                          (void **)&m_Alloc);
   InternalRef();
-  CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&m_GPUSyncFence);
-  m_GPUSyncFence->SetName(L"m_GPUSyncFence");
+  CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&m_WFIFence);
+  m_WFIFence->SetName(L"m_WFIFence");
   InternalRef();
-  m_GPUSyncHandle = ::CreateEvent(NULL, FALSE, FALSE, NULL);
+  m_WFIHandle = ::CreateEvent(NULL, FALSE, FALSE, NULL);
 
   CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&m_OverlayFence);
   m_OverlayFence->SetName(L"m_OverlayFence");
@@ -4493,7 +4490,7 @@ void WrappedID3D12Device::CreateInternalResources()
   }
 
   GetResourceManager()->SetInternalResource(m_Alloc);
-  GetResourceManager()->SetInternalResource(m_GPUSyncFence);
+  GetResourceManager()->SetInternalResource(m_WFIFence);
 
   CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
                          (void **)&m_DataUploadAlloc);
@@ -4542,7 +4539,7 @@ void WrappedID3D12Device::CreateInternalResources()
     RDCERR("Failed to create RTV heap");
   }
 
-  m_GPUSyncCounter = 0;
+  m_WFICounter = 0;
 
   if(m_TextRenderer == NULL)
     m_TextRenderer = new D3D12TextRenderer(this);
@@ -4555,7 +4552,7 @@ void WrappedID3D12Device::CreateInternalResources()
 
 void WrappedID3D12Device::DestroyInternalResources()
 {
-  if(m_GPUSyncHandle == NULL)
+  if(m_WFIHandle == NULL)
     return;
 
   SAFE_RELEASE(m_pAMDExtObject);
@@ -4585,9 +4582,9 @@ void WrappedID3D12Device::DestroyInternalResources()
   }
 
   SAFE_RELEASE(m_Alloc);
-  SAFE_RELEASE(m_GPUSyncFence);
+  SAFE_RELEASE(m_WFIFence);
   SAFE_RELEASE(m_OverlayFence);
-  CloseHandle(m_GPUSyncHandle);
+  CloseHandle(m_WFIHandle);
   CloseHandle(m_OverlaySyncHandle);
 }
 
@@ -4595,57 +4592,61 @@ void WrappedID3D12Device::DataUploadSync()
 {
   if(m_CurDataUpload >= 0)
   {
-    GPUSync();
+    InternalQueueWaitForIdle();
     m_CurDataUpload = 0;
   }
 }
 
-void WrappedID3D12Device::GPUSync(ID3D12CommandQueue *queue, ID3D12Fence *fence)
+void WrappedID3D12Device::InternalQueueWaitForIdle()
 {
-  m_GPUSyncCounter++;
+  QueueWaitForIdle(GetQueue(), m_WFIFence);
+}
+
+void WrappedID3D12Device::QueueWaitForIdle(ID3D12CommandQueue *queue, ID3D12Fence *fence)
+{
+  m_WFICounter++;
 
   if(HasFatalError())
     return;
 
-  if(queue == NULL)
-    queue = GetQueue();
-
-  if(fence == NULL)
-    fence = m_GPUSyncFence;
-
-  HRESULT hr = queue->Signal(fence, m_GPUSyncCounter);
+  HRESULT hr = queue->Signal(fence, m_WFICounter);
   CHECK_HR(this, hr);
   RDCASSERTEQUAL(hr, S_OK);
 
-  fence->SetEventOnCompletion(m_GPUSyncCounter, m_GPUSyncHandle);
+  fence->SetEventOnCompletion(m_WFICounter, m_WFIHandle);
 
   // wait 10s for hardware GPUs, 100s for CPU
   if(m_Replay && m_Replay->GetDriverInfo().vendor == GPUVendor::Software)
-    WaitForSingleObject(m_GPUSyncHandle, 100000);
+    WaitForSingleObject(m_WFIHandle, 100000);
   else
-    WaitForSingleObject(m_GPUSyncHandle, 10000);
+    WaitForSingleObject(m_WFIHandle, 10000);
 
   hr = m_pDevice->GetDeviceRemovedReason();
   CHECK_HR(this, hr);
   RDCASSERTEQUAL(hr, S_OK);
 }
 
-void WrappedID3D12Device::GPUSyncAllQueues()
+void WrappedID3D12Device::ReplayWorkWaitForIdle()
 {
-  if(m_GPUSynced)
+  if(m_WaitedForIdleAfterReplay)
     return;
 
-  for(size_t i = 0; i < m_QueueFences.size(); i++)
-    GPUSync(m_Queues[i], m_QueueFences[i]);
+  DeviceWaitForIdle();
 
-  m_GPUSynced = true;
+  m_WaitedForIdleAfterReplay = true;
+}
+
+void WrappedID3D12Device::DeviceWaitForIdle()
+{
+  for(size_t i = 0; i < m_QueueFences.size(); i++)
+    QueueWaitForIdle(m_Queues[i], m_QueueFences[i]);
 }
 
 ID3D12GraphicsCommandListX *WrappedID3D12Device::GetNewList()
 {
   ID3D12GraphicsCommandListX *ret = NULL;
 
-  m_GPUSynced = false;
+  m_WaitedForIdleAfterReplay = false;
 
   if(!m_InternalCmds.freecmds.empty())
   {
@@ -4783,7 +4784,7 @@ void WrappedID3D12Device::FlushLists(bool forceSync, ID3D12CommandQueue *queue)
 
   if(!m_InternalCmds.submittedcmds.empty() || forceSync)
   {
-    GPUSync(queue);
+    QueueWaitForIdle(queue, m_WFIFence);
 
     if(!m_InternalCmds.submittedcmds.empty())
       m_InternalCmds.freecmds.append(m_InternalCmds.submittedcmds);
@@ -5382,22 +5383,22 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
 {
   bool partial = true;
 
-  m_GPUSynced = false;
+  m_WaitedForIdleAfterReplay = false;
 
   if(startEventID == 0 && (replayType == eReplay_WithoutDraw || replayType == eReplay_Full))
   {
     startEventID = 1;
     partial = false;
 
-    m_GPUSyncCounter++;
+    m_WFICounter++;
 
-    GPUSyncAllQueues();
+    DeviceWaitForIdle();
 
     // I'm not sure the reason for this, but the debug layer warns about being unable to resubmit
     // command lists due to the 'previous queue fence' not being ready yet, even if no fences are
     // signalled or waited. So instead we just signal a dummy fence each new 'frame'
     for(size_t i = 0; i < m_Queues.size(); i++)
-      CHECK_HR(this, m_Queues[i]->Signal(m_QueueFences[i], m_GPUSyncCounter));
+      CHECK_HR(this, m_Queues[i]->Signal(m_QueueFences[i], m_WFICounter));
 
     FlushLists(true);
     m_CurDataUpload = 0;
@@ -5423,7 +5424,7 @@ void WrappedID3D12Device::ReplayLog(uint32_t startEventID, uint32_t endEventID,
     ExecuteLists();
     FlushLists(true);
 
-    GPUSyncAllQueues();
+    DeviceWaitForIdle();
 
     // clear any previous ray dispatch references
     D3D12CommandData &cmd = *m_Queue->GetCommandData();

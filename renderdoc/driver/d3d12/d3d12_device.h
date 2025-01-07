@@ -595,8 +595,8 @@ private:
   rdcarray<WrappedID3D12CommandQueue *> m_Queues;
   rdcarray<ID3D12Fence *> m_QueueFences;
 
-  // if we've called GPUSyncAllQueues since the last replay
-  bool m_GPUSynced = false;
+  // if we've called ReplayWorkWaitForIdle since the last replay or internal work
+  bool m_WaitedForIdleAfterReplay = false;
 
   // list of queues and buffers kept alive during capture artificially even if the user destroys
   // them, so we can use them in the capture. Storing this separately prevents races where a
@@ -634,9 +634,9 @@ private:
   ID3D12GraphicsCommandList *m_DataUploadList[64] = {};
   size_t m_CurDataUpload = 0;
   ID3D12DescriptorHeap *m_RTVHeap = NULL;
-  ID3D12Fence *m_GPUSyncFence;
-  HANDLE m_GPUSyncHandle;
-  UINT64 m_GPUSyncCounter;
+  ID3D12Fence *m_WFIFence;
+  HANDLE m_WFIHandle;
+  UINT64 m_WFICounter;
 
   ID3D12Fence *m_OverlayFence = NULL;
   UINT64 m_CurOverlay = 0;
@@ -1073,8 +1073,16 @@ public:
 
   void DataUploadSync();
 
-  void GPUSync(ID3D12CommandQueue *queue = NULL, ID3D12Fence *fence = NULL);
-  void GPUSyncAllQueues();
+  // Sync a single queue, by submitting the fence then waiting on it
+  void QueueWaitForIdle(ID3D12CommandQueue *queue, ID3D12Fence *fence);
+  // Sync to the internal queue - used to ensure any internal work has finished (e.g. FlushLists() above)
+  // or generally any internal command buffers submitted to the GetQueue() main internal queue.
+  void InternalQueueWaitForIdle();
+  // Sync all queues - this always flushes the entire GPU
+  void DeviceWaitForIdle();
+  // Sync all queues but only once after each replay or internal work submit. used when fetching data
+  // or after a replay to ensure work completes on all captured queues before doing any analysis work
+  void ReplayWorkWaitForIdle();
 
   RDCDriver GetFrameCaptureDriver() { return RDCDriver::D3D12; }
   void StartFrameCapture(DeviceOwnedWindow devWnd);

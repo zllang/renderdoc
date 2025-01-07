@@ -137,7 +137,7 @@ bool D3D12ShaderDebug::CalculateMathIntrinsic(bool dxil, WrappedID3D12Device *de
   {
     ID3D12CommandList *l = cmdList;
     device->GetQueue()->ExecuteCommandLists(1, &l);
-    device->GPUSync();
+    device->InternalQueueWaitForIdle();
   }
 
   D3D12_RANGE range = {0, sizeof(Vec4f) * 6};
@@ -382,7 +382,7 @@ bool D3D12ShaderDebug::CalculateSampleGather(
   {
     ID3D12CommandList *l = cmdList;
     device->GetQueue()->ExecuteCommandLists(1, &l);
-    device->GPUSync();
+    device->InternalQueueWaitForIdle();
   }
 
   rs = prevState;
@@ -2900,7 +2900,7 @@ struct PSInitialData
   {
     ID3D12CommandList *l = cmdList;
     m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
-    m_pDevice->GPUSync();
+    m_pDevice->InternalQueueWaitForIdle();
   }
 
   {

@@ -474,7 +474,7 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
                ToStr(GetResourceManager()->GetOriginalID(m_PrevQueueId)).c_str(),
                ToStr(GetResourceManager()->GetOriginalID(GetResID(pQueue))).c_str());
       if(m_PrevQueueId != ResourceId())
-        m_pDevice->GPUSync(GetResourceManager()->GetCurrentAs<ID3D12CommandQueue>(m_PrevQueueId));
+        m_pDevice->DeviceWaitForIdle();
 
       m_PrevQueueId = GetResID(pQueue);
     }
@@ -493,7 +493,7 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
         ID3D12CommandList *list = Unwrap(ppCommandLists[i]);
         real->ExecuteCommandLists(1, &list);
         if(D3D12_Debug_SingleSubmitFlushing() || D3D12_Debug_RT_Auditing())
-          m_pDevice->GPUSync();
+          m_pDevice->DeviceWaitForIdle();
 
         BakedCmdListInfo &info = m_Cmd.m_BakedCmdListInfo[cmd];
 
@@ -582,7 +582,7 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
         if(!info.executeEvents.empty())
         {
           // ensure all GPU work has finished for readback of arguments
-          m_pDevice->GPUSync();
+          m_pDevice->DeviceWaitForIdle();
 
           if(m_pDevice->HasFatalError())
             return false;
@@ -778,7 +778,7 @@ bool WrappedID3D12CommandQueue::Serialise_ExecuteCommandLists(SerialiserType &se
           for(size_t i = 0; i < rerecordedCmds.size(); i++)
           {
             real->ExecuteCommandLists(1, &rerecordedCmds[i]);
-            m_pDevice->GPUSync();
+            m_pDevice->DeviceWaitForIdle();
           }
         }
         else
@@ -1092,7 +1092,7 @@ void WrappedID3D12CommandQueue::ExecuteCommandListsInternal(UINT NumCommandLists
             queueReadback.list->Close();
             ID3D12CommandList *listptr = Unwrap(queueReadback.list);
             queueReadback.unwrappedQueue->ExecuteCommandLists(1, &listptr);
-            m_pDevice->GPUSync(queueReadback.unwrappedQueue, Unwrap(queueReadback.fence));
+            m_pDevice->QueueWaitForIdle(queueReadback.unwrappedQueue, Unwrap(queueReadback.fence));
 
             data = queueReadback.readbackMapped;
           }
@@ -1397,7 +1397,7 @@ bool WrappedID3D12CommandQueue::Serialise_Signal(SerialiserType &ser, ID3D12Fenc
   if(IsReplayingAndReading() && pFence)
   {
     m_pReal->Signal(Unwrap(pFence), Value);
-    m_pDevice->GPUSync(pQueue);
+    m_pDevice->DeviceWaitForIdle();
   }
 
   return true;
@@ -1435,7 +1435,7 @@ bool WrappedID3D12CommandQueue::Serialise_Wait(SerialiserType &ser, ID3D12Fence 
 
   if(IsReplayingAndReading() && pFence)
   {
-    m_pDevice->GPUSync(pQueue);
+    m_pDevice->DeviceWaitForIdle();
   }
 
   return true;
