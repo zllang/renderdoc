@@ -2103,7 +2103,7 @@ ParsedFormat BufferFormatter::ParseFormatString(const QString &formatString, uin
       }
 
       // if we're bitfield packing and we just specified an offset based padding, reset current position
-      if(specifiedOffset > cur->offset)
+      if(bitfieldCurPos != ~0U && specifiedOffset > cur->offset)
       {
         el.bitFieldOffset = bitfieldCurPos = 0;
         bitfieldCurPos += el.bitFieldSize;
