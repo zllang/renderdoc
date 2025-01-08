@@ -189,22 +189,30 @@ struct MemoryTracking
 {
   void AllocateMemoryForType(const DXIL::Type *type, Id allocId, bool global, ShaderVariable &var);
 
-  struct Alloc
+  // Represents actual memory allocations (think of it like a memory heap)
+  struct Allocation
   {
+    // the allocated memory
     void *backingMemory;
     uint64_t size;
     bool global;
   };
 
-  struct AllocPointer
+  // Represents pointers within a Allocation memory allocation (heap)
+  struct Pointer
   {
+    // the Allocation that owns the memory pointed to
     Id baseMemoryId;
-    void *backingMemory;
+    // the memory pointer which will be within the Allocation backing memory
+    void *memory;
+    // size of the data the pointer
     uint64_t size;
   };
 
-  std::map<Id, Alloc> m_Allocs;
-  std::map<Id, AllocPointer> m_AllocPointers;
+  // Memory allocations with backing memory (heaps)
+  std::map<Id, Allocation> m_Allocations;
+  // Pointers within a Allocation memory allocation, the allocated memory will be in m_Allocations
+  std::map<Id, Pointer> m_Pointers;
 };
 
 struct ThreadState

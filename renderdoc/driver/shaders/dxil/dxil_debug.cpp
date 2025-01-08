@@ -1635,15 +1635,14 @@ void MemoryTracking::AllocateMemoryForType(const DXIL::Type *type, Id allocId, b
   RDCASSERTEQUAL(type->type, Type::TypeKind::Pointer);
   ConvertDXILTypeToShaderVariable(type->inner, var);
 
-  // Add the SSA to m_MemoryAllocs with its backing memory and size
+  // Add the SSA to m_Allocations with its backing memory and size
   size_t byteSize = ComputeDXILTypeByteSize(type->inner);
   void *backingMem = malloc(byteSize);
   memset(backingMem, 0, byteSize);
-  MemoryTracking::Alloc &alloc = m_Allocs[allocId];
-  alloc = {backingMem, byteSize, global};
+  m_Allocations[allocId] = {backingMem, byteSize, global};
 
-  // set the backing memory
-  m_AllocPointers[allocId] = {allocId, backingMem, byteSize};
+  // Create a pointer to represent this allocation
+  m_Pointers[allocId] = {allocId, backingMem, byteSize};
 }
 
 ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger,
@@ -1670,7 +1669,7 @@ ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger,
 
 ThreadState::~ThreadState()
 {
-  for(auto it : m_Memory.m_Allocs)
+  for(auto it : m_Memory.m_Allocations)
   {
     if(!it.second.global)
       free(it.second.backingMemory);
@@ -4236,21 +4235,25 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       if(ptrId == DXILDebug::INVALID_ID)
         break;
 
-      auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
-      if(itPtr == m_Memory.m_AllocPointers.end())
+      auto itPtr = m_Memory.m_Pointers.find(ptrId);
+      if(itPtr == m_Memory.m_Pointers.end())
       {
-        RDCWARN("Unknown memory pointer Id %u", ptrId);
+        RDCERR("Unknown memory pointer Id %u", ptrId);
         break;
       }
 
-      const MemoryTracking::AllocPointer &ptr = itPtr->second;
+      const MemoryTracking::Pointer &ptr = itPtr->second;
       Id baseMemoryId = ptr.baseMemoryId;
 
-      auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
-      RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
-      const MemoryTracking::Alloc &alloc = itAlloc->second;
+      auto itAlloc = m_Memory.m_Allocations.find(baseMemoryId);
+      if(itAlloc == m_Memory.m_Allocations.end())
+      {
+        RDCERR("Unknown memory allocation Id %u", baseMemoryId);
+        break;
+      }
+      const MemoryTracking::Allocation &allocation = itAlloc->second;
       ShaderVariable arg;
-      if(alloc.global)
+      if(allocation.global)
       {
         RDCASSERT(IsVariableAssigned(baseMemoryId));
         arg = m_Variables[baseMemoryId];
@@ -4266,44 +4269,42 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::StoreAtomic:
     {
       // Store(ptr, value)
-      Id baseMemoryId = DXILDebug::INVALID_ID;
-      void *baseMemoryBackingPtr = NULL;
-      uint64_t allocSize = 0;
-      void *allocMemoryBackingPtr = NULL;
       Id ptrId = GetArgumentId(0);
       if(ptrId == DXILDebug::INVALID_ID)
         break;
-      auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
-      if(itPtr == m_Memory.m_AllocPointers.end())
+      auto itPtr = m_Memory.m_Pointers.find(ptrId);
+      if(itPtr == m_Memory.m_Pointers.end())
       {
-        RDCWARN("Unknown memory pointer Id %u", ptrId);
+        RDCERR("Unknown memory pointer Id %u", ptrId);
         break;
       }
 
-      const MemoryTracking::AllocPointer &ptr = itPtr->second;
-      baseMemoryId = ptr.baseMemoryId;
-      baseMemoryBackingPtr = ptr.backingMemory;
-      allocSize = ptr.size;
+      const MemoryTracking::Pointer &ptr = itPtr->second;
+      Id baseMemoryId = ptr.baseMemoryId;
+      void *memory = ptr.memory;
+      uint64_t allocSize = ptr.size;
 
-      auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
-      RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
-      const MemoryTracking::Alloc &alloc = itAlloc->second;
-      allocMemoryBackingPtr = alloc.backingMemory;
-
-      RDCASSERT(baseMemoryBackingPtr);
+      RDCASSERT(memory);
       RDCASSERTNOTEQUAL(baseMemoryId, DXILDebug::INVALID_ID);
 
       ShaderVariable val;
       RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, val));
       RDCASSERTEQUAL(resultId, DXILDebug::INVALID_ID);
 
-      UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, val);
+      UpdateBackingMemoryFromVariable(memory, allocSize, val);
 
       ShaderVariableChange change;
       RDCASSERT(IsVariableAssigned(baseMemoryId));
       change.before = m_Variables[baseMemoryId];
 
-      UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocMemoryBackingPtr);
+      auto itAlloc = m_Memory.m_Allocations.find(baseMemoryId);
+      if(itAlloc == m_Memory.m_Allocations.end())
+      {
+        RDCERR("Unknown memory allocation Id %u", baseMemoryId);
+        break;
+      }
+      const MemoryTracking::Allocation &allocation = itAlloc->second;
+      UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocation.backingMemory);
 
       // record the change to the base memory variable
       change.after = m_Variables[baseMemoryId];
@@ -4338,7 +4339,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
 
       RDCASSERT(IsVariableAssigned(ptrId));
-      RDCASSERT(m_Memory.m_Allocs.count(ptrId) == 1);
+      if(m_Memory.m_Allocations.count(ptrId) == 0)
+      {
+        RDCERR("Unknown memory allocation Id %u", ptrId);
+        break;
+      }
 
       // arg[1..] : indices 1...N
       rdcarray<uint64_t> indexes;
@@ -4367,12 +4372,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       size_t size = countElems * GetElementByteSize(baseType);
 
       // Copy from the backing memory to the result
-      const MemoryTracking::Alloc &alloc = m_Memory.m_Allocs[ptrId];
-      uint8_t *backingMemory = (uint8_t *)alloc.backingMemory;
+      const MemoryTracking::Allocation &allocation = m_Memory.m_Allocations[ptrId];
+      uint8_t *memory = (uint8_t *)allocation.backingMemory;
 
       // Ensure global variables use global memory
       // Ensure non-global variables do not use global memory
-      if(alloc.global)
+      if(allocation.global)
         RDCASSERT(cast<GlobalVar>(inst.args[0]));
       else
         RDCASSERT(!cast<GlobalVar>(inst.args[0]));
@@ -4380,21 +4385,21 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       result.type = baseType;
       result.rows = (uint8_t)countElems;
 
-      RDCASSERT(offset + size <= alloc.size);
-      if(offset + size <= alloc.size)
+      RDCASSERT(offset + size <= allocation.size);
+      if(offset + size <= allocation.size)
       {
-        backingMemory += offset;
-        m_Memory.m_AllocPointers[resultId] = {ptrId, backingMemory, size};
+        memory += offset;
+        m_Memory.m_Pointers[resultId] = {ptrId, memory, size};
 
         RDCASSERT(size <= sizeof(ShaderValue));
         if(size <= sizeof(ShaderValue))
-          memcpy(&result.value, backingMemory, size);
+          memcpy(&result.value, memory, size);
         else
           RDCERR("Size %u too large MAX %u for GetElementPtr", size, sizeof(ShaderValue));
       }
       else
       {
-        RDCERR("Invalid GEP offset %u size %u for alloc size %u", offset, size, alloc.size);
+        RDCERR("Invalid GEP offset %u size %u for allocation size %u", offset, size, allocation.size);
       }
       break;
     }
@@ -5251,30 +5256,34 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::AtomicUMin:
     case Operation::CompareExchange:
     {
-      uint64_t allocSize = 0;
-      void *allocMemoryBackingPtr = NULL;
-      void *baseMemoryBackingPtr = NULL;
-      Id baseMemoryId = DXILDebug::INVALID_ID;
       Id ptrId = GetArgumentId(0);
       if(ptrId == DXILDebug::INVALID_ID)
         break;
+
+      auto itPtr = m_Memory.m_Pointers.find(ptrId);
+      if(itPtr == m_Memory.m_Pointers.end())
       {
-        auto itPtr = m_Memory.m_AllocPointers.find(ptrId);
-        RDCASSERT(itPtr != m_Memory.m_AllocPointers.end());
-
-        const MemoryTracking::AllocPointer &ptr = itPtr->second;
-        baseMemoryId = ptr.baseMemoryId;
-        baseMemoryBackingPtr = ptr.backingMemory;
-        allocSize = ptr.size;
-
-        auto itAlloc = m_Memory.m_Allocs.find(baseMemoryId);
-        RDCASSERT(itAlloc != m_Memory.m_Allocs.end());
-        const MemoryTracking::Alloc &alloc = itAlloc->second;
-        allocMemoryBackingPtr = alloc.backingMemory;
+        RDCERR("Unknown memory pointer Id %u", ptrId);
+        break;
       }
 
-      RDCASSERT(baseMemoryBackingPtr);
+      const MemoryTracking::Pointer &ptr = itPtr->second;
+      Id baseMemoryId = ptr.baseMemoryId;
+
       RDCASSERTNOTEQUAL(baseMemoryId, DXILDebug::INVALID_ID);
+
+      void *memory = ptr.memory;
+      RDCASSERT(memory);
+      uint64_t allocSize = ptr.size;
+
+      auto itAlloc = m_Memory.m_Allocations.find(baseMemoryId);
+      if(itAlloc == m_Memory.m_Allocations.end())
+      {
+        RDCERR("Unknown memory allocation Id %u", ptrId);
+        break;
+      }
+      const MemoryTracking::Allocation &allocation = itAlloc->second;
+      void *allocMemoryBackingPtr = allocation.backingMemory;
 
       RDCASSERTNOTEQUAL(resultId, DXILDebug::INVALID_ID);
       RDCASSERT(IsVariableAssigned(ptrId));
@@ -5389,8 +5398,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         RDCERR("Unhandled opCode %s", ToStr(opCode).c_str());
       }
 
-      // Save the result back
-      UpdateBackingMemoryFromVariable(baseMemoryBackingPtr, allocSize, res);
+      // Save the result back to the backing memory of the pointer
+      UpdateBackingMemoryFromVariable(memory, allocSize, res);
 
       ShaderVariableChange change;
       if(m_State)
@@ -6263,7 +6272,7 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
 
 GlobalState::~GlobalState()
 {
-  for(auto it : memory.m_Allocs)
+  for(auto it : memory.m_Allocations)
   {
     RDCASSERT(it.second.global);
     free(it.second.backingMemory);
@@ -7687,13 +7696,19 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         {
           RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
           // Write ShaderVariable data back to memory
-          auto itAlloc = globalMemory.m_Allocs.find(globalVar.id);
-          RDCASSERT(itAlloc != globalMemory.m_Allocs.end());
-          const MemoryTracking::Alloc &alloc = itAlloc->second;
-          void *allocMemoryBackingPtr = alloc.backingMemory;
-          uint64_t allocSize = alloc.size;
-          state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
-          RDCASSERTEQUAL(allocSize, 0);
+          auto itAlloc = globalMemory.m_Allocations.find(globalVar.id);
+          if(itAlloc != globalMemory.m_Allocations.end())
+          {
+            const MemoryTracking::Allocation &allocation = itAlloc->second;
+            void *allocMemoryBackingPtr = allocation.backingMemory;
+            uint64_t allocSize = allocation.size;
+            state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
+            RDCASSERTEQUAL(allocSize, 0);
+          }
+          else
+          {
+            RDCERR("Unknown memory allocation for GlobalVariable Id %u", globalVar.id);
+          }
         }
       }
     }
@@ -7736,20 +7751,21 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
               // Decode the pointer allocation: ptrId, offset, size
               RDCASSERT(DecodePointer(ptrId, offset, size, var));
 
-              auto it = globalMemory.m_Allocs.find(ptrId);
-              if(it != globalMemory.m_Allocs.end())
+              auto it = globalMemory.m_Allocations.find(ptrId);
+              if(it != globalMemory.m_Allocations.end())
               {
-                const MemoryTracking::Alloc &alloc = it->second;
-                uint8_t *backingMemory = (uint8_t *)alloc.backingMemory;
-                RDCASSERT(offset + size <= alloc.size);
-                if(offset + size <= alloc.size)
+                const MemoryTracking::Allocation &allocation = it->second;
+                uint8_t *memory = (uint8_t *)allocation.backingMemory;
+                RDCASSERT(offset + size <= allocation.size);
+                if(offset + size <= allocation.size)
                 {
-                  backingMemory += offset;
-                  globalMemory.m_AllocPointers[id] = {ptrId, backingMemory, size};
+                  memory += offset;
+                  globalMemory.m_Pointers[id] = {ptrId, memory, size};
                 }
                 else
                 {
-                  RDCERR("Invalid GEP offset %u size %u for alloc size %u", offset, size, alloc.size);
+                  RDCERR("Invalid GEP offset %u size %u for allocation size %u", offset, size,
+                         allocation.size);
                 }
               }
               else
