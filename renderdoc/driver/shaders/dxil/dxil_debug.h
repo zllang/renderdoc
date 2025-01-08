@@ -326,9 +326,7 @@ struct ThreadState
   // The current and previous function basic block index
   uint32_t m_Block = ~0U;
   uint32_t m_PreviousBlock = ~0U;
-  // A global logical instruction index (bit like a PC) not the instruction index within a function
-  uint32_t m_GlobalInstructionIdx = ~0U;
-  // The PC of the active instruction that was or will be executed on the current simulation step
+  // The global PC of the active instruction that was or will be executed on the current simulation step
   uint32_t m_ActiveGlobalInstructionIdx = ~0U;
 
   // SSA Ids guaranteed to be greater than 0 and less than this value

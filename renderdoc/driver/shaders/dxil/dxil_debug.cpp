@@ -1656,7 +1656,7 @@ ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger,
   m_WorkgroupIndex = workgroupIndex;
   m_FunctionInfo = NULL;
   m_FunctionInstructionIdx = 0;
-  m_GlobalInstructionIdx = 0;
+  m_ActiveGlobalInstructionIdx = 0;
   m_Killed = false;
   m_Ended = false;
   m_Callstack.clear();
@@ -1747,7 +1747,7 @@ void ThreadState::EnterFunction(const Function *function, const rdcarray<Value *
   m_PreviousBlock = ~0U;
   m_PhiVariables.clear();
 
-  m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
+  m_ActiveGlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
   m_Callstack.push_back(frame);
 
   ShaderDebugState *state = m_State;
@@ -4144,14 +4144,13 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       {
         m_Block = blockId;
         m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
-        m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
       }
       else
       {
         RDCERR("Unknown branch target %u '%s'", m_Block, GetArgumentName(targetArg).c_str());
       }
       if(m_State && !m_Ended)
-        m_State->nextInstruction = m_GlobalInstructionIdx;
+        m_State->nextInstruction = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
       break;
     }
     case Operation::Phi:
@@ -5228,7 +5227,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       {
         m_Block = blockId;
         m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
-        m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
       }
       else
       {
@@ -5458,12 +5456,12 @@ void ThreadState::StepOverNopInstructions()
     return;
   do
   {
-    m_GlobalInstructionIdx = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
     RDCASSERT(m_FunctionInstructionIdx < m_FunctionInfo->function->instructions.size());
     const Instruction *inst = m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
     if(!IsNopInstruction(*inst))
     {
-      m_ActiveGlobalInstructionIdx = m_GlobalInstructionIdx;
+      m_ActiveGlobalInstructionIdx =
+          m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
       return;
     }
 
@@ -5476,9 +5474,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
 {
   m_State = state;
 
-  RDCASSERTEQUAL(m_GlobalInstructionIdx,
+  RDCASSERTEQUAL(m_ActiveGlobalInstructionIdx,
                  m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx);
-  RDCASSERTEQUAL(m_ActiveGlobalInstructionIdx, m_GlobalInstructionIdx);
   if(m_State)
   {
     m_State->flags = ShaderEvents::NoEvent;
@@ -8378,7 +8375,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
       {
         thread.EnterEntryPoint(m_EntryPointFunction, &initial);
         thread.FillCallstack(initial);
-        initial.nextInstruction = thread.m_GlobalInstructionIdx;
+        initial.nextInstruction = thread.m_ActiveGlobalInstructionIdx;
       }
       else
       {
