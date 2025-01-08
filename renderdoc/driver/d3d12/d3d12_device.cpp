@@ -4777,14 +4777,14 @@ void WrappedID3D12Device::ExecuteLists(WrappedID3D12CommandQueue *queue, bool In
   m_InternalCmds.pendingcmds.clear();
 }
 
-void WrappedID3D12Device::FlushLists(bool forceSync, ID3D12CommandQueue *queue)
+void WrappedID3D12Device::FlushLists(bool forceSync)
 {
   if(HasFatalError())
     return;
 
   if(!m_InternalCmds.submittedcmds.empty() || forceSync)
   {
-    QueueWaitForIdle(queue, m_WFIFence);
+    QueueWaitForIdle(m_Queue, m_WFIFence);
 
     if(!m_InternalCmds.submittedcmds.empty())
       m_InternalCmds.freecmds.append(m_InternalCmds.submittedcmds);

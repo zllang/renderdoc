@@ -1069,7 +1069,7 @@ public:
                    bool InFrameCaptureBoundary = false);
   void MarkListExecuted(ID3D12GraphicsCommandListX *list);
   void ExecuteLists(WrappedID3D12CommandQueue *queue = NULL, bool InFrameCaptureBoundary = false);
-  void FlushLists(bool forceSync = false, ID3D12CommandQueue *queue = NULL);
+  void FlushLists(bool forceSync = false);
 
   void DataUploadSync();
 
