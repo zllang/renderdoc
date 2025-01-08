@@ -42,7 +42,7 @@ void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
   // insert ours at the start of the list and return
   if(idx == ~0U)
   {
-    addresses.insert(0, range);
+    AddRangeAtIndex(0, range);
     return;
   }
 
@@ -50,7 +50,7 @@ void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
   // sorting by range start
   if(addresses[idx].start != range.start)
   {
-    addresses.insert(idx + 1, range);
+    AddRangeAtIndex(idx + 1, range);
     return;
   }
 
@@ -62,7 +62,7 @@ void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
     // we could be smaller than the very first range in the list. If that's the case, insert at 0 and return now
     if(idx == 0)
     {
-      addresses.insert(0, range);
+      AddRangeAtIndex(0, range);
       return;
     }
 
@@ -71,7 +71,7 @@ void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
   }
 
   // insert after the idx we arrived at, which is the first range either starting before, or that is smaller than us
-  addresses.insert(idx + 1, range);
+  AddRangeAtIndex(idx + 1, range);
 }
 
 void GPUAddressRangeTracker::RemoveFrom(const GPUAddressRange &range)
@@ -90,12 +90,17 @@ void GPUAddressRangeTracker::RemoveFrom(const GPUAddressRange &range)
       {
         if(addresses[idx].id == range.id)
         {
-          addresses.erase(idx);
+          RemoveRangeAtIndex(idx, range);
+
           return;
         }
 
+        // this should not happen, it's just for safety/readability. The only time we would reverse
+        // all the way back to the first entry and still not find the range is if the desired
+        // address were before the first address range in the first place, at which point we'd have
+        // failed from FindLastRangeBeforeOrAtAddress() above
         if(idx == 0)
-          break;
+          break;    // @NoCoverage
 
         --idx;
       }
@@ -109,16 +114,187 @@ void GPUAddressRangeTracker::RemoveFrom(const GPUAddressRange &range)
   (void)err;
 }
 
+void GPUAddressRangeTracker::AddRangeAtIndex(size_t idx, const GPUAddressRange &range)
+{
+  // the caller must lock.
+
+  OverextendNode newNode(range);
+
+  // we only want to inherit overextensions that would naturally have been added. This means we only
+  // need to look at the two neighbouring entries [idx] and [idx-1]:
+  //
+  // [idx].start will be >= range.start due to the ordering of ranges.
+  //
+  // If [idx].start > range.start then we will ignore it because it's starting afterwards and
+  // anything that overextends it which we want will also overextend (or exist at) [idx-1]. It is
+  // not possible for something to overextend starting at [idx] and not appear at all at [idx-1]
+  // unless it also starts after us (at which point we don't need it in our overextend list)
+  //
+  // If [idx].start == range.start then we have already picked a natural order and the sorting of
+  // the overall list by size will ensure we are found at the right point. We can copy its list of
+  // overextends as they will all apply to us.
+  //
+  // Whether [idx-1].start < range.start or [idx-1].start == range.start doens't matter. In either
+  // case all of [idx-1]'s overextends could potentially overextend us so we filter the list and
+  // apply all the ones which are relevant.
+  //
+  // We don't have to search any further back because [idx-1]'s we define overextension to be
+  // conservative - anything which ends past a range's start. This means there are things in
+  // [idx-1]'s list which can never be used because tehy are smaller than it, but this is for the
+  // benefit of the check here so we can inherit its list into our potentially smaller range.
+  //
+  // In both cases we also need to apply any overextend directly from [idx-1] and [idx] because
+  // nodes don't appear in their own lists.
+
+  // keep track of which ranges we've already added, include ourselves implicitly, and only add ones we haven't seen
+  rdcarray<ResourceId> already = {range.id};
+
+  // if we have a next neighbour which starts at the same point as us
+  if(idx < addresses.size() && addresses[idx].start == range.start)
+  {
+    OverextendNode *src = addresses[idx].next;
+    OverextendNode *dst = &newNode;
+
+    // copy all entries. These all need to be included since our overextension list includes all ranges
+    // that overlap our start point (and since the start point is identical, the list is identical).
+    while(src)
+    {
+      dst->next = MakeListNode(*src);
+      dst = dst->next;
+      already.push_back(src->id);
+
+      src = src->next;
+    }
+
+    // idx does over-extend us then and is not in its own list - add it here
+    AddSorted(&newNode, addresses[idx]);
+    already.push_back(addresses[idx].id);
+  }
+
+  // if we have a previous neighbour
+  if(idx > 0)
+  {
+    OverextendNode *src = addresses[idx - 1].next;
+
+    while(src)
+    {
+      // this should always be true, because overextends of a previous node should always start before our range
+      RDCASSERT(src->start <= range.start);
+
+      // this node does overextend then insert in sorted order
+      if(src->realEnd > range.start && !already.contains(src->id))
+      {
+        AddSorted(&newNode, *src);
+        already.push_back(src->id);
+      }
+
+      src = src->next;
+    }
+
+    // idx-1 is not in its own list, if it overextends us add it here
+    if(addresses[idx - 1].realEnd > range.start && !already.contains(addresses[idx - 1].id))
+      AddSorted(&newNode, addresses[idx - 1]);
+  }
+
+  addresses.insert(idx, newNode);
+
+  // reverse to the first range with the same start, ignoring size
+  while(idx > 0 && addresses[idx - 1].start == range.start)
+    idx--;
+
+  // loop over every range we really overextend
+  for(; idx < addresses.size(); idx++)
+  {
+    // stop if we've reached a range that we don't overextend
+    if(range.realEnd <= addresses[idx].start)
+      break;
+
+    // add ourselves to this range's overextend list if we overextend it
+    if(range.realEnd > addresses[idx].start && range.id != addresses[idx].id)
+      AddSorted(&addresses[idx], range);
+  }
+}
+
+void GPUAddressRangeTracker::RemoveRangeAtIndex(size_t idx, const GPUAddressRange &range)
+{
+  // the caller must lock.
+
+  // delete our own largest list, if there is one
+  DeleteWholeList(&addresses[idx]);
+  addresses.erase(idx);
+
+  // reverse to the first range with the same start
+  while(idx > 0 && addresses[idx - 1].start == range.start)
+    idx--;
+
+  // loop over every range we could overextend
+  for(; idx < addresses.size(); idx++)
+  {
+    // stop if we've reached a range that we don't overextend
+    if(range.realEnd <= addresses[idx].start)
+      break;
+
+    // remove ourselves from this range's list, if present
+    OverextendNode *prev = NULL;
+    OverextendNode *cur = addresses[idx].next;
+    while(cur)
+    {
+      // if we found the id we're looking for
+      if(cur->id == range.id)
+      {
+        // if prev is NULL this is the head node, update the head pointer. Otherwise take the prev
+        // node and point it to the next node
+        if(prev == NULL)
+        {
+          addresses[idx].next = cur->next;
+        }
+        else
+        {
+          prev->next = cur->next;
+        }
+
+        // delete the node
+        DeleteNode(cur);
+        break;
+      }
+
+      prev = cur;
+      cur = cur->next;
+    }
+  }
+}
+
 void GPUAddressRangeTracker::Clear()
 {
   SCOPED_WRITELOCK(addressLock);
+
+  // clear addresses list. Linked lists will be deleted in batch below
   addresses.clear();
+
+  for(size_t i = 0; i < batchNodeAllocs.size(); i++)
+    delete[] batchNodeAllocs[i];
+  batchNodeAllocs.clear();
+  freeNodes.clear();
+}
+
+bool GPUAddressRangeTracker::IsEmpty()
+{
+  SCOPED_READLOCK(addressLock);
+  return addresses.empty();
 }
 
 rdcarray<GPUAddressRange> GPUAddressRangeTracker::GetAddresses()
 {
-  SCOPED_READLOCK(addressLock);
-  return addresses;
+  rdcarray<GPUAddressRange> ret;
+  ret.reserve(addresses.size());
+
+  {
+    SCOPED_READLOCK(addressLock);
+    for(size_t i = 0; i < addresses.size(); i++)
+      ret.push_back(addresses[i]);
+  }
+
+  return ret;
 }
 
 rdcarray<ResourceId> GPUAddressRangeTracker::GetIDs()
@@ -196,10 +372,18 @@ void GPUAddressRangeTracker::GetResIDFromAddr(GPUAddressRange::Address addr, Res
 
     // this range is already the largest before or at the address by virtue of our sorting and search
     range = addresses[idx];
+
+    // if this is out of the range and we have a next list of overextensions, go to the first one in
+    // the list immediately and try with that. It may still fail but it has the best chance to succeed
+    if(addr >= range.realEnd && addresses[idx].next)
+      range = *addresses[idx].next;
   }
 
+  // this should not happen, it's just for safety/readability. The only time the found range would
+  // be after the address is if the address is before all ranges which would return above after
+  // FindLastRangeBeforeOrAtAddress() fails
   if(addr < range.start)
-    return;
+    return;    // @NoCoverage
 
   // if OOB isn't allowed, check against real end
   if(!allowOOB)
@@ -243,8 +427,8 @@ void GPUAddressRangeTracker::GetResIDBoundForAddr(GPUAddressRange::Address addr,
     // if the addr is before first known range, it's bounded on upper only
     if(idx == ~0U)
     {
-      upper = addresses[idx].id;
-      upperVA = addresses[idx].start;
+      upper = addresses[0].id;
+      upperVA = addresses[0].start;
       return;
     }
 
@@ -267,7 +451,7 @@ void GPUAddressRangeTracker::GetResIDBoundForAddr(GPUAddressRange::Address addr,
     if(idx < addresses.size())
     {
       upper = addresses[idx].id;
-      upperVA = addresses[idx].realEnd;
+      upperVA = addresses[idx].start;
     }
   }
 }
@@ -288,6 +472,8 @@ ResourceId d = ResourceIDGen::GetNewUniqueID();
 ResourceId e = ResourceIDGen::GetNewUniqueID();
 ResourceId f = ResourceIDGen::GetNewUniqueID();
 ResourceId g = ResourceIDGen::GetNewUniqueID();
+
+rdcarray<ResourceId> extraIDs;
 };
 
 template <>
@@ -301,11 +487,24 @@ rdcstr DoStringise(const rdcpair<ResourceId, uint64_t> &el)
   if(idx >= 0)
     idname[0] += (char)idx;
   else if(el.first == ResourceId())
-    idname[0] = '-';
+    idname = "-";
   else
-    idname = "?";
+    idname = StringFormat::Fmt("extra[%d]", extraIDs.indexOf(el.first));
 
   return "{ " + idname + ", " + StringFormat::Fmt("%#x", el.second) + " }";
+}
+
+bool operator==(const GPUAddressRange &a, const GPUAddressRange &b)
+{
+  return a.start == b.start && a.id == b.id && a.realEnd == b.realEnd && a.oobEnd == b.oobEnd;
+}
+
+bool operator<(const GPUAddressRange &a, const GPUAddressRange &b)
+{
+  if(a.start != b.start)
+    return a.start < b.start;
+
+  return !(a.realEnd < b.realEnd);
 }
 
 static GPUAddressRange MakeRange(ResourceId id, GPUAddressRange::Address addr, uint64_t size,
@@ -324,6 +523,111 @@ rdcpair<ResourceId, uint64_t> make_idoffs(ResourceId a, uint64_t b)
   return {a, b};
 }
 
+// for the randomly-generated blitz, we don't want to check specific contractual behaviour.
+//
+// * if the address is contained within only one range, then that is the one that is returned.
+// * if the address is contained in multiple ranges, then either:
+//   - the returned range has (one of) the closest start point(s) to the address. For an ambiguous
+//     mapping this is arguably as good as it can get. This corresponds to the simple matching
+//     case
+//   - the only ranges that contain the address are smaller and start at the same point. i.e. this
+//     was the largest range of a series of equal-start aliases and there is nothing closer.
+//   - there is at least one range between the start of first range that contains the address and
+//     the address which does *not* contain the address. i.e. the specific carveout we have for our
+//     current imperfect results where if we find a bad match at first we allow the return of any of
+//     the larger overlaps. This is only allowed if there is such a 'problem' overlaps with small ranges.
+//
+// These conditions are rather awkward, but it is the only way to require something slightly
+// better than just "is the result valid" while allowing for the current imperfect returns that
+// don't try to find the tightest bound range as it's not needed. Allowing for a non-containing
+// range effectively leaves this leeway that the current system uses by immediately jumping to the
+// largest possible result when an exact simple match isn't found by startpoint.
+void CheckValidResult(GPUAddressRangeTracker &tracker, const rdcarray<GPUAddressRange> &ranges,
+                      GPUAddressRange::Address addr)
+{
+  rdcpair<ResourceId, uint64_t> result = tracker.GetResIDFromAddr(addr);
+
+  // make the list of ranges that include this address, and track the smallest one and which one the result is from
+  uint64_t closestStart = 0;
+  size_t resultRangeIndex = ~0U;
+  rdcarray<GPUAddressRange> containRanges;
+  for(const GPUAddressRange &range : ranges)
+  {
+    if(range.start <= addr && addr < range.realEnd)
+    {
+      if(range.start > closestStart)
+        closestStart = range.start;
+
+      if(range.id == result.first)
+      {
+        // verify the offset was calculated properly
+        CHECK(addr - range.start == result.second);
+
+        resultRangeIndex = containRanges.size();
+      }
+
+      containRanges.push_back(range);
+    }
+  }
+
+  // if no ranges contain this, we should have returned as such
+  if(containRanges.empty())
+  {
+    REQUIRE(result.first == ResourceId());
+    REQUIRE(result.second == 0);
+    return;
+  }
+
+  // if only one range contains the address, that must be our result if it's to be valid
+  if(containRanges.size() == 1)
+  {
+    REQUIRE(resultRangeIndex == 0);
+    return;
+  }
+
+  // if the range was the closest start, that's valid
+  if(containRanges[resultRangeIndex].start == closestStart)
+  {
+    SUCCEED("Closest starting range returned");
+    return;
+  }
+
+  // otherwise, iterate the whole list of ranges - when we encounter our returned range start
+  // looking for a small non-matching range in between its start and the address
+  bool validImperfectResult = false;
+  bool searching = false;
+  for(size_t i = 0; i < ranges.size(); i++)
+  {
+    if(!searching && ranges[i].start <= addr && addr < ranges[i].realEnd)
+    {
+      GPUAddressRange::Address start = ranges[i].start;
+
+      // skip past all equal-starting ranges that are smaller than the returned range
+      while(i < ranges.size() && ranges[i].start == start &&
+            ranges[i].RealSize() <= containRanges[resultRangeIndex].RealSize())
+        i++;
+
+      // if we're now at a range that's past the address, we already had the largest
+      if(i < ranges.size() && ranges[i].start > addr)
+      {
+        validImperfectResult = true;
+        break;
+      }
+
+      searching = true;
+      continue;
+    }
+
+    if(searching && ranges[i].realEnd <= addr)
+    {
+      validImperfectResult = true;
+      break;
+    }
+  }
+
+  CHECK(validImperfectResult);
+}
+
 TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
 {
   GPUAddressRangeTracker tracker;
@@ -334,6 +638,27 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
 
   SECTION("Basics")
   {
+    ResourceId lower, upper;
+    GPUAddressRange::Address lowerVA, upperVA;
+
+    CHECK(tracker.GetResIDFromAddr(0) == none);
+    CHECK(tracker.GetResIDFromAddr(0x1230000) == none);
+    CHECK(tracker.GetResIDFromAddr(0x9990000) == none);
+
+    tracker.GetResIDBoundForAddr(0, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == ResourceId());
+    CHECK(upper == ResourceId());
+    CHECK(lowerVA == 0);
+    CHECK(upperVA == 0);
+
+    tracker.GetResIDBoundForAddr(0x1230000, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == ResourceId());
+    CHECK(upper == ResourceId());
+    CHECK(lowerVA == 0);
+    CHECK(upperVA == 0);
+
     tracker.AddTo(MakeRange(a, 0x1230000, 128));
     tracker.AddTo(MakeRange(b, 0x1250000, 128));
 
@@ -430,6 +755,62 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x1270001) == make_idoffs(c, 1ULL));
     CHECK(tracker.GetResIDFromAddr(0x1270000 + 127) == make_idoffs(c, 127ULL));
     CHECK(tracker.GetResIDFromAddr(0x1270000 + 128) == none);
+
+    rdcarray<ResourceId> ids_ref = {a, c};
+    rdcarray<GPUAddressRange> ranges_ref;
+    ranges_ref.push_back(MakeRange(a, 0x1230000, 128));
+    ranges_ref.push_back(MakeRange(c, 0x1270000, 128));
+
+    rdcarray<ResourceId> ids = tracker.GetIDs();
+    rdcarray<GPUAddressRange> ranges = tracker.GetAddresses();
+
+    std::sort(ids.begin(), ids.end());
+    std::sort(ranges.begin(), ranges.end());
+
+    CHECK((ids == ids_ref));
+    CHECK((ranges == ranges_ref));
+
+    tracker.GetResIDBoundForAddr(0, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == ResourceId());
+    CHECK(upper == ResourceId());
+    CHECK(lowerVA == 0);
+    CHECK(upperVA == 0);
+
+    tracker.GetResIDBoundForAddr(0x1000, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == ResourceId());
+    CHECK(upper == a);
+    CHECK(lowerVA == 0);
+    CHECK(upperVA == 0x1230000);
+
+    tracker.GetResIDBoundForAddr(0x1230000, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == a);
+    CHECK(upper == a);
+    CHECK(lowerVA == 0x1230000);
+    CHECK(upperVA == 0x1230080);
+
+    tracker.GetResIDBoundForAddr(0x1230010, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == a);
+    CHECK(upper == a);
+    CHECK(lowerVA == 0x1230000);
+    CHECK(upperVA == 0x1230080);
+
+    tracker.GetResIDBoundForAddr(0x1230100, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == a);
+    CHECK(upper == c);
+    CHECK(lowerVA == 0x1230000);
+    CHECK(upperVA == 0x1270000);
+
+    tracker.GetResIDBoundForAddr(0x1280000, lower, lowerVA, upper, upperVA);
+
+    CHECK(lower == c);
+    CHECK(upper == ResourceId());
+    CHECK(lowerVA == 0x1270000);
+    CHECK(upperVA == 0);
   }
 
   SECTION("Insertion order doesn't affect return value")
@@ -592,7 +973,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     }
   }
 
-  SECTION("Partially overlaping ranges that aren't super/subset")
+  SECTION("Partially overlapping ranges that aren't super/subset")
   {
     tracker.AddTo(MakeRange(c, 0x12000, 0x0800));
     tracker.AddTo(MakeRange(d, 0x12600, 0x0800));
@@ -658,6 +1039,384 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12300000) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
   }
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////
+  // tests below here are the 'hard' ones - they test finding a larger overlapping range when
+  // searching for an address that is after a smaller range mid-way through (not at the start)
+
+  SECTION("Finding addresses in overlapping ranges, largest added first")
+  {
+    // we should find a in between any gaps the others define
+    tracker.AddTo(MakeRange(a, 0x12000000, 0x1000000));
+    // cosited to start with
+    tracker.AddTo(MakeRange(b, 0x12000000, 0x1000));
+
+    CHECK(tracker.GetResIDFromAddr(0x12000000 - 1) == none);
+    CHECK(tracker.GetResIDFromAddr(0x12000000) == make_idoffs(a, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12000100) == make_idoffs(a, 0x100ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12f00000) == make_idoffs(a, 0xf00000ULL));
+
+    // then a few later ranges
+    tracker.AddTo(MakeRange(c, 0x12100000, 0x1000));
+    tracker.AddTo(MakeRange(d, 0x12200000, 0x1000));
+    tracker.AddTo(MakeRange(e, 0x12300000, 0x1000));
+
+    // we can find in those ranges
+    CHECK(tracker.GetResIDFromAddr(0x12100000) == make_idoffs(c, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12100100) == make_idoffs(c, 0x100ULL));
+
+    CHECK(tracker.GetResIDFromAddr(0x12200000) == make_idoffs(d, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12200100) == make_idoffs(d, 0x100ULL));
+
+    CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(e, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12300100) == make_idoffs(e, 0x100ULL));
+
+    // in between those ranges we should find a again, even though the closest match before is one
+    // of the smaller ranges
+    CHECK(tracker.GetResIDFromAddr(0x120f0000) == make_idoffs(a, 0x0f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x121f0000) == make_idoffs(a, 0x1f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x122f0000) == make_idoffs(a, 0x2f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x123f0000) == make_idoffs(a, 0x3f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12f00000) == make_idoffs(a, 0xf00000ULL));
+
+    // remove the nodes now starting with the largest, and ensure we have completely tidied up and not leaked
+    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
+    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x1000));
+    tracker.RemoveFrom(MakeRange(d, 0x12200000, 0x1000));
+    tracker.RemoveFrom(MakeRange(e, 0x12300000, 0x1000));
+
+    CHECK(tracker.IsEmpty());
+    CHECK(tracker.GetNumLiveNodes() == 0);
+  }
+
+  SECTION("Finding addresses in overlapping ranges, largest added last")
+  {
+    // add the small ranges first
+    tracker.AddTo(MakeRange(c, 0x12100000, 0x1000));
+    tracker.AddTo(MakeRange(d, 0x12200000, 0x1000));
+    tracker.AddTo(MakeRange(e, 0x12300000, 0x1000));
+
+    // we can find in those ranges
+    CHECK(tracker.GetResIDFromAddr(0x12100000) == make_idoffs(c, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12100100) == make_idoffs(c, 0x100ULL));
+
+    CHECK(tracker.GetResIDFromAddr(0x12200000) == make_idoffs(d, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12200100) == make_idoffs(d, 0x100ULL));
+
+    CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(e, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12300100) == make_idoffs(e, 0x100ULL));
+
+    // in between there's nothing
+    CHECK(tracker.GetResIDFromAddr(0x120f0000) == none);
+    CHECK(tracker.GetResIDFromAddr(0x121f0000) == none);
+    CHECK(tracker.GetResIDFromAddr(0x122f0000) == none);
+    CHECK(tracker.GetResIDFromAddr(0x123f0000) == none);
+    CHECK(tracker.GetResIDFromAddr(0x12f00000) == none);
+
+    // now we should find a in between any gaps the others define
+    tracker.AddTo(MakeRange(a, 0x12000000, 0x1000000));
+    // cosited small range to ensure that doesn't break anything
+    tracker.AddTo(MakeRange(b, 0x12000000, 0x1000));
+
+    // in between those ranges we should find a now, even though the closest match before is one
+    // of the smaller ranges
+    CHECK(tracker.GetResIDFromAddr(0x120f0000) == make_idoffs(a, 0x0f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x121f0000) == make_idoffs(a, 0x1f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x122f0000) == make_idoffs(a, 0x2f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x123f0000) == make_idoffs(a, 0x3f0000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12f00000) == make_idoffs(a, 0xf00000ULL));
+
+    // remove the nodes now ending with the largest, and ensure we have completely tidied up and not leaked
+    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
+    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x1000));
+    tracker.RemoveFrom(MakeRange(d, 0x12200000, 0x1000));
+    tracker.RemoveFrom(MakeRange(e, 0x12300000, 0x1000));
+    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+
+    CHECK(tracker.IsEmpty());
+    CHECK(tracker.GetNumLiveNodes() == 0);
+  }
+
+  SECTION("Finding addresses in overlapping ranges, nested levels of overlap")
+  {
+    // large range which is the backstop
+    tracker.AddTo(MakeRange(a, 0x12000000, 0x1000000));
+    // cosited small range
+    tracker.AddTo(MakeRange(b, 0x12000000, 0x1000));
+
+    // then a later ranges, which overlap
+    tracker.AddTo(MakeRange(c, 0x12100000, 0x10000));
+    tracker.AddTo(MakeRange(d, 0x12101000, 0x1000));
+    tracker.AddTo(MakeRange(e, 0x12200000, 0x1000));
+
+    // first addresses are just in c
+    CHECK(tracker.GetResIDFromAddr(0x12100000) == make_idoffs(c, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12100100) == make_idoffs(c, 0x100ULL));
+
+    // these addresses are more tightly in d
+    CHECK(tracker.GetResIDFromAddr(0x12101000) == make_idoffs(d, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12101fff) == make_idoffs(d, 0xfffULL));
+
+    // this address is past d, back in c. Our behaviour does not guarantee that we return c though,
+    // it returns the largest valid address when the 'simple' lookup fails which is in a
+    // CHECK(tracker.GetResIDFromAddr(0x12102000) == make_idoffs(c, 0x2000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12102000) == make_idoffs(a, 0x102000ULL));
+
+    // and this address is past c and back in a, since it's before e
+    CHECK(tracker.GetResIDFromAddr(0x12120000) == make_idoffs(a, 0x120000ULL));
+
+    // remove the nodes now and ensure we have completely tidied up and not leaked
+    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
+    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x10000));
+    tracker.RemoveFrom(MakeRange(d, 0x12101000, 0x1000));
+    tracker.RemoveFrom(MakeRange(e, 0x12200000, 0x1000));
+
+    CHECK(tracker.IsEmpty());
+    CHECK(tracker.GetNumLiveNodes() == 0);
+  }
+
+  SECTION("Finding addresses in overlapping ranges, partial overlaps")
+  {
+    // large range which is the backstop
+    tracker.AddTo(MakeRange(a, 0x12000000, 0x1000000));
+    // cosited small range
+    tracker.AddTo(MakeRange(b, 0x12000000, 0x1000));
+
+    // then a later ranges, which overlap with c covering only some of d
+    tracker.AddTo(MakeRange(c, 0x12100000, 0x10000));
+    tracker.AddTo(MakeRange(d, 0x12101000, 0x10000));
+    tracker.AddTo(MakeRange(e, 0x12200000, 0x10000));
+
+    // first addresses are just in c
+    CHECK(tracker.GetResIDFromAddr(0x12100000) == make_idoffs(c, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12100100) == make_idoffs(c, 0x100ULL));
+
+    // these addresses are more tightly in d
+    CHECK(tracker.GetResIDFromAddr(0x12101000) == make_idoffs(d, 0ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12101fff) == make_idoffs(d, 0xfffULL));
+    CHECK(tracker.GetResIDFromAddr(0x12102000) == make_idoffs(d, 0x1000ULL));
+
+    // this address is in d but not in c
+    CHECK(tracker.GetResIDFromAddr(0x12110fff) == make_idoffs(d, 0xffffULL));
+
+    // and this address is past d but before e
+    CHECK(tracker.GetResIDFromAddr(0x12120000) == make_idoffs(a, 0x120000ULL));
+
+    // remove the nodes now and ensure we have completely tidied up and not leaked
+    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
+    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x10000));
+    tracker.RemoveFrom(MakeRange(d, 0x12101000, 0x10000));
+    tracker.RemoveFrom(MakeRange(e, 0x12200000, 0x10000));
+
+    CHECK(tracker.IsEmpty());
+    CHECK(tracker.GetNumLiveNodes() == 0);
+  }
+
+  SECTION(
+      "Finding addresses in overlapping ranges, multiple overlaps with different removal orders")
+  {
+    // large range which is the backstop
+    tracker.AddTo(MakeRange(a, 0x12000000, 0x1000000));
+
+    tracker.AddTo(MakeRange(b, 0x12010000, 0x10000));
+    tracker.AddTo(MakeRange(c, 0x12015000, 0x10000));
+    tracker.AddTo(MakeRange(d, 0x12018000, 0x10000));
+    tracker.AddTo(MakeRange(e, 0x12022000, 0x10000));
+
+    // this range is overextended many times
+    tracker.AddTo(MakeRange(f, 0x1201a000, 0x1000));
+
+    CHECK(tracker.GetResIDFromAddr(0x1201a100) == make_idoffs(f, 0x100ULL));
+    // once we're past f we should return the largest, which is a right now
+    CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(a, 0x1b000ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
+
+    SECTION("remove a then d")
+    {
+      tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+
+      // d now is the last overextend
+      CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(d, 0x3000ULL));
+      CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
+
+      tracker.RemoveFrom(MakeRange(d, 0x12018000, 0x10000));
+
+      // c is the last overextend
+      CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(c, 0x6000ULL));
+      CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
+    }
+
+    SECTION("remove d then a")
+    {
+      tracker.RemoveFrom(MakeRange(d, 0x12018000, 0x10000));
+
+      CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(a, 0x1b000ULL));
+      CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
+
+      tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+
+      // c is the last overextend as d is already removed
+      CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(c, 0x6000ULL));
+      CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
+    }
+  }
+
+  SECTION("Ensure overextensions are carried properly")
+  {
+    tracker.AddTo(MakeRange(a, 0x12010000, 0x10000));
+    tracker.AddTo(MakeRange(b, 0x12015000, 0x30000));
+    tracker.AddTo(MakeRange(c, 0x12018000, 0x1000));
+
+    // b ends after a, so any results after c should return b not a
+    CHECK(tracker.GetResIDFromAddr(0x12018800) == make_idoffs(c, 0x800ULL));
+    CHECK(tracker.GetResIDFromAddr(0x12019000) == make_idoffs(b, 0x4000ULL));
+
+    // however as soon as b is removed, we need that information to now return a. Ensure it was preserved
+    tracker.RemoveFrom(MakeRange(b, 0x12015000, 0x30000));
+    CHECK(tracker.GetResIDFromAddr(0x12019000) == make_idoffs(a, 0x9000ULL));
+  }
+
+  SECTION("Large-scale overlap blitz")
+  {
+    Catch::SimplePcg32 rng;
+    // consistent seed
+    rng.seed(0x1a2b3c4d);
+
+    // ensure the rng hasn't changed
+    REQUIRE(rng() == 0xe95de192);
+
+    // we use the random number generator but we don't just generate random ranges as that would be
+    // too hard to trigger specific edge cases we care about. Instead we use it mostly to make
+    // randomly ordered decisions
+
+    rdcarray<GPUAddressRange> baseRanges;
+
+    // Some of these will be split into multiple ranges, subdivided, or duplicated to
+    // create more actual ranges
+    for(size_t iter = 0; iter < 5000; iter++)
+    {
+      // generate new address range a low amount of the time (or until we have enough ranges)
+      if(baseRanges.size() < 4 || (rng() % 5) == 0)
+      {
+        ResourceId id = ResourceIDGen::GetNewUniqueID();
+        extraIDs.push_back(id);
+
+        // base for all addresses
+        GPUAddressRange::Address addr = 0x10000000ULL;
+
+        // don't overlap base ranges, this will be handled with the suballocations
+        if(!baseRanges.empty())
+          addr = AlignUp(baseRanges.back().realEnd, 0x100000ULL);
+
+        addr += uint64_t((rng() % 0x10000U) + 0x10000U) << 16;
+        // size is at least 64k up to 8GB
+        uint64_t size = uint64_t((rng() % 0x10000U) + 0x10000U) << 16;
+
+        baseRanges.push_back(MakeRange(id, addr, size));
+        tracker.AddTo(baseRanges.back());
+      }
+      else
+      {
+        GPUAddressRange &range = baseRanges[rng() % baseRanges.size()];
+
+        uint64_t suballocSize = RDCMAX(256ULL, range.RealSize() / 16);
+
+        uint32_t mode = rng() % 100;
+        if(mode < 20)
+        {
+          // pick a random subrange and allocate it
+          ResourceId id = ResourceIDGen::GetNewUniqueID();
+          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
+          uint64_t offset = rng() % RDCMIN(1ULL, range.RealSize() - size);
+
+          tracker.AddTo(MakeRange(id, range.start + offset, size));
+        }
+        else if(mode < 40)
+        {
+          // generate N ranges that are contiguous
+          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
+          uint64_t offset = rng() % RDCMIN(1ULL, range.RealSize() - size);
+          uint64_t numRanges = RDCMAX(1ULL, RDCMIN(size / 256ULL, rng() % 6ULL));
+
+          size /= numRanges;
+
+          REQUIRE(size >= 256ULL);
+
+          for(uint64_t i = 0; i < numRanges; i++)
+          {
+            ResourceId id = ResourceIDGen::GetNewUniqueID();
+            tracker.AddTo(MakeRange(id, range.start + offset, size));
+            offset += size;
+          }
+        }
+        else if(mode < 98)
+        {
+          // generate some deliberately overlapping ranges
+          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
+          uint64_t step = size >> 4;
+          uint64_t offset = rng() % RDCMIN(1ULL, range.RealSize() - size);
+          uint64_t numRanges = RDCMAX(1ULL, RDCMIN(size / 256ULL, rng() % 6ULL));
+
+          size /= numRanges;
+
+          REQUIRE(size >= 256ULL);
+
+          for(uint64_t i = 0; i < numRanges; i++)
+          {
+            ResourceId id = ResourceIDGen::GetNewUniqueID();
+            tracker.AddTo(MakeRange(id, range.start + offset, size));
+            offset += step;
+          }
+        }
+        else
+        {
+          // add a random range cosited with the start of the base range
+          ResourceId id = ResourceIDGen::GetNewUniqueID();
+          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
+
+          tracker.AddTo(MakeRange(id, range.start, size));
+        }
+      }
+    }
+
+    rdcarray<GPUAddressRange> ranges = tracker.GetAddresses();
+
+    // for every range, check a series of addresses around it and ensure that the resulting query is valid
+    for(const GPUAddressRange &range : ranges)
+    {
+      CheckValidResult(tracker, ranges, RDCMAX(range.start, 0x100ULL) - 0x100);
+      CheckValidResult(tracker, ranges, RDCMAX(range.start, 0x80ULL) - 0x80);
+      CheckValidResult(tracker, ranges, RDCMAX(range.start, 1ULL) - 1);
+      CheckValidResult(tracker, ranges, range.start);
+      CheckValidResult(tracker, ranges, range.start + 1);
+      CheckValidResult(tracker, ranges, range.start + 2);
+      CheckValidResult(tracker, ranges, range.start + 0x80);
+      CheckValidResult(tracker, ranges, range.start + 123);
+      CheckValidResult(tracker, ranges, range.start + 0x100);
+      CheckValidResult(tracker, ranges, range.realEnd - 10);
+      CheckValidResult(tracker, ranges, range.realEnd - 2);
+      CheckValidResult(tracker, ranges, range.realEnd - 1);
+      CheckValidResult(tracker, ranges, range.realEnd);
+      CheckValidResult(tracker, ranges, range.realEnd + 1);
+      CheckValidResult(tracker, ranges, range.realEnd + 2);
+      CheckValidResult(tracker, ranges, range.realEnd + 0x80);
+      CheckValidResult(tracker, ranges, range.realEnd + 123);
+      CheckValidResult(tracker, ranges, range.realEnd + 0x100);
+    }
+  }
+
+  // don't clear (which is fast and doesn't care to tidy up properly). Remove each range, to ensure
+  // lists are cleaned up with no leaks
+  {
+    for(const GPUAddressRange &range : tracker.GetAddresses())
+      tracker.RemoveFrom(range);
+  }
+
+  // ensure no leaks
+  CHECK(tracker.GetNumLiveNodes() == 0);
 }
 
 #endif
