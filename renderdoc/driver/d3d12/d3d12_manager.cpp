@@ -2197,7 +2197,7 @@ PatchedRayDispatch D3D12RTManager::PatchIndirectRayDispatch(
   return ret;
 }
 
-void D3D12RTManager::PrepareRayDispatchBuffer(const GPUAddressRangeTracker *origAddresses)
+void D3D12RTManager::PrepareRayDispatchBuffer(GPUAddressRangeTracker *origAddresses)
 {
   SCOPED_LOCK(m_LookupBufferLock);
   if(m_LookupBufferDirty || origAddresses)
@@ -2230,10 +2230,13 @@ void D3D12RTManager::PrepareRayDispatchBuffer(const GPUAddressRangeTracker *orig
     const size_t RootSigOffset = lookupData.size();
     lookupData.resize(lookupData.size() + m_UniqueLocalRootSigs.size() * RootSigStride);
 
+    rdcarray<GPUAddressRange> addresses;
+
     const size_t PatchAddrOffset = lookupData.size();
     if(origAddresses)
     {
-      lookupData.resize(lookupData.size() + sizeof(BlasAddressPair) * origAddresses->addresses.size());
+      addresses = origAddresses->GetAddresses();
+      lookupData.resize(lookupData.size() + sizeof(BlasAddressPair) * addresses.size());
     }
     else
     {
@@ -2264,9 +2267,9 @@ void D3D12RTManager::PrepareRayDispatchBuffer(const GPUAddressRangeTracker *orig
 
     m_NumPatchingAddrs = 0;
 
-    for(size_t i = 0; origAddresses && i < origAddresses->addresses.size(); i++)
+    for(size_t i = 0; origAddresses && i < addresses.size(); i++)
     {
-      GPUAddressRange addressRange = origAddresses->addresses[i];
+      GPUAddressRange addressRange = addresses[i];
       ResourceId resId = addressRange.id;
       if(m_wrappedDevice->GetResourceManager()->HasLiveResource(resId))
       {

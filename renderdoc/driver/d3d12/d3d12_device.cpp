@@ -3259,9 +3259,8 @@ void WrappedID3D12Device::UploadBLASBufferAddresses()
   rdcarray<BlasAddressPair> blasAddressPair;
   D3D12ResourceManager *resManager = GetResourceManager();
 
-  for(size_t i = 0; i < m_OrigGPUAddresses.addresses.size(); i++)
+  for(GPUAddressRange addressRange : m_OrigGPUAddresses.GetAddresses())
   {
-    GPUAddressRange addressRange = m_OrigGPUAddresses.addresses[i];
     ResourceId resId = addressRange.id;
     if(resManager->HasLiveResource(resId))
     {

@@ -200,7 +200,7 @@ public:
 
   void PrepareTextureSampling(ID3D12Resource *resource, CompType typeCast, int &resType,
                               BarrierSet &barrierSet);
-  void PrepareExecuteIndirectPatching(const GPUAddressRangeTracker &origAddresses);
+  void PrepareExecuteIndirectPatching(GPUAddressRangeTracker &origAddresses);
 
   MeshDisplayPipelines CacheMeshDisplayPipelines(const MeshFormat &primary,
                                                  const MeshFormat &secondary);

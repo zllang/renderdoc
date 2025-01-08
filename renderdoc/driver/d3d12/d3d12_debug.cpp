@@ -1988,7 +1988,7 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12DebugManager::GetUAVClearHandle(CBVUAVSRVSlot s
   return ret;
 }
 
-void D3D12DebugManager::PrepareExecuteIndirectPatching(const GPUAddressRangeTracker &origAddresses)
+void D3D12DebugManager::PrepareExecuteIndirectPatching(GPUAddressRangeTracker &origAddresses)
 {
   D3D12ShaderCache *shaderCache = m_pDevice->GetShaderCache();
 
@@ -2052,7 +2052,7 @@ void D3D12DebugManager::PrepareExecuteIndirectPatching(const GPUAddressRangeTrac
   };
   rdcarray<buffermapping> buffers;
 
-  for(const GPUAddressRange &addr : origAddresses.addresses)
+  for(const GPUAddressRange &addr : origAddresses.GetAddresses())
   {
     buffermapping b = {};
     b.origBase = addr.start;

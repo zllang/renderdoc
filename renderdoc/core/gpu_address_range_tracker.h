@@ -36,13 +36,7 @@ struct GPUAddressRange
   Address start, realEnd, oobEnd;
   ResourceId id;
 
-  bool operator<(const Address &o) const
-  {
-    if(o < start)
-      return true;
-
-    return false;
-  }
+  bool operator<(const Address &o) const { return (start < o); }
 };
 
 struct GPUAddressRangeTracker
@@ -52,15 +46,43 @@ struct GPUAddressRangeTracker
   GPUAddressRangeTracker(const GPUAddressRangeTracker &) = delete;
   GPUAddressRangeTracker &operator=(const GPUAddressRangeTracker &) = delete;
 
-  rdcarray<GPUAddressRange> addresses;
-  Threading::RWLock addressLock;
-
   void AddTo(const GPUAddressRange &range);
   void RemoveFrom(const GPUAddressRange &range);
-  void GetResIDFromAddr(GPUAddressRange::Address addr, ResourceId &id, uint64_t &offs);
-  void GetResIDFromAddrAllowOutOfBounds(GPUAddressRange::Address addr, ResourceId &id,
-                                        uint64_t &offs);
+  void Clear();
+  rdcarray<GPUAddressRange> GetAddresses();
+  rdcarray<ResourceId> GetIDs();
+
+  void GetResIDFromAddr(GPUAddressRange::Address addr, ResourceId &id, uint64_t &offs)
+  {
+    return GetResIDFromAddr<false>(addr, id, offs);
+  }
+  void GetResIDFromAddrAllowOutOfBounds(GPUAddressRange::Address addr, ResourceId &id, uint64_t &offs)
+  {
+    return GetResIDFromAddr<true>(addr, id, offs);
+  }
+
+  rdcpair<ResourceId, uint64_t> GetResIDFromAddr(GPUAddressRange::Address addr)
+  {
+    rdcpair<ResourceId, uint64_t> ret;
+    GetResIDFromAddr(addr, ret.first, ret.second);
+    return ret;
+  }
+  rdcpair<ResourceId, uint64_t> GetResIDFromAddrAllowOutOfBounds(GPUAddressRange::Address addr)
+  {
+    rdcpair<ResourceId, uint64_t> ret;
+    GetResIDFromAddrAllowOutOfBounds(addr, ret.first, ret.second);
+    return ret;
+  }
   void GetResIDBoundForAddr(GPUAddressRange::Address addr, ResourceId &lower,
                             GPUAddressRange::Address &lowerVA, ResourceId &upper,
                             GPUAddressRange::Address &upperVA);
+
+private:
+  rdcarray<GPUAddressRange> addresses;
+  Threading::RWLock addressLock;
+
+  template <bool allowOOB>
+  void GetResIDFromAddr(GPUAddressRange::Address addr, ResourceId &id, uint64_t &offs);
+
+  size_t FindLastRangeBeforeOrAtAddress(GPUAddressRange::Address start);
 };

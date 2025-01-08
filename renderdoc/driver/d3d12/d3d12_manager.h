@@ -1241,7 +1241,7 @@ public:
   void RegisterExportDatabase(D3D12ShaderExportDatabase *db);
   void UnregisterExportDatabase(D3D12ShaderExportDatabase *db);
 
-  void PrepareRayDispatchBuffer(const GPUAddressRangeTracker *origAddresses);
+  void PrepareRayDispatchBuffer(GPUAddressRangeTracker *origAddresses);
 
   ASBuildData *CopyBuildInputs(ID3D12GraphicsCommandList4 *unwrappedCmd,
                                const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &inputs);
