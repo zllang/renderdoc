@@ -351,7 +351,7 @@ uint32_t Serialiser<SerialiserMode::Writing>::BeginChunk(uint32_t chunkID, uint6
 {
   // cannot start a chunk inside a chunk
   RDCASSERTMSG("Beginning a chunk inside another chunk", m_ChunkMetadata.chunkID == 0,
-               m_ChunkMetadata.chunkID);
+               m_ChunkMetadata.chunkID, chunkID);
 
   // don't carry over any previous sideband data
   m_SidebandKV.clear();
