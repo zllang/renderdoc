@@ -74,23 +74,23 @@ void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
   AddRangeAtIndex(idx + 1, range);
 }
 
-void GPUAddressRangeTracker::RemoveFrom(const GPUAddressRange &range)
+void GPUAddressRangeTracker::RemoveFrom(GPUAddressRange::Address addr, ResourceId id)
 {
   {
     SCOPED_WRITELOCK(addressLock);
 
     // search for the range. This will return the largest range which starts before or at this address
-    size_t idx = FindLastRangeBeforeOrAtAddress(range.start);
+    size_t idx = FindLastRangeBeforeOrAtAddress(addr);
 
     if(idx != ~0U)
     {
       // there might be multiple buffers with the same range start, find the exact range for this
       // buffer. We only have to search backwards because we returned the largest (aka last) range before this address
-      while(addresses[idx].start == range.start)
+      while(addresses[idx].start == addr)
       {
-        if(addresses[idx].id == range.id)
+        if(addresses[idx].id == id)
         {
-          RemoveRangeAtIndex(idx, range);
+          RemoveRangeAtIndex(idx);
 
           return;
         }
@@ -110,7 +110,7 @@ void GPUAddressRangeTracker::RemoveFrom(const GPUAddressRange &range)
   // used only so the tests can EXPECT_ERROR()
   RDResult err;
   SET_ERROR_RESULT(err, ResultCode::InternalError, "Couldn't find matching range to remove for %s",
-                   ToStr(range.id).c_str());
+                   ToStr(id).c_str());
   (void)err;
 }
 
@@ -215,8 +215,9 @@ void GPUAddressRangeTracker::AddRangeAtIndex(size_t idx, const GPUAddressRange &
   }
 }
 
-void GPUAddressRangeTracker::RemoveRangeAtIndex(size_t idx, const GPUAddressRange &range)
+void GPUAddressRangeTracker::RemoveRangeAtIndex(size_t idx)
 {
+  GPUAddressRange range = addresses[idx];
   // the caller must lock.
 
   // delete our own largest list, if there is one
@@ -676,7 +677,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x1250000 + 127) == make_idoffs(b, 127ULL));
     CHECK(tracker.GetResIDFromAddr(0x1250000 + 128) == none);
 
-    tracker.RemoveFrom(MakeRange(b, 0x1250000, 128));
+    tracker.RemoveFrom(0x1250000, b);
 
     CHECK(tracker.GetResIDFromAddr(0x1230000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x1230000) == make_idoffs(a, 0ULL));
@@ -713,7 +714,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     EXPECT_ERROR();
 
     // wrong ID, don't remove
-    tracker.RemoveFrom(MakeRange(g, 0x1270000, 128));
+    tracker.RemoveFrom(0x1270000, g);
 
     CHECK(tracker.GetResIDFromAddr(0x1230000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x1230000) == make_idoffs(a, 0ULL));
@@ -736,7 +737,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     EXPECT_ERROR();
 
     // wrong address, don't remove
-    tracker.RemoveFrom(MakeRange(a, 0x1000, 128));
+    tracker.RemoveFrom(0x1000, a);
 
     CHECK(tracker.GetResIDFromAddr(0x1230000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x1230000) == make_idoffs(a, 0ULL));
@@ -882,7 +883,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddrAllowOutOfBounds(0x1230000 + 255) == make_idoffs(a, 255ULL));
     CHECK(tracker.GetResIDFromAddrAllowOutOfBounds(0x1230000 + 256) == none);
 
-    tracker.RemoveFrom(MakeRange(a, 0x1230000, 128, 128));
+    tracker.RemoveFrom(0x1230000, a);
 
     CHECK(tracker.GetResIDFromAddrAllowOutOfBounds(0x1230001) == none);
     CHECK(tracker.GetResIDFromAddrAllowOutOfBounds(0x1230000 + 127) == none);
@@ -933,7 +934,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
       SECTION("remove a")
       {
         // if a is removed, we now find b
-        tracker.RemoveFrom(MakeRange(a, 0x1230000, 256));
+        tracker.RemoveFrom(0x1230000, a);
 
         checker(b);
       }
@@ -941,7 +942,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
       SECTION("remove b")
       {
         // if b is removed, we still find a
-        tracker.RemoveFrom(MakeRange(b, 0x1230000, 128));
+        tracker.RemoveFrom(0x1230000, b);
 
         checker(a);
       }
@@ -958,7 +959,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
       SECTION("remove a")
       {
         // if a is removed, we now find b
-        tracker.RemoveFrom(MakeRange(a, 0x1230000, 256));
+        tracker.RemoveFrom(0x1230000, a);
 
         checker(b);
       }
@@ -966,7 +967,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
       SECTION("remove b")
       {
         // if b is removed, we still find a
-        tracker.RemoveFrom(MakeRange(b, 0x1230000, 128));
+        tracker.RemoveFrom(0x1230000, b);
 
         checker(a);
       }
@@ -1003,37 +1004,37 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(f, 0ULL));
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
 
-    tracker.RemoveFrom(MakeRange(c, 0x12300000, 300));
+    tracker.RemoveFrom(0x12300000, c);
 
     CHECK(tracker.GetResIDFromAddr(0x12300000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(f, 0ULL));
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
 
-    tracker.RemoveFrom(MakeRange(f, 0x12300000, 600));
+    tracker.RemoveFrom(0x12300000, f);
 
     CHECK(tracker.GetResIDFromAddr(0x12300000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(e, 0ULL));
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
 
-    tracker.RemoveFrom(MakeRange(a, 0x12300000, 100));
+    tracker.RemoveFrom(0x12300000, a);
 
     CHECK(tracker.GetResIDFromAddr(0x12300000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(e, 0ULL));
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
 
-    tracker.RemoveFrom(MakeRange(d, 0x12300000, 100));
+    tracker.RemoveFrom(0x12300000, d);
 
     CHECK(tracker.GetResIDFromAddr(0x12300000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(e, 0ULL));
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
 
-    tracker.RemoveFrom(MakeRange(e, 0x12300000, 100));
+    tracker.RemoveFrom(0x12300000, e);
 
     CHECK(tracker.GetResIDFromAddr(0x12300000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300000) == make_idoffs(b, 0ULL));
     CHECK(tracker.GetResIDFromAddr(0x12300f00) == none);
 
-    tracker.RemoveFrom(MakeRange(b, 0x12300000, 200));
+    tracker.RemoveFrom(0x12300000, b);
 
     CHECK(tracker.GetResIDFromAddr(0x12300000 - 1) == none);
     CHECK(tracker.GetResIDFromAddr(0x12300000) == none);
@@ -1080,11 +1081,11 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12f00000) == make_idoffs(a, 0xf00000ULL));
 
     // remove the nodes now starting with the largest, and ensure we have completely tidied up and not leaked
-    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
-    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
-    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x1000));
-    tracker.RemoveFrom(MakeRange(d, 0x12200000, 0x1000));
-    tracker.RemoveFrom(MakeRange(e, 0x12300000, 0x1000));
+    tracker.RemoveFrom(0x12000000, a);
+    tracker.RemoveFrom(0x12000000, b);
+    tracker.RemoveFrom(0x12100000, c);
+    tracker.RemoveFrom(0x12200000, d);
+    tracker.RemoveFrom(0x12300000, e);
 
     CHECK(tracker.IsEmpty());
     CHECK(tracker.GetNumLiveNodes() == 0);
@@ -1128,11 +1129,11 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12f00000) == make_idoffs(a, 0xf00000ULL));
 
     // remove the nodes now ending with the largest, and ensure we have completely tidied up and not leaked
-    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
-    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x1000));
-    tracker.RemoveFrom(MakeRange(d, 0x12200000, 0x1000));
-    tracker.RemoveFrom(MakeRange(e, 0x12300000, 0x1000));
-    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+    tracker.RemoveFrom(0x12000000, b);
+    tracker.RemoveFrom(0x12100000, c);
+    tracker.RemoveFrom(0x12200000, d);
+    tracker.RemoveFrom(0x12300000, e);
+    tracker.RemoveFrom(0x12000000, a);
 
     CHECK(tracker.IsEmpty());
     CHECK(tracker.GetNumLiveNodes() == 0);
@@ -1167,11 +1168,11 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12120000) == make_idoffs(a, 0x120000ULL));
 
     // remove the nodes now and ensure we have completely tidied up and not leaked
-    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
-    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
-    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x10000));
-    tracker.RemoveFrom(MakeRange(d, 0x12101000, 0x1000));
-    tracker.RemoveFrom(MakeRange(e, 0x12200000, 0x1000));
+    tracker.RemoveFrom(0x12000000, a);
+    tracker.RemoveFrom(0x12000000, b);
+    tracker.RemoveFrom(0x12100000, c);
+    tracker.RemoveFrom(0x12101000, d);
+    tracker.RemoveFrom(0x12200000, e);
 
     CHECK(tracker.IsEmpty());
     CHECK(tracker.GetNumLiveNodes() == 0);
@@ -1205,11 +1206,11 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12120000) == make_idoffs(a, 0x120000ULL));
 
     // remove the nodes now and ensure we have completely tidied up and not leaked
-    tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
-    tracker.RemoveFrom(MakeRange(b, 0x12000000, 0x1000));
-    tracker.RemoveFrom(MakeRange(c, 0x12100000, 0x10000));
-    tracker.RemoveFrom(MakeRange(d, 0x12101000, 0x10000));
-    tracker.RemoveFrom(MakeRange(e, 0x12200000, 0x10000));
+    tracker.RemoveFrom(0x12000000, a);
+    tracker.RemoveFrom(0x12000000, b);
+    tracker.RemoveFrom(0x12100000, c);
+    tracker.RemoveFrom(0x12101000, d);
+    tracker.RemoveFrom(0x12200000, e);
 
     CHECK(tracker.IsEmpty());
     CHECK(tracker.GetNumLiveNodes() == 0);
@@ -1236,13 +1237,13 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
 
     SECTION("remove a then d")
     {
-      tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+      tracker.RemoveFrom(0x12000000, a);
 
       // d now is the last overextend
       CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(d, 0x3000ULL));
       CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
 
-      tracker.RemoveFrom(MakeRange(d, 0x12018000, 0x10000));
+      tracker.RemoveFrom(0x12018000, d);
 
       // c is the last overextend
       CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(c, 0x6000ULL));
@@ -1251,12 +1252,12 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
 
     SECTION("remove d then a")
     {
-      tracker.RemoveFrom(MakeRange(d, 0x12018000, 0x10000));
+      tracker.RemoveFrom(0x12018000, d);
 
       CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(a, 0x1b000ULL));
       CHECK(tracker.GetResIDFromAddr(0x12023000) == make_idoffs(e, 0x1000ULL));
 
-      tracker.RemoveFrom(MakeRange(a, 0x12000000, 0x1000000));
+      tracker.RemoveFrom(0x12000000, a);
 
       // c is the last overextend as d is already removed
       CHECK(tracker.GetResIDFromAddr(0x1201b000) == make_idoffs(c, 0x6000ULL));
@@ -1275,7 +1276,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     CHECK(tracker.GetResIDFromAddr(0x12019000) == make_idoffs(b, 0x4000ULL));
 
     // however as soon as b is removed, we need that information to now return a. Ensure it was preserved
-    tracker.RemoveFrom(MakeRange(b, 0x12015000, 0x30000));
+    tracker.RemoveFrom(0x12015000, b);
     CHECK(tracker.GetResIDFromAddr(0x12019000) == make_idoffs(a, 0x9000ULL));
   }
 
@@ -1412,7 +1413,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
   // lists are cleaned up with no leaks
   {
     for(const GPUAddressRange &range : tracker.GetAddresses())
-      tracker.RemoveFrom(range);
+      tracker.RemoveFrom(range.start, range.id);
   }
 
   // ensure no leaks

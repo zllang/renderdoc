@@ -221,12 +221,7 @@ WrappedID3D12Resource::~WrappedID3D12Resource()
   // assuming only valid for buffers
   if(m_pReal->GetDesc().Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
   {
-    GPUAddressRange range;
-    range.start = m_pReal->GetGPUVirtualAddress();
-    // realEnd and oobEnd are not used for removing, just start + id
-    range.id = GetResourceID();
-
-    m_Addresses.RemoveFrom(range);
+    m_Addresses.RemoveFrom(m_pReal->GetGPUVirtualAddress(), GetResourceID());
   }
 
   Shutdown();

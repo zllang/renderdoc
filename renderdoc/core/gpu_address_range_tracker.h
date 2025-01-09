@@ -50,7 +50,7 @@ struct GPUAddressRangeTracker
   GPUAddressRangeTracker &operator=(const GPUAddressRangeTracker &) = delete;
 
   void AddTo(const GPUAddressRange &range);
-  void RemoveFrom(const GPUAddressRange &range);
+  void RemoveFrom(GPUAddressRange::Address addr, ResourceId id);
   void Clear();
   bool IsEmpty();
   rdcarray<GPUAddressRange> GetAddresses();
@@ -204,5 +204,5 @@ private:
 
   size_t FindLastRangeBeforeOrAtAddress(GPUAddressRange::Address addr);
   void AddRangeAtIndex(size_t idx, const GPUAddressRange &range);
-  void RemoveRangeAtIndex(size_t idx, const GPUAddressRange &range);
+  void RemoveRangeAtIndex(size_t idx);
 };
