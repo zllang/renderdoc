@@ -1310,7 +1310,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
 
         // don't overlap base ranges, this will be handled with the suballocations
         if(!baseRanges.empty())
-          addr = AlignUp(baseRanges.back().realEnd, 0x100000ULL);
+          addr = AlignUp(baseRanges.back().realEnd, (uint64_t)0x100000ULL);
 
         addr += uint64_t((rng() % 0x10000U) + 0x10000U) << 16;
         // size is at least 64k up to 8GB
@@ -1323,23 +1323,23 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
       {
         GPUAddressRange &range = baseRanges[rng() % baseRanges.size()];
 
-        uint64_t suballocSize = RDCMAX(256ULL, range.RealSize() / 16);
+        uint64_t suballocSize = RDCMAX((uint64_t)256ULL, range.RealSize() / 16);
 
         uint32_t mode = rng() % 100;
         if(mode < 20)
         {
           // pick a random subrange and allocate it
           ResourceId id = ResourceIDGen::GetNewUniqueID();
-          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
-          uint64_t offset = rng() % RDCMIN(1ULL, range.RealSize() - size);
+          uint64_t size = RDCMAX((uint64_t)256ULL, AlignUp(rng() % suballocSize, (uint64_t)256ULL));
+          uint64_t offset = rng() % RDCMIN((uint64_t)1ULL, range.RealSize() - size);
 
           tracker.AddTo(MakeRange(id, range.start + offset, size));
         }
         else if(mode < 40)
         {
           // generate N ranges that are contiguous
-          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
-          uint64_t offset = rng() % RDCMIN(1ULL, range.RealSize() - size);
+          uint64_t size = RDCMAX((uint64_t)256ULL, AlignUp(rng() % suballocSize, (uint64_t)256ULL));
+          uint64_t offset = rng() % RDCMIN((uint64_t)1ULL, range.RealSize() - size);
           uint64_t numRanges = RDCMAX(1ULL, RDCMIN(size / 256ULL, rng() % 6ULL));
 
           size /= numRanges;
@@ -1356,9 +1356,9 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
         else if(mode < 98)
         {
           // generate some deliberately overlapping ranges
-          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
+          uint64_t size = RDCMAX((uint64_t)256ULL, AlignUp(rng() % suballocSize, (uint64_t)256ULL));
           uint64_t step = size >> 4;
-          uint64_t offset = rng() % RDCMIN(1ULL, range.RealSize() - size);
+          uint64_t offset = rng() % RDCMIN((uint64_t)1ULL, range.RealSize() - size);
           uint64_t numRanges = RDCMAX(1ULL, RDCMIN(size / 256ULL, rng() % 6ULL));
 
           size /= numRanges;
@@ -1376,7 +1376,7 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
         {
           // add a random range cosited with the start of the base range
           ResourceId id = ResourceIDGen::GetNewUniqueID();
-          uint64_t size = RDCMAX(256ULL, AlignUp(rng() % suballocSize, 256ULL));
+          uint64_t size = RDCMAX((uint64_t)256ULL, AlignUp(rng() % suballocSize, (uint64_t)256ULL));
 
           tracker.AddTo(MakeRange(id, range.start, size));
         }
@@ -1388,9 +1388,9 @@ TEST_CASE("Check GPUAddressRangeTracker", "[gpuaddr]")
     // for every range, check a series of addresses around it and ensure that the resulting query is valid
     for(const GPUAddressRange &range : ranges)
     {
-      CheckValidResult(tracker, ranges, RDCMAX(range.start, 0x100ULL) - 0x100);
-      CheckValidResult(tracker, ranges, RDCMAX(range.start, 0x80ULL) - 0x80);
-      CheckValidResult(tracker, ranges, RDCMAX(range.start, 1ULL) - 1);
+      CheckValidResult(tracker, ranges, RDCMAX(range.start, (uint64_t)0x100ULL) - 0x100);
+      CheckValidResult(tracker, ranges, RDCMAX(range.start, (uint64_t)0x80ULL) - 0x80);
+      CheckValidResult(tracker, ranges, RDCMAX(range.start, (uint64_t)1ULL) - 1);
       CheckValidResult(tracker, ranges, range.start);
       CheckValidResult(tracker, ranges, range.start + 1);
       CheckValidResult(tracker, ranges, range.start + 2);
