@@ -273,7 +273,12 @@ void D3D12GraphicsTest::Prepare(int argc, char **argv)
       d3dcompiler = LoadLibraryA("d3dcompiler_44.dll");
     if(!d3dcompiler)
       d3dcompiler = LoadLibraryA("d3dcompiler_43.dll");
-    dxcompiler = LoadLibraryA("dxcompiler.dll");
+
+    // try loading dxcompiler from a local plugin folder first, since when building we copy the SDK
+    // version next to our exe and that may be old
+    dxcompiler = LoadLibraryA("D3D12/dxcompiler.dll");
+    if(!dxcompiler)
+      dxcompiler = LoadLibraryA("dxcompiler.dll");
 
     if(!d3d12)
     {
