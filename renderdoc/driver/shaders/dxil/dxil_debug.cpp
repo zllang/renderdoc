@@ -6549,8 +6549,9 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
           typeData.sizeInBytes = (uint32_t)(compositeType->sizeInBits / 8);
           typeData.alignInBytes = (uint32_t)(compositeType->alignInBits / 8);
 
-          bool isVector = compositeType->name->beginsWith("vector<");
-          bool isMatrix = !isVector && compositeType->name->beginsWith("matrix<");
+          bool isVector = compositeType->name && compositeType->name->beginsWith("vector<");
+          bool isMatrix =
+              compositeType->name && !isVector && compositeType->name->beginsWith("matrix<");
 
           if((compositeType->templateParams) && (isVector || isMatrix))
           {
@@ -6617,7 +6618,8 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
           }
           else
           {
-            typeData.name = *compositeType->name;
+            typeData.name = compositeType->name ? *compositeType->name
+                                                : StringFormat::Fmt("__anon%u", compositeType->line);
 
             RDCASSERT(!isVector && !isMatrix, isVector, isMatrix, typeData.name);
 
