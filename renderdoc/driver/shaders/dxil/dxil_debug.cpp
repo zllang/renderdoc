@@ -6434,6 +6434,12 @@ ScopedDebugData *Debugger::AddScopedDebugData(const DXIL::Metadata *scopeMD)
 
 const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
 {
+  {
+    auto it = m_DebugInfo.types.find(typeMD);
+    if(it != m_DebugInfo.types.end())
+      return it->second;
+  }
+
   TypeData typeData;
 
   const DXIL::DIBase *base = typeMD->dwarf;
