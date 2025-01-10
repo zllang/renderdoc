@@ -6584,7 +6584,7 @@ const TypeData &Debugger::AddDebugType(const DXIL::Metadata *typeMD)
             {
               RDCASSERTEQUAL(params->children[2]->dwarf->type, DXIL::DIBase::TemplateValueParameter);
               const DITemplateValueParameter *secondDim =
-                  params->children[1]->dwarf->As<DITemplateValueParameter>();
+                  params->children[2]->dwarf->As<DITemplateValueParameter>();
 
               // don't need the template value parameter name, it should be 'col_count', just need the value
               RDCASSERT(getival<uint32_t>(secondDim->value->value, typeData.matSize));
@@ -7258,7 +7258,7 @@ void Debugger::ParseDebugData()
                   RDCASSERTEQUAL(usage->children.size(), rows);
 
                   // assigning to a vector (row or column)
-                  uint32_t vecSize = (typeWalk->colMajorMat) ? columns : rows;
+                  uint32_t vecSize = (typeWalk->colMajorMat) ? rows : columns;
                   // assigning to a single element
                   if(bytesRemaining == scalar.sizeInBytes)
                   {
@@ -7268,13 +7268,13 @@ void Debugger::ParseDebugData()
 
                     if(typeWalk->colMajorMat)
                     {
-                      row = componentIndex % columns;
-                      col = componentIndex / columns;
+                      row = componentIndex % rows;
+                      col = componentIndex / rows;
                     }
                     else
                     {
-                      col = componentIndex % rows;
-                      row = componentIndex / rows;
+                      row = componentIndex / columns;
+                      col = componentIndex % columns;
                     }
                     RDCASSERT(row < rows, row, rows);
                     RDCASSERT(col < columns, col, columns);
@@ -7310,7 +7310,7 @@ void Debugger::ParseDebugData()
                     uint32_t componentIndex = byteOffset / scalar.sizeInBytes;
                     if(typeWalk->colMajorMat)
                     {
-                      uint32_t col = componentIndex % columns;
+                      uint32_t col = componentIndex / rows;
                       RDCASSERT(col < columns, col, columns);
                       // one remaining index selects a column within the matrix.
                       // source vars are displayed as row-major, need <rows> mappings
@@ -7325,7 +7325,7 @@ void Debugger::ParseDebugData()
                     }
                     else
                     {
-                      uint32_t row = componentIndex % rows;
+                      uint32_t row = componentIndex / columns;
                       RDCASSERT(row < rows, row, rows);
                       RDCASSERTEQUAL(usage->children.size(), rows);
                       RDCASSERTEQUAL(usage->children[row].children.size(), columns);
