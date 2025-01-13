@@ -149,16 +149,6 @@ void ReplayOutput::Shutdown()
   m_pController->ShutdownOutput(this);
 }
 
-void ReplayOutput::SetDimensions(int32_t width, int32_t height)
-{
-  CHECK_REPLAY_THREAD();
-
-  m_pDevice->SetOutputWindowDimensions(m_MainOutput.outputID, width > 0 ? width : 1,
-                                       height > 0 ? height : 1);
-  m_pDevice->GetOutputWindowDimensions(m_MainOutput.outputID, m_Width, m_Height);
-  m_pController->FatalErrorCheck();
-}
-
 bytebuf ReplayOutput::ReadbackOutputTexture()
 {
   CHECK_REPLAY_THREAD();
@@ -397,24 +387,21 @@ bytebuf ReplayOutput::DrawThumbnail(int32_t width, int32_t height, ResourceId te
 
   if(idx < 0)
   {
-    // resize oldest generator if we have hit the max
+    // release oldest generator if we have hit the max
     if(m_ThumbnailGenerators.size() == MaxThumbnailGenerators)
     {
-      outputID = m_ThumbnailGenerators.back().second;
-      m_pDevice->SetOutputWindowDimensions(outputID, width, height);
+      m_pDevice->DestroyOutputWindow(m_ThumbnailGenerators.back().second);
       m_ThumbnailGenerators.pop_back();
     }
-    else
-    {
-      outputID = m_pDevice->MakeOutputWindow(CreateHeadlessWindowingData(width, height), false);
-    }
+
+    outputID = m_pDevice->MakeOutputWindow(CreateHeadlessWindowingData(width, height), false);
   }
   else
   {
     // remove the found one, so it can get inserted into the front
     m_ThumbnailGenerators.erase(idx);
   }
-  // make this the most recent generator, so the oldest one will be kicked out
+  // make this the most recent generator, so the oldest one will be kicked out if we have too many
   m_ThumbnailGenerators.insert(0, {key, outputID});
 
   bool depthMode = false;

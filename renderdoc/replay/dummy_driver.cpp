@@ -423,10 +423,6 @@ bool DummyDriver::CheckResizeOutputWindow(uint64_t id)
   return false;
 }
 
-void DummyDriver::SetOutputWindowDimensions(uint64_t id, int32_t w, int32_t h)
-{
-}
-
 void DummyDriver::GetOutputWindowDimensions(uint64_t id, int32_t &w, int32_t &h)
 {
 }

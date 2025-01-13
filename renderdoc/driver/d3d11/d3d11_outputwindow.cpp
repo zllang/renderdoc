@@ -276,27 +276,6 @@ void D3D11Replay::GetOutputWindowDimensions(uint64_t id, int32_t &w, int32_t &h)
   h = m_OutputWindows[id].height;
 }
 
-void D3D11Replay::SetOutputWindowDimensions(uint64_t id, int32_t w, int32_t h)
-{
-  if(id == 0 || m_OutputWindows.find(id) == m_OutputWindows.end())
-    return;
-
-  OutputWindow &outw = m_OutputWindows[id];
-
-  // can't resize an output with an actual window backing
-  if(outw.wnd)
-    return;
-
-  SAFE_RELEASE(outw.rtv);
-  SAFE_RELEASE(outw.dsv);
-
-  outw.width = w;
-  outw.height = h;
-
-  outw.MakeRTV();
-  outw.MakeDSV();
-}
-
 void D3D11Replay::GetOutputWindowData(uint64_t id, bytebuf &retData)
 {
   if(id == 0 || m_OutputWindows.find(id) == m_OutputWindows.end())

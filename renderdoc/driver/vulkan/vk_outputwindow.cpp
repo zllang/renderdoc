@@ -869,23 +869,6 @@ void VulkanReplay::GetOutputWindowData(uint64_t id, bytebuf &retData)
   vt->FreeMemory(Unwrap(device), readbackMem, NULL);
 }
 
-void VulkanReplay::SetOutputWindowDimensions(uint64_t id, int32_t w, int32_t h)
-{
-  if(id == 0 || m_OutputWindows.find(id) == m_OutputWindows.end())
-    return;
-
-  OutputWindow &outw = m_OutputWindows[id];
-
-  // can't resize an output with an actual window backing
-  if(outw.m_WindowSystem != WindowingSystem::Headless)
-    return;
-
-  outw.width = w;
-  outw.height = h;
-
-  outw.Create(m_pDriver, m_pDriver->GetDev(), outw.hasDepth);
-}
-
 bool VulkanReplay::CheckResizeOutputWindow(uint64_t id)
 {
   if(id == 0 || m_OutputWindows.find(id) == m_OutputWindows.end())

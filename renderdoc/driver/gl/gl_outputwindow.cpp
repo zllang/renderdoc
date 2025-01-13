@@ -296,37 +296,6 @@ void GLReplay::GetOutputWindowDimensions(uint64_t id, int32_t &w, int32_t &h)
   m_pDriver->m_Platform.GetOutputWindowDimensions(outw, w, h);
 }
 
-void GLReplay::SetOutputWindowDimensions(uint64_t id, int32_t w, int32_t h)
-{
-  if(id == 0 || m_OutputWindows.find(id) == m_OutputWindows.end())
-    return;
-
-  OutputWindow &outw = m_OutputWindows[id];
-
-  // can't resize an output with an actual window backing
-  if(outw.system != WindowingSystem::Headless)
-    return;
-
-  outw.width = w;
-  outw.height = h;
-
-  MakeCurrentReplayContext(m_DebugCtx);
-
-  WrappedOpenGL &drv = *m_pDriver;
-
-  bool haddepth = false;
-
-  drv.glDeleteTextures(1, &outw.BlitData.backbuffer);
-  if(outw.BlitData.depthstencil)
-  {
-    haddepth = true;
-    drv.glDeleteTextures(1, &outw.BlitData.depthstencil);
-  }
-  drv.glDeleteFramebuffers(1, &outw.BlitData.windowFBO);
-
-  CreateOutputWindowBackbuffer(outw, haddepth);
-}
-
 void GLReplay::GetOutputWindowData(uint64_t id, bytebuf &retData)
 {
   if(id == 0 || m_OutputWindows.find(id) == m_OutputWindows.end())

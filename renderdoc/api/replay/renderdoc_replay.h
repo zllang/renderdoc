@@ -242,17 +242,6 @@ outputs.
 )");
   virtual void SetMeshDisplay(const MeshDisplay &config) = 0;
 
-  DOCUMENT(R"(Sets the dimensions of the output, useful only for headless outputs that don't have a
-backing window which don't have any implicit dimensions. This allows configuring a virtual viewport
-which is useful for operations like picking vertices that depends on the output dimensions.
-
-.. note:: For outputs with backing windows, this will be ignored.
-
-:param int width: The width to use.
-:param int height: The height to use.
-)");
-  virtual void SetDimensions(int32_t width, int32_t height) = 0;
-
   DOCUMENT(R"(Read the output texture back as byte data. Primarily useful for headless outputs where
 the output data is not displayed anywhere natively.
 
