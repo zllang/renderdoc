@@ -66,6 +66,59 @@ struct DevicePointers
   ID3D12DeviceConfigurationPtr config;
 };
 
+struct DLLFileVersion
+{
+  uint16_t major, minor, build, revision;
+};
+
+DLLFileVersion GetDLLFileVersion(HMODULE mod)
+{
+  DLLFileVersion ret = {};
+
+  using PFN_VerQueryValueA = decltype(&VerQueryValueA);
+
+  PFN_VerQueryValueA queryValue = NULL;
+
+  HMODULE version = LoadLibraryA("version.dll");
+  if(version)
+  {
+    queryValue = (PFN_VerQueryValueA)GetProcAddress(version, "VerQueryValueA");
+
+    if(queryValue)
+    {
+      HRSRC verRes = FindResource(mod, MAKEINTRESOURCE(1), RT_VERSION);
+      if(verRes)
+      {
+        DWORD sz = SizeofResource(mod, verRes);
+        HGLOBAL data = LoadResource(mod, verRes);
+
+        if(data && sz > 0)
+        {
+          void *buf = LockResource(data);
+
+          byte *tmpBuf = new byte[sz];
+          memcpy(tmpBuf, buf, sz);
+
+          VS_FIXEDFILEINFO *verInfo = NULL;
+          UINT size = 0;
+          if(queryValue(data, "\\", (void **)&verInfo, &size))
+          {
+            if(size > 0 && verInfo && verInfo->dwSignature == 0xFEEF04BD)
+            {
+              ret = {verInfo->dwFileVersionMS >> 16, verInfo->dwFileVersionMS & 0xffff,
+                     verInfo->dwFileVersionLS >> 16, verInfo->dwFileVersionLS & 0xffff};
+            }
+          }
+
+          delete[] tmpBuf;
+        }
+      }
+    }
+  }
+
+  return ret;
+}
+
 DevicePointers PrepareCreateDeviceFromDLL(const std::string &d3d12path, bool debug, bool gpuValidation)
 {
   DevicePointers ret;
@@ -137,52 +190,15 @@ DevicePointers PrepareCreateDeviceFromDLL(const std::string &d3d12path, bool deb
       {
         DWORD *sdkVersion = (DWORD *)GetProcAddress(mod, "D3D12SDKVersion");
 
-        std::string d3d12CoreVersion = fmt::format("1.{0}", *sdkVersion);
+        DLLFileVersion version = GetDLLFileVersion(mod);
 
-        {
-          using PFN_VerQueryValueA = decltype(&VerQueryValueA);
+        std::string d3d12CoreVersion;
 
-          PFN_VerQueryValueA queryValue = NULL;
-
-          HMODULE version = LoadLibraryA("version.dll");
-          if(version)
-          {
-            queryValue = (PFN_VerQueryValueA)GetProcAddress(version, "VerQueryValueA");
-
-            if(queryValue)
-            {
-              HRSRC verRes = FindResource(mod, MAKEINTRESOURCE(1), RT_VERSION);
-              if(verRes)
-              {
-                DWORD sz = SizeofResource(mod, verRes);
-                HGLOBAL data = LoadResource(mod, verRes);
-
-                if(data && sz > 0)
-                {
-                  void *buf = LockResource(data);
-
-                  byte *tmpBuf = new byte[sz];
-                  memcpy(tmpBuf, buf, sz);
-
-                  VS_FIXEDFILEINFO *verInfo = NULL;
-                  UINT size = 0;
-                  if(queryValue(data, "\\", (void **)&verInfo, &size))
-                  {
-                    if(size > 0 && verInfo && verInfo->dwSignature == 0xFEEF04BD)
-                    {
-                      d3d12CoreVersion = fmt::format(
-                          "{0}.{1}.{2}.{3}", verInfo->dwFileVersionMS >> 16,
-                          verInfo->dwFileVersionMS & 0xffff, verInfo->dwFileVersionLS >> 16,
-                          verInfo->dwFileVersionLS & 0xffff);
-                    }
-                  }
-
-                  delete[] tmpBuf;
-                }
-              }
-            }
-          }
-        }
+        if(version.major >= 1)
+          d3d12CoreVersion = fmt::format("{0}.{1}.{2}.{3}", version.major, version.minor,
+                                         version.build, version.revision);
+        else
+          d3d12CoreVersion = fmt::format("1.{0}", *sdkVersion);
 
         TEST_LOG("Using D3D12Core.dll from %s (version %s)", path.c_str(), d3d12CoreVersion.c_str());
 
@@ -1450,6 +1466,17 @@ ID3DBlobPtr D3D12GraphicsTest::Compile(std::string src, std::string entry, std::
     argStorage.push_back(L"-Zi");
     if(enable16BitTypes)
       argStorage.push_back(L"-enable-16bit-types");
+
+    DLLFileVersion version = GetDLLFileVersion(dxcompiler);
+
+    // if the version is new enough we can tell it to not load dxil.dll. Have to do this absolutely
+    // ridiculous dll version dance because if we pass this option on a dxc too early it will fail
+    // to compile.
+    //
+    // as extra fun, some versions are 1.7.x or 1.8.x and some are 10.0.y from SDKs. These versions
+    // are not comparable! ha ha ha.
+    if(version.major != 10 && (version.major > 1 || version.minor > 8 || version.build >= 2403))
+      argStorage.push_back(L"-select-validator internal");
 
     // Must be the final option
     argStorage.push_back(L"-Qembed_debug");
