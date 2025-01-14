@@ -873,6 +873,7 @@ float4 main(v2f IN) : SV_Target0
     uint res = dot4add_u8packed(a, b, c);
     return float4(res & 0xFF, (res >> 8) & 0xFF, (res >> 16) & 0xFF, (res >> 24) & 0xFF);
   }
+#if HAS_16BIT_SHADER_OPS
   if(IN.tri == 96)
   {
     half2 a = half2(IN.tri - 96 + 0.25f, IN.tri - 96 + 0.5f);
@@ -880,6 +881,7 @@ float4 main(v2f IN) : SV_Target0
     float c = IN.tri - 96 + 0.3f;
     return dot2add(a, b, c);
   }
+#endif
   if(IN.tri == 97)
   {
     int val = IN.tri - 97;
@@ -1124,7 +1126,9 @@ void main()
     ID3D12PipelineStatePtr pso_6_6 = NULL;
 
     // Recompile with SM 6.0, SM 6.2 and SM 6.6
-    uint32_t compileOptions = CompileOptionFlags::SkipOptimise | CompileOptionFlags::Enable16BitTypes;
+    uint32_t compileOptions = CompileOptionFlags::SkipOptimise;
+    if(opts4.Native16BitShaderOpsSupported)
+      compileOptions |= CompileOptionFlags::Enable16BitTypes;
     if(supportSM60)
     {
       vsblob = Compile(common + vertex, "main", "vs_6_0");
