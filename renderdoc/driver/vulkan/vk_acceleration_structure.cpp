@@ -685,7 +685,10 @@ void VulkanAccelerationStructureManager::Apply(ResourceId id, VkInitialContents 
     rdcarray<VkAccelerationStructureBuildRangeInfoKHR> buildRangeInfos = asInfo->getBuildRanges();
     rdcarray<VkAccelerationStructureGeometryKHR> geometry;
     asInfo->convertGeometryData(geometry);
-    RDCASSERT(!geometry.empty());
+    if(!asInfo->geometryData.empty())
+    {
+      RDCASSERT(!geometry.empty());
+    }
     RDCASSERT(asInfo->geometryData.size() == geometry.size());
 
     // Copy over the input data from the upload mem to GPU local to increase build speed
