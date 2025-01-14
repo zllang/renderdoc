@@ -742,6 +742,10 @@ void VulkanAccelerationStructureManager::Apply(ResourceId id, VkInitialContents 
       for(VkAccelerationStructureBuildRangeInfoKHR numPrims : buildRangeInfos)
         counts.push_back(numPrims.primitiveCount);
 
+      // ensure counts is non-empty even if there are no geometries, to work around AMD (at least)
+      // driver bug reading from NULL otherwise
+      counts.resize_for_index(0);
+
       ObjDisp(d)->GetAccelerationStructureBuildSizesKHR(
           Unwrap(d), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &sizeInfo, counts.data(),
           &sizeResult);
