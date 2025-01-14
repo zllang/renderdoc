@@ -200,6 +200,13 @@ class D3D12_Descriptor_Indexing(rdtest.TestCase):
             self.check([d.access.byteOffset for d in rw] == sorted(bind_info[rd.DescriptorCategory.ReadWriteResource]))
             self.check([d.access.byteOffset for d in ro] == sorted(bind_info[rd.DescriptorCategory.ReadOnlyResource]))
             self.check([d.access.byteOffset for d in samp] == sorted(bind_info[rd.DescriptorCategory.Sampler]))
+            
+            descriptor_names = {
+                12: 'smiley',
+                19: 'another_smiley',
+                20: 'more_smileys???',
+                10: 'outUAV',
+            }
 
             for a in ro + rw:
                 loc = self.controller.GetDescriptorLocations(a.access.descriptorStore,
@@ -209,10 +216,14 @@ class D3D12_Descriptor_Indexing(rdtest.TestCase):
                     raise rdtest.TestFailureException("Bind {} not expected for space,reg {} array element {}".format(
                         loc.fixedBindNumber, a.access.byteOffset))
 
-                if loc.logicalBindName != "ResourceDescriptorHeap[{}]".format(a.access.byteOffset):
+                if a.access.byteOffset in descriptor_names.keys():
+                    name = descriptor_names[a.access.byteOffset]
+                else:
+                    name = "ResourceDescriptorHeap"
+
+                if loc.logicalBindName != f"{name}[{a.access.byteOffset}]":
                     raise rdtest.TestFailureException(
-                        "Bind {} not expected for descriptor access ResourceDescriptorHeap[{}]".format(
-                            loc.logicalBindName, a.access.byteOffset))
+                        f"Bind '{loc.logicalBindName}' is not the expected '{name}' for descriptor {a.access.byteOffset}")
 
             for a in samp:
                 loc = self.controller.GetDescriptorLocations(a.access.descriptorStore,
