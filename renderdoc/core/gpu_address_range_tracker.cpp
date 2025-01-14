@@ -29,6 +29,8 @@
 
 void GPUAddressRangeTracker::AddTo(const GPUAddressRange &range)
 {
+  RDCASSERT(range.oobEnd >= range.realEnd);
+
   SCOPED_WRITELOCK(addressLock);
 
   // insert ranges ordered by start first, then by size. Ranges with different sizes starting at the

@@ -743,7 +743,7 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
 
       record->AddChunk(chunk);
 
-      record->Length = memSize;
+      record->memSize = record->Length = memSize;
 
       uint32_t memProps =
           m_PhysicalDeviceData.memProps.memoryTypes[info.memoryTypeIndex].propertyFlags;
