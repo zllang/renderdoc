@@ -207,6 +207,7 @@ bool WrappedVulkan::Prepare_InitialState(WrappedVkRes *res)
     if(!state || !state->isMemoryBound)
       return true;
 
+    bool allUndef = true;
     for(auto it = state->subresourceStates.begin(); it != state->subresourceStates.end(); ++it)
     {
       if(it->state().newQueueFamilyIndex == VK_QUEUE_FAMILY_FOREIGN_EXT ||
@@ -216,6 +217,17 @@ bool WrappedVulkan::Prepare_InitialState(WrappedVkRes *res)
         // the initial contents.
         return true;
       }
+
+      const ImageSubresourceState &subState = it->state();
+      if(subState.newLayout != UNKNOWN_PREV_IMG_LAYOUT &&
+         subState.newLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+        allUndef = false;
+    }
+
+    if(allUndef)
+    {
+      RDCDEBUG("Ignoring init states for %s as it never left undefined", ToStr(im->id).c_str());
+      return true;
     }
 
     VkDevice d = GetDev();
