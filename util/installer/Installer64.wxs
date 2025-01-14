@@ -397,12 +397,12 @@
     </Property>
 
     <!-- the versions are stored in DWORDs which windows installer returns as #14 etc. We need to strip the # to actually compare :( -->
-    <CustomAction Id="RemoveHash" Script="vbscript">
+    <CustomAction Id="RemoveHash" Script="jscript">
       <![CDATA[
-        Session.Property("VCRT64MAJOR") = Replace(Session.Property("VCRT64MAJOR"),"#","")
-        Session.Property("VCRT64MINOR") = Replace(Session.Property("VCRT64MINOR"),"#","")
-        Session.Property("VCRT32MAJOR") = Replace(Session.Property("VCRT32MAJOR"),"#","")
-        Session.Property("VCRT32MINOR") = Replace(Session.Property("VCRT32MINOR"),"#","")
+        Session.Property("VCRT64MAJOR") = Session.Property("VCRT64MAJOR").replace("#","")
+        Session.Property("VCRT64MINOR") = Session.Property("VCRT64MINOR").replace("#","")
+        Session.Property("VCRT32MAJOR") = Session.Property("VCRT32MAJOR").replace("#","")
+        Session.Property("VCRT32MINOR") = Session.Property("VCRT32MINOR").replace("#","")
         ]]>
     </CustomAction>
 
