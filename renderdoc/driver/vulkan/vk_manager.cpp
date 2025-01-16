@@ -1063,6 +1063,14 @@ rdcarray<ResourceId> VulkanResourceManager::InitialContentResources()
 
     return aData.type < bData.type;
   });
+
+  // remove any initial contents we don't want to serialise. This can happen if a resource is
+  // postponed, then not prepared, so we don't want to fail.
+  resources.removeIf([this](ResourceId a) {
+    const InitialContentData &aData = m_InitialContents[a].data;
+    return aData.type == eResUnknown;
+  });
+
   return resources;
 }
 
