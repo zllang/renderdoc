@@ -6467,7 +6467,19 @@ void BufferViewer::exportData(const BufferExport &params)
           {
             for(int col = 0; col < model->columnCount(); col++)
             {
-              s << model->data(model->index(row, col), Qt::DisplayRole).toString();
+              QList<QString> lines =
+                  model->data(model->index(row, col), Qt::DisplayRole).toString().split(lit("\n"));
+              bool quote = (lines.count() > 1);
+              if(quote)
+                s << "\"";
+              for(int l = 0; l < lines.count(); l++)
+              {
+                s << lines[l].trimmed();
+                if(l + 1 < lines.size())
+                  s << "\n";
+              }
+              if(quote)
+                s << "\"";
 
               if(col + 1 < model->columnCount())
                 s << ", ";
@@ -6487,13 +6499,13 @@ void BufferViewer::exportData(const BufferExport &params)
 
             // it's fine to block invoke, because this is on the export thread
             m_Ctx.Replay().BlockInvoke(
-                [buff, &s, &config, byteOffset, chunkSize](IReplayController *r) {
+                [buff, &s, &config, byteOffset, chunkSize](IReplayController *controller) {
                   // cache column data for the inner loop
                   QVector<CachedElData> cache;
 
                   BufferData bufferData;
 
-                  bufferData.storage = r->GetBufferData(buff, byteOffset, chunkSize);
+                  bufferData.storage = controller->GetBufferData(buff, byteOffset, chunkSize);
                   bufferData.stride = config.buffers[0]->stride;
 
                   size_t numRows =
@@ -6526,21 +6538,46 @@ void BufferViewer::exportData(const BufferExport &params)
                         // since some formats are packed and can't be read individually
                         QVariantList list = GetVariants(prop->format, *el, data, end);
 
-                        for(int v = 0; v < list.count(); v++)
+                        if(el->type.rows > 1)
                         {
-                          s << interpretVariant(list[v], *el, *prop);
+                          for(int c = 0; c < el->type.columns; c++)
+                          {
+                            s << "\"";
+                            for(int r = 0; r < el->type.rows; r++)
+                            {
+                              if(list.empty())
+                              {
+                                s << "---";
+                              }
+                              else
+                              {
+                                int el_idx = r * el->type.columns + c;
+                                s << interpretVariant(list[el_idx], *el, *prop).trimmed();
+                              }
 
-                          if(v + 1 < list.count())
-                            s << ", ";
+                              if(r + 1 < el->type.rows)
+                                s << "\n";
+                            }
+                            s << "\", ";
+                          }
                         }
-
-                        if(list.empty())
+                        else if(list.empty())
                         {
                           for(int v = 0; v < d.numColumns; v++)
                           {
                             s << "---";
 
                             if(v + 1 < d.numColumns)
+                              s << ", ";
+                          }
+                        }
+                        else
+                        {
+                          for(int v = 0; v < list.count(); v++)
+                          {
+                            s << interpretVariant(list[v], *el, *prop);
+
+                            if(v + 1 < list.count())
                               s << ", ";
                           }
                         }
