@@ -1863,7 +1863,7 @@ VkResult WrappedVulkan::vkQueueBindSparse(VkQueue queue, uint32_t bindInfoCount,
   for(uint32_t i = 0; i < bindInfoCount; i++)
   {
     // copy the original so we get all the params we don't need to change
-    RDCASSERT(pBindInfo[i].sType == VK_STRUCTURE_TYPE_BIND_SPARSE_INFO && pBindInfo[i].pNext == NULL);
+    RDCASSERT(pBindInfo[i].sType == VK_STRUCTURE_TYPE_BIND_SPARSE_INFO);
     unwrapped[i] = pBindInfo[i];
 
     UnwrapNextChain(m_State, "VkBindSparseInfo", next, (VkBaseInStructure *)&unwrapped[i]);
