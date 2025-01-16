@@ -408,7 +408,7 @@ void CopyNextChainForPatching(const char *structName, byte *&tempMem, VkBaseInSt
 template <typename VkStruct>
 VkStruct *UnwrapStructAndChain(CaptureState state, byte *&tempMem, const VkStruct *base)
 {
-  VkBaseInStructure dummy;
+  VkBaseInStructure dummy = {};
   dummy.pNext = (const VkBaseInStructure *)base;
 
   UnwrapNextChain(state, TypeName<VkStruct>().c_str(), tempMem, &dummy);
