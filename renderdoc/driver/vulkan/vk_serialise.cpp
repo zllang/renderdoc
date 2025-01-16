@@ -5367,14 +5367,21 @@ void DoSerialise(SerialiserType &ser, DescriptorSetSlot &el)
     // mutable descriptor path
 
     // serialise the type as VkDescriptorType
-    VkDescriptorType type = convert(el.type);
+    VkDescriptorType type;
+    if(ser.IsWriting())
+      type = convert(el.type);
     SERIALISE_ELEMENT(type);
-    el.type = convert(type);
+    if(ser.IsReading())
+      el.type = convert(type);
 
     // serialise sampler, if the type needs it
     if(el.type == DescriptorSlotType::Sampler || el.type == DescriptorSlotType::CombinedImageSampler)
     {
       SERIALISE_MEMBER(sampler);
+    }
+    else if(ser.IsReading())
+    {
+      el.sampler = ResourceId();
     }
 
     // almost all types have a resource, serialise that
@@ -5383,15 +5390,26 @@ void DoSerialise(SerialiserType &ser, DescriptorSetSlot &el)
     {
       SERIALISE_MEMBER(resource);
     }
+    else if(ser.IsReading())
+    {
+      el.resource = ResourceId();
+    }
 
     // serialise image layout, for image types
     if(el.type == DescriptorSlotType::CombinedImageSampler ||
        el.type == DescriptorSlotType::SampledImage || el.type == DescriptorSlotType::StorageImage ||
        el.type == DescriptorSlotType::InputAttachment)
     {
-      VkImageLayout imageLayout = convert(el.imageLayout);
+      VkImageLayout imageLayout;
+      if(ser.IsWriting())
+        imageLayout = convert(el.imageLayout);
       SERIALISE_ELEMENT(imageLayout);
-      el.imageLayout = convert(imageLayout);
+      if(ser.IsReading())
+        el.imageLayout = convert(imageLayout);
+    }
+    else if(ser.IsReading())
+    {
+      el.imageLayout = DescriptorSlotImageLayout::Undefined;
     }
 
     // serialise buffer range, for buffer types and inline block
@@ -5401,12 +5419,25 @@ void DoSerialise(SerialiserType &ser, DescriptorSetSlot &el)
        el.type == DescriptorSlotType::StorageBufferDynamic ||
        el.type == DescriptorSlotType::InlineBlock)
     {
-      VkDeviceSize offset = el.offset;
-      VkDeviceSize range = el.GetRange();
+      VkDeviceSize offset;
+      VkDeviceSize range;
+      if(ser.IsWriting())
+      {
+        offset = el.offset;
+        range = el.GetRange();
+      }
       SERIALISE_ELEMENT(offset).OffsetOrSize();
       SERIALISE_ELEMENT(range).OffsetOrSize();
-      el.offset = offset;
-      el.range = range;
+      if(ser.IsReading())
+      {
+        el.offset = offset;
+        el.range = range;
+      }
+    }
+    else if(ser.IsReading())
+    {
+      el.offset = 0;
+      el.range = 0;
     }
   }
   else
