@@ -481,13 +481,16 @@ D3D12DevConfiguration *D3D12_PrepareReplaySDKVersion(bool untrustedCapture, UINT
 
         rdcstr sdklayers_filename = get_dirname(filename) + "/d3d12sdklayers.dll";
 
-        f = FileIO::fopen(sdklayers_filename.c_str(), FileIO::WriteBinary);
-
-        // if we can write to this file, we have exclusive use of it so let's write it and use it
-        if(f)
+        if(!d3d12sdklayers_file.empty())
         {
-          FileIO::fwrite(d3d12sdklayers_file.data(), 1, d3d12sdklayers_file.size(), f);
-          FileIO::fclose(f);
+          f = FileIO::fopen(sdklayers_filename.c_str(), FileIO::WriteBinary);
+
+          // if we can write to this file, we have exclusive use of it so let's write it and use it
+          if(f)
+          {
+            FileIO::fwrite(d3d12sdklayers_file.data(), 1, d3d12sdklayers_file.size(), f);
+            FileIO::fclose(f);
+          }
         }
 
 // d3d12sdklayers.dll is not always signed
