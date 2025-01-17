@@ -347,20 +347,37 @@ D3D12ShaderCache::D3D12ShaderCache(WrappedID3D12Device *device)
   // if we failed to load from the cache
   m_ShaderCacheDirty = !success;
 
-  static const GUID IRenderDoc_uuid = {
-      0xa7aa6116, 0x9c8d, 0x4bba, {0x90, 0x83, 0xb4, 0xd8, 0x16, 0xb7, 0x1b, 0x78}};
+  bool unopt = false;
 
-  // if we're being self-captured, the 'real' device will respond to renderdoc's UUID. Enable debug
-  // shaders
-  IUnknown *dummy = NULL;
-  if(device->GetReal())
-    device->GetReal()->QueryInterface(IRenderDoc_uuid, (void **)&dummy);
+  if(RenderDoc::Inst().IsReplayApp())
+  {
+    RDCLOG("Unoptimising internal shaders for self-capture of replay");
 
-  if(dummy || D3D12_Debug_EnableGPUVA())
+    static const GUID IRenderDoc_uuid = {
+        0xa7aa6116, 0x9c8d, 0x4bba, {0x90, 0x83, 0xb4, 0xd8, 0x16, 0xb7, 0x1b, 0x78}};
+
+    // if we're being self-captured, the 'real' device will respond to renderdoc's UUID. Enable
+    // debug shaders
+    IUnknown *dummy = NULL;
+    if(device->GetReal())
+      device->GetReal()->QueryInterface(IRenderDoc_uuid, (void **)&dummy);
+
+    unopt |= (dummy != NULL);
+
+    SAFE_RELEASE(dummy);
+  }
+
+  if(D3D12_Debug_EnableGPUVA())
+  {
+    RDCLOG("Unoptimising internal shaders for GPUVA");
+
+    unopt = true;
+  }
+
+  if(unopt)
   {
     m_CompileFlags |=
         D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_OPTIMIZATION_LEVEL0;
-    SAFE_RELEASE(dummy);
   }
 }
 
