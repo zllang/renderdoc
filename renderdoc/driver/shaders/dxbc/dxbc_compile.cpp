@@ -58,20 +58,19 @@ HMODULE GetD3DCompiler()
       "d3dcompiler_44.dll", "d3dcompiler_43.dll",
   };
 
-  for(int i = 0; i < 2; i++)
+  for(int d = 0; d < ARRAY_COUNT(dlls); d++)
   {
-    for(int d = 0; d < ARRAY_COUNT(dlls); d++)
-    {
-      // first time around, try to load one that already exists. Second time around try to load it
-      // in the default search path.
-      if(i == 0)
-        ret = GetModuleHandleA(dlls[d]);
-      else
-        ret = LoadLibraryA(dlls[d]);
+    // first attempt try to load one that already exists. Second time around try to load it
+    // in the default search path.
+    ret = GetModuleHandleA(dlls[d]);
 
-      if(ret != NULL)
-        return ret;
-    }
+    if(ret != NULL)
+      return ret;
+
+    ret = LoadLibraryA(dlls[d]);
+
+    if(ret != NULL)
+      return ret;
   }
 
   // finally if we couldn't load a library anywhere from the system while capturing, load our local
