@@ -530,7 +530,7 @@ rdcpair<uint32_t, Coord> PageTable::setImageWrappedRange(uint32_t subresource,
       {
         if(isSubresourceInMipTail(subresource))
         {
-          curCoord.x += numPages * m_PageTexelSize.x;
+          curCoord.x = (curCoord.x + numPages) * m_PageTexelSize.x;
         }
         else
         {
@@ -554,6 +554,7 @@ rdcpair<uint32_t, Coord> PageTable::setImageWrappedRange(uint32_t subresource,
       {
         const uint32_t slice = subresource / m_MipCount;
         subresource = (slice + 1) * m_MipCount;
+        curCoord = {0, 0, 0};
       }
       else
       {
@@ -1061,6 +1062,30 @@ TEST_CASE("Test sparse page table mapping", "[sparse]")
       CHECK(pageTable.getMipTail().mappings[0].pages[1] == Sparse::Page({ResourceId(), 0}));
       CHECK(pageTable.getMipTail().mappings[0].pages[2] == Sparse::Page({mem, 256}));
       CHECK(pageTable.getMipTail().mappings[0].pages[3] == Sparse::Page({ResourceId(), 0}));
+    };
+
+    SECTION("Setting with wrapped incrementally")
+    {
+      ResourceId mem = ResourceIDGen::GetNewUniqueID();
+
+      rdcpair<uint32_t, Sparse::Coord> curCoord = {0, {0, 0, 0}};
+      curCoord = pageTable.setImageWrappedRange(curCoord.first, curCoord.second, 64, mem, 1024,
+                                                false, true);
+
+      CHECK(curCoord.first == 0);
+      CHECK(curCoord.second == Sparse::Coord({64, 0, 0}));
+
+      curCoord = pageTable.setImageWrappedRange(curCoord.first, curCoord.second, 64, mem, 1024,
+                                                false, true);
+
+      CHECK(curCoord.first == 0);
+      CHECK(curCoord.second == Sparse::Coord({128, 0, 0}));
+
+      curCoord = pageTable.setImageWrappedRange(curCoord.first, curCoord.second, 128, mem, 1024,
+                                                false, true);
+
+      CHECK(curCoord.first == 1);
+      CHECK(curCoord.second == Sparse::Coord({0, 0, 0}));
     };
   };
 
