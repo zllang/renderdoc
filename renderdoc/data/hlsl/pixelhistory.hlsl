@@ -70,10 +70,10 @@ RWBuffer<int4> copyout_int : register(u3);
     if(copy_depth || copy_stencil)
     {
       float2 val =
-          float2(copyin_depth_ms.sample[src_coord.z][uint3(src_coord.xy, src_coord.w)].r, -1.0f);
+          float2(copyin_depth_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z).r, -1.0f);
 
-      if(copy_stencil)
-        val.g = (float)copyin_stencil_ms.sample[src_coord.z][uint3(src_coord.xy, src_coord.w)].g;
+      if(c opy_stencil)
+        val.g = (float)copyin_stencil_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z).g;
 
       copyout_depth[dst_slot] = float4(val, 0.0f, 0.0f);
     }
@@ -81,16 +81,15 @@ RWBuffer<int4> copyout_int : register(u3);
     {
       if(is_float)
       {
-        copyout_float[dst_slot] =
-            copyin_float_ms.sample[src_coord.z][uint3(src_coord.xy, src_coord.w)];
+        copyout_float[dst_slot] = copyin_float_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z);
       }
       else if(is_uint)
       {
-        copyout_uint[dst_slot] = copyin_uint_ms.sample[src_coord.z][uint3(src_coord.xy, src_coord.w)];
+        copyout_uint[dst_slot] = copyin_uint_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z);
       }
       else if(is_int)
       {
-        copyout_int[dst_slot] = copyin_int_ms.sample[src_coord.z][uint3(src_coord.xy, src_coord.w)];
+        copyout_int[dst_slot] = copyin_int_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z);
       }
     }
   }
