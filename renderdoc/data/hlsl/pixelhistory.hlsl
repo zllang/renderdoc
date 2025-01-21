@@ -72,7 +72,7 @@ RWBuffer<int4> copyout_int : register(u3);
       float2 val =
           float2(copyin_depth_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z).r, -1.0f);
 
-      if(c opy_stencil)
+      if(copy_stencil)
         val.g = (float)copyin_stencil_ms.Load(uint3(src_coord.xy, src_coord.w), src_coord.z).g;
 
       copyout_depth[dst_slot] = float4(val, 0.0f, 0.0f);
