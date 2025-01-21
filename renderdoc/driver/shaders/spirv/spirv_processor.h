@@ -532,6 +532,15 @@ struct Section
   };
 };
 
+enum class ThreadScope : uint32_t
+{
+  Quad = 0x1,
+  Subgroup = 0x2,
+  Workgroup = 0x4,
+};
+
+BITMASK_OPERATORS(ThreadScope);
+
 class Processor
 {
 public:
@@ -622,6 +631,8 @@ protected:
   };
 
   LogicalSection m_Sections[Section::Count];
+
+  ThreadScope m_ThreadScope;
 
 private:
   struct DeferredMemberDecoration

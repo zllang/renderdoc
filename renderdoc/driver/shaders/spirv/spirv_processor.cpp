@@ -532,6 +532,26 @@ void Processor::RegisterOp(Iter it)
   {
     OpCapability decoded(it);
     capabilities.insert(decoded.capability);
+
+    if(decoded.capability == Capability::GroupNonUniform ||
+       decoded.capability == Capability::GroupNonUniformVote ||
+       decoded.capability == Capability::GroupNonUniformArithmetic ||
+       decoded.capability == Capability::GroupNonUniformBallot ||
+       decoded.capability == Capability::GroupNonUniformShuffle ||
+       decoded.capability == Capability::GroupNonUniformShuffleRelative ||
+       decoded.capability == Capability::GroupNonUniformClustered ||
+       decoded.capability == Capability::GroupNonUniformQuad ||
+       decoded.capability == Capability::GroupNonUniformRotateKHR ||
+       decoded.capability == Capability::GroupUniformArithmeticKHR ||
+       decoded.capability == Capability::SubgroupBallotKHR ||
+       decoded.capability == Capability::SubgroupVoteKHR)
+    {
+      m_ThreadScope |= ThreadScope::Subgroup;
+    }
+    else if(decoded.capability == Capability::GroupNonUniformQuad)
+    {
+      m_ThreadScope |= ThreadScope::Quad;
+    }
   }
   else if(opdata.op == Op::Extension)
   {
@@ -590,6 +610,9 @@ void Processor::RegisterOp(Iter it)
     if(decoded.storageClass != rdcspv::StorageClass::Function)
       globals.push_back(
           Variable(decoded.resultType, decoded.result, decoded.storageClass, decoded.initializer));
+
+    if(decoded.storageClass == StorageClass::Workgroup)
+      m_ThreadScope |= ThreadScope::Workgroup;
   }
   else if(opdata.op == Op::ConstantNull)
   {
