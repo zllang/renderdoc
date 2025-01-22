@@ -33,6 +33,7 @@
 #include "driver/ihv/nv/nv_vk_counters.h"
 #include "driver/shaders/spirv/spirv_common.h"
 #include "driver/shaders/spirv/spirv_compile.h"
+#include "driver/shaders/spirv/spirv_editor.h"
 #include "maths/camera.h"
 #include "maths/formatpacking.h"
 #include "maths/matrix.h"
@@ -3924,6 +3925,371 @@ void VulkanReplay::AddedDescriptorData::Free()
 
   // delete pipeline layout
   m_pDriver->vkDestroyPipelineLayout(dev, pipeLayout, NULL);
+}
+
+VulkanReplay::AddedDescriptorData VulkanReplay::PrepareExtraBufferDescriptor(
+    VulkanRenderState &state, bool compute,
+    const rdcarray<VkDescriptorSetLayoutBinding> &newBindings, bool vertexPatchedToCompute)
+{
+  AddedDescriptorData ret;
+
+  ret.m_pDriver = m_pDriver;
+  ret.numNewBindings = newBindings.size();
+
+  // vertexPatchedToCompute is only from the PostVS - it's when we've converted a vertex shader to
+  // compute and we need to do some additional patching in addition to just adding a new binding for
+  // non-BDA access modes.
+
+  VkDevice dev = m_pDriver->GetDev();
+  VkResult vkr = VK_SUCCESS;
+  VulkanCreationInfo &c = m_pDriver->m_CreationInfo;
+  const VulkanStatePipeline &srcPipeState = compute ? state.compute : state.graphics;
+  const VulkanCreationInfo::Pipeline &pipe = c.m_Pipeline[srcPipeState.pipeline];
+
+  if(IsBinding(m_StorageMode))
+  {
+    // create a duplicate set of descriptor sets, all visible to compute, with bindings shifted to
+    // account for new ones we need. This also copies the existing bindings into the new sets
+    AllocAndAddReservedDescriptors(srcPipeState, ret, vertexPatchedToCompute, newBindings);
+
+    // if the pool failed due to limits, it will be NULL so bail now
+    if(ret.descpool == VK_NULL_HANDLE)
+      return {};
+  }
+
+  // if we're using BDA but we patched a vertex shader to a compute shader we need to still create a
+  // pipeline layout with patched push range
+  if(IsBinding(m_StorageMode) || vertexPatchedToCompute)
+  {
+    // find the existing push ranges
+    rdcarray<VkPushConstantRange> pushRanges;
+
+    // don't have to handle separate vert/frag layouts as push constant ranges must be identical,
+    // for both normal pipelines and EXT_shader_object
+    if(srcPipeState.shaderObject)
+    {
+      // pick any compatible stage from either compute or non-compute stages
+      ResourceId shadId;
+
+      if(srcPipeState.bindPoint == VK_PIPELINE_BIND_POINT_COMPUTE)
+      {
+        shadId = state.shaderObjects[(size_t)ShaderStage::Compute];
+      }
+      else
+      {
+        shadId = state.shaderObjects[(size_t)ShaderStage::Vertex];
+        if(shadId == ResourceId())
+          shadId = state.shaderObjects[(size_t)ShaderStage::Mesh];
+      }
+
+      pushRanges = c.m_ShaderObject[shadId].pushRanges;
+    }
+    else
+    {
+      pushRanges =
+          c.m_PipelineLayout[srcPipeState.bindPoint == VK_PIPELINE_BIND_POINT_COMPUTE ? pipe.compLayout
+                                                                                      : pipe.vertLayout]
+              .pushRanges;
+    }
+
+    // the spec says only one push constant range may be used per stage, so at most one has
+    // VERTEX_BIT. Find it, and make it COMPUTE_BIT if we're patching between stages
+    if(vertexPatchedToCompute)
+    {
+      // ensure the push ranges are visible to the compute shader
+      for(const VkPushConstantRange &range : pushRanges)
+      {
+        if(range.stageFlags & VK_SHADER_STAGE_VERTEX_BIT)
+        {
+          VkPushConstantRange tmp = range;
+          tmp.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+          pushRanges = {tmp};
+          break;
+        }
+      }
+
+      // using BDA we don't need to add any new bindings but we *do* need to patch the descriptor set
+      // layouts to be compute visible. However with update-after-bind descriptors in the mix we can't
+      // always reliably do this, as making a copy of the descriptor sets can't be done (in general).
+      //
+      // To get around this we patch descriptor set layouts at create time so that COMPUTE_BIT is
+      // present wherever VERTEX_BIT was, so we can use the application's descriptor sets and layouts.
+      //
+      // find those layouts here
+      if(IsBDA(m_StorageMode))
+      {
+        const rdcarray<ResourceId> &sets =
+            state.graphics.shaderObject
+                ? c.m_ShaderObject[state.shaderObjects[(size_t)ShaderStage::Vertex]].descSetLayouts
+                : c.m_PipelineLayout[pipe.vertLayout].descSetLayouts;
+
+        ret.setLayouts.reserve(sets.size());
+
+        for(size_t i = 0; i < sets.size(); i++)
+          ret.setLayouts.push_back(
+              GetResourceManager()->GetCurrentHandle<VkDescriptorSetLayout>(sets[i]));
+      }
+    }
+
+    // create pipeline layout with new descriptor set layouts
+    VkPipelineLayoutCreateInfo pipeLayoutInfo = {
+        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        NULL,
+        0,
+        (uint32_t)ret.setLayouts.size(),
+        ret.setLayouts.data(),
+        (uint32_t)pushRanges.size(),
+        pushRanges.data(),
+    };
+
+    vkr = m_pDriver->vkCreatePipelineLayout(dev, &pipeLayoutInfo, NULL, &ret.pipeLayout);
+    CHECK_VKR(m_pDriver, vkr);
+
+    if(vertexPatchedToCompute)
+    {
+      // clear the array because it was only temporary for the layout creation
+      ret.setLayouts.clear();
+    }
+  }
+
+  // now modify state to point to our newly created objects (except the pipeline, which the calling
+  // code can do once it's created the pipeline)
+
+  if(vertexPatchedToCompute)
+  {
+    // move graphics descriptor sets onto the compute pipe first
+    state.compute.descSets = state.graphics.descSets;
+  }
+
+  // usually dstPipeState the state we're binding our new descriptors to will match srcPipeState,
+  // but for vertexPatchedToCompute (for PostVS) source will be graphics and dest will be compute
+  VulkanStatePipeline &dstPipeState =
+      compute || vertexPatchedToCompute ? state.compute : state.graphics;
+
+  if(!ret.descSets.empty())
+  {
+    // replace descriptor set IDs with our temporary sets. The offsets we keep the same. If the
+    // original draw had no sets, we ensure there's room (with no offsets needed)
+    if(dstPipeState.descSets.empty())
+      dstPipeState.descSets.resize(1);
+
+    for(size_t i = 0; i < ret.descSets.size(); i++)
+    {
+      dstPipeState.descSets[i].pipeLayout = GetResID(ret.pipeLayout);
+      dstPipeState.descSets[i].descSet = GetResID(ret.descSets[i]);
+    }
+  }
+  else if(ret.pipeLayout != VK_NULL_HANDLE)
+  {
+    for(size_t i = 0; i < dstPipeState.descSets.size(); i++)
+      dstPipeState.descSets[i].pipeLayout = GetResID(ret.pipeLayout);
+  }
+
+  return ret;
+}
+
+void VulkanReplay::PrepareStateForPatchedShader(
+    const AddedDescriptorData &patchedBufferdata, VulkanRenderState &modifiedstate, bool compute,
+    std::function<bool(const AddedDescriptorData &patchedBufferdata, VkShaderStageFlagBits stage,
+                       const char *entryName, const rdcarray<uint32_t> &origSpirv,
+                       rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo)>
+        stagePatchCallback)
+{
+  VkDevice dev = m_pDriver->GetDev();
+  VulkanCreationInfo &c = m_pDriver->m_CreationInfo;
+
+  VkGraphicsPipelineCreateInfo graphicsInfo = {};
+  VkComputePipelineCreateInfo computeInfo = {};
+
+  ResourceId pipelineId = compute ? modifiedstate.compute.pipeline : modifiedstate.graphics.pipeline;
+
+  if(pipelineId != ResourceId())
+  {
+    if(compute)
+      m_pDriver->GetShaderCache()->MakeComputePipelineInfo(computeInfo, pipelineId);
+    else
+      m_pDriver->GetShaderCache()->MakeGraphicsPipelineInfo(graphicsInfo, pipelineId);
+  }
+
+  VkShaderModuleCreateInfo moduleCreateInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+
+  VkResult vkr = VK_SUCCESS;
+  VkPipeline pipe = VK_NULL_HANDLE;
+  if(pipelineId != ResourceId() && compute)
+  {
+    const rdcarray<uint32_t> &origSpirv =
+        c.m_ShaderModule[GetResID(computeInfo.stage.module)].spirv.GetSPIRV();
+    rdcarray<uint32_t> modSpirv;
+
+    bool patched =
+        stagePatchCallback(patchedBufferdata, computeInfo.stage.stage, computeInfo.stage.pName,
+                           origSpirv, modSpirv, computeInfo.stage.pSpecializationInfo);
+    RDCASSERT(patched);
+
+    moduleCreateInfo.pCode = modSpirv.data();
+    moduleCreateInfo.codeSize = modSpirv.size() * sizeof(uint32_t);
+
+    vkr = m_pDriver->vkCreateShaderModule(dev, &moduleCreateInfo, NULL, &computeInfo.stage.module);
+    CHECK_VKR(m_pDriver, vkr);
+
+    if(patchedBufferdata.pipeLayout != VK_NULL_HANDLE)
+      computeInfo.layout = patchedBufferdata.pipeLayout;
+
+    // we don't use a pipeline cache because a hard-coded address will cause failures often and
+    // bloat the cache.
+    vkr = m_pDriver->vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &computeInfo, NULL, &pipe);
+    CHECK_VKR(m_pDriver, vkr);
+
+    // delete shader module
+    m_pDriver->vkDestroyShaderModule(dev, computeInfo.stage.module, NULL);
+
+    modifiedstate.compute.pipeline = GetResID(pipe);
+  }
+  else if(pipelineId != ResourceId())
+  {
+    rdcarray<VkShaderModule> modules;
+
+    if(patchedBufferdata.pipeLayout != VK_NULL_HANDLE)
+      graphicsInfo.layout = patchedBufferdata.pipeLayout;
+
+    // use the load RP if an RP is specified
+    if(graphicsInfo.renderPass != VK_NULL_HANDLE)
+    {
+      graphicsInfo.renderPass =
+          c.m_RenderPass[GetResID(graphicsInfo.renderPass)].loadRPs[graphicsInfo.subpass];
+      graphicsInfo.subpass = 0;
+    }
+
+    for(uint32_t i = 0; i < graphicsInfo.stageCount; i++)
+    {
+      VkPipelineShaderStageCreateInfo &stage =
+          (VkPipelineShaderStageCreateInfo &)graphicsInfo.pStages[i];
+
+      const rdcarray<uint32_t> &origSpirv = c.m_ShaderModule[GetResID(stage.module)].spirv.GetSPIRV();
+      rdcarray<uint32_t> modSpirv;
+
+      bool patched = stagePatchCallback(patchedBufferdata, stage.stage, stage.pName, origSpirv,
+                                        modSpirv, stage.pSpecializationInfo);
+
+      if(patched)
+      {
+        moduleCreateInfo.pCode = modSpirv.data();
+        moduleCreateInfo.codeSize = modSpirv.size() * sizeof(uint32_t);
+
+        vkr = m_pDriver->vkCreateShaderModule(dev, &moduleCreateInfo, NULL, &stage.module);
+        CHECK_VKR(m_pDriver, vkr);
+
+        modules.push_back(stage.module);
+      }
+      else if(IsBinding(m_StorageMode))
+      {
+        // if we're stealing a binding point, we need to patch all stages
+        modSpirv = origSpirv;
+
+        {
+          rdcspv::Editor editor(modSpirv);
+
+          editor.Prepare();
+          editor.SetBufferStorageMode(m_StorageMode);
+
+          editor.OffsetBindingsToMatchReservation(patchedBufferdata.numNewBindings);
+        }
+
+        moduleCreateInfo.pCode = modSpirv.data();
+        moduleCreateInfo.codeSize = modSpirv.size() * sizeof(uint32_t);
+
+        vkr = m_pDriver->vkCreateShaderModule(dev, &moduleCreateInfo, NULL, &stage.module);
+        CHECK_VKR(m_pDriver, vkr);
+
+        modules.push_back(stage.module);
+      }
+    }
+
+    // we don't use a pipeline cache because a hard-coded address will cause failures often and
+    // bloat the cache.
+    vkr = m_pDriver->vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &graphicsInfo, NULL, &pipe);
+    CHECK_VKR(m_pDriver, vkr);
+
+    // delete shader modules
+    for(VkShaderModule s : modules)
+      m_pDriver->vkDestroyShaderModule(dev, s, NULL);
+
+    modifiedstate.graphics.pipeline = GetResID(pipe);
+  }
+
+  rdcarray<VkShaderEXT> shaderObjs;
+
+  for(uint32_t i = 0; i < NumShaderStages; i++)
+  {
+    ResourceId shadId = modifiedstate.shaderObjects[i];
+    if(shadId == ResourceId())
+      continue;
+
+    const rdcarray<uint32_t> &origSpirv = c.m_ShaderModule[shadId].spirv.GetSPIRV();
+    rdcarray<uint32_t> modSpirv;
+
+    VkShaderEXT shad = VK_NULL_HANDLE;
+    VkShaderCreateInfoEXT shadCreateinfo = {};
+    m_pDriver->GetShaderCache()->MakeShaderObjectInfo(shadCreateinfo, shadId);
+
+    bool patched = stagePatchCallback(patchedBufferdata, shadCreateinfo.stage, shadCreateinfo.pName,
+                                      origSpirv, modSpirv, shadCreateinfo.pSpecializationInfo);
+
+    if(patched)
+    {
+      shadCreateinfo.pCode = modSpirv.data();
+      shadCreateinfo.codeSize = modSpirv.size() * sizeof(uint32_t);
+    }
+    else if(IsBinding(m_StorageMode))
+    {
+      modSpirv = origSpirv;
+
+      // if we're stealing a binding point, we need to patch all other shaders
+      rdcspv::Editor editor(modSpirv);
+
+      editor.Prepare();
+      editor.SetBufferStorageMode(m_StorageMode);
+
+      editor.OffsetBindingsToMatchReservation(patchedBufferdata.numNewBindings);
+
+      shadCreateinfo.pCode = modSpirv.data();
+      shadCreateinfo.codeSize = modSpirv.size() * sizeof(uint32_t);
+    }
+    else
+    {
+      shadCreateinfo.pCode = origSpirv.data();
+      shadCreateinfo.codeSize = origSpirv.size() * sizeof(uint32_t);
+    }
+
+    // if we're stealing a binding point, all shaders need updated descriptor sets
+    if(IsBinding(m_StorageMode))
+    {
+      shadCreateinfo.setLayoutCount = (uint32_t)patchedBufferdata.setLayouts.size();
+      shadCreateinfo.pSetLayouts = patchedBufferdata.setLayouts.data();
+    }
+
+    vkr = m_pDriver->vkCreateShadersEXT(dev, 1, &shadCreateinfo, NULL, &shad);
+    CHECK_VKR(m_pDriver, vkr);
+
+    shaderObjs.push_back(shad);
+
+    modifiedstate.shaderObjects[i] = GetResID(shad);
+  }
+
+  modifiedstate.subpassContents = VK_SUBPASS_CONTENTS_INLINE;
+  modifiedstate.dynamicRendering.flags &= ~VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
+
+  m_pDriver->AddPendingObjectCleanup([this, pipe, shaderObjs]() {
+    VkDevice dev = m_pDriver->GetDev();
+
+    // delete pipeline
+    m_pDriver->vkDestroyPipeline(dev, pipe, NULL);
+
+    // delete shader objects
+    for(VkShaderEXT s : shaderObjs)
+      if(s != VK_NULL_HANDLE)
+        m_pDriver->vkDestroyShaderEXT(dev, s, NULL);
+  });
 }
 
 void VulkanDebugManager::CustomShaderRendering::Destroy(WrappedVulkan *driver)

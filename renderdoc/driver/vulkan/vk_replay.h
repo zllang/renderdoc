@@ -543,6 +543,16 @@ private:
                                       AddedDescriptorData &patchedBufferData,
                                       bool vertexPatchedToCompute,
                                       const rdcarray<VkDescriptorSetLayoutBinding> &newBindings);
+  AddedDescriptorData PrepareExtraBufferDescriptor(
+      VulkanRenderState &state, bool compute,
+      const rdcarray<VkDescriptorSetLayoutBinding> &newBindings, bool vertexPatchedToCompute);
+  void PrepareStateForPatchedShader(
+      const AddedDescriptorData &patchedBufferdata, VulkanRenderState &modifiedstate, bool compute,
+      std::function<bool(const AddedDescriptorData &patchedBufferdata, VkShaderStageFlagBits stage,
+                         const char *entryName, const rdcarray<uint32_t> &origSpirv,
+                         rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo)>
+          stagePatchCallback);
+
   VulkanDebugManager *GetDebugManager();
   VulkanResourceManager *GetResourceManager();
 
