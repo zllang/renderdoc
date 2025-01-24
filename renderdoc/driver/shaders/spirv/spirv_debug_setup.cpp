@@ -407,6 +407,15 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
     debuggable = false;
   }
 
+  for(const Variable &g : globals)
+  {
+    if(g.storage == StorageClass::TaskPayloadWorkgroupEXT)
+    {
+      debugStatus += "Unsupported Task payload\n";
+      debuggable = false;
+    }
+  }
+
   // this list is sorted in order of the SPIR-V registry.
   const rdcstr whitelist[] = {
       "SPV_KHR_shader_draw_parameters",
