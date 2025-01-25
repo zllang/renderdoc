@@ -379,6 +379,30 @@ void GPUBuffer::Unmap()
   ObjDisp(device)->UnmapMemory(Unwrap(device), mem);
 }
 
+void GPUBuffer::WriteDescriptor(VkDescriptorSet unwrappedDescSet, uint32_t destBinding,
+                                uint32_t destArrayElement)
+{
+  // vkUpdateDescriptorSet desc set to point to buffer
+  VkDescriptorBufferInfo desc = {0};
+
+  FillDescriptor(desc);
+
+  VkWriteDescriptorSet write = {
+      VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      NULL,
+      unwrappedDescSet,
+      destBinding,
+      destArrayElement,
+      1,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      NULL,
+      &desc,
+      NULL,
+  };
+
+  ObjDisp(device)->UpdateDescriptorSets(Unwrap(device), 1, &write, 0, NULL);
+}
+
 bool VkInitParams::IsSupportedVersion(uint64_t ver)
 {
   if(ver == CurrentVersion)

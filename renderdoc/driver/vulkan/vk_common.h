@@ -220,6 +220,8 @@ struct GPUBuffer
   const VkDeviceMemory &UnwrappedMemory() const { return mem; }
 
   void FillDescriptor(VkDescriptorBufferInfo &desc);
+  void WriteDescriptor(VkDescriptorSet unwrappedDescSet, uint32_t destBinding,
+                       uint32_t destArrayElement);
 
   VkDeviceAddress Address() const { return addr; }
 
