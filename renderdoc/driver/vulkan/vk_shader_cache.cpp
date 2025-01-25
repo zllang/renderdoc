@@ -36,6 +36,7 @@ enum class FeatureCheck
   FormatlessWrite = 0x8,
   SampleShading = 0x10,
   Geometry = 0x20,
+  MultiView = 0x40,
 };
 
 BITMASK_OPERATORS(FeatureCheck);
@@ -90,13 +91,15 @@ static const BuiltinShaderConfig builtinShaders[] = {
                         rdcspv::ShaderStage::Fragment, FeatureCheck::FragmentStores),
     BuiltinShaderConfig(BuiltinShader::QuadResolveMultiviewFS,
                         EmbeddedResource(glsl_quadresolve_frag), rdcspv::ShaderStage::Fragment,
-                        FeatureCheck::FragmentStores, BuiltinShaderFlags::Multiview),
+                        FeatureCheck::FragmentStores | FeatureCheck::MultiView,
+                        BuiltinShaderFlags::Multiview),
     BuiltinShaderConfig(BuiltinShader::QuadWriteFS, EmbeddedResource(glsl_quadwrite_frag),
                         rdcspv::ShaderStage::Fragment),
-    BuiltinShaderConfig(BuiltinShader::QuadWriteMultiviewFS, EmbeddedResource(glsl_quadwrite_frag),
-                        rdcspv::ShaderStage::Fragment,
-                        FeatureCheck::FragmentStores | FeatureCheck::NonMetalBackend,
-                        BuiltinShaderFlags::Multiview),
+    BuiltinShaderConfig(
+        BuiltinShader::QuadWriteMultiviewFS, EmbeddedResource(glsl_quadwrite_frag),
+        rdcspv::ShaderStage::Fragment,
+        FeatureCheck::FragmentStores | FeatureCheck::NonMetalBackend | FeatureCheck::MultiView,
+        BuiltinShaderFlags::Multiview),
     BuiltinShaderConfig(BuiltinShader::TrisizeGS, EmbeddedResource(glsl_trisize_geom),
                         rdcspv::ShaderStage::Geometry),
     BuiltinShaderConfig(BuiltinShader::TrisizeFS, EmbeddedResource(glsl_trisize_frag),
@@ -148,8 +151,8 @@ static const BuiltinShaderConfig builtinShaders[] = {
 RDCCOMPILE_ASSERT(ARRAY_COUNT(builtinShaders) == arraydim<BuiltinShader>(),
                   "Missing built-in shader config");
 
-static bool PassesChecks(const BuiltinShaderConfig &config, const VkDriverInfo &driverVersion,
-                         const VkPhysicalDeviceFeatures &features)
+static bool PassesChecks(const BuiltinShaderConfig &config, const WrappedVulkan *driver,
+                         const VkDriverInfo &driverVersion, const VkPhysicalDeviceFeatures &features)
 {
   if(config.checks & FeatureCheck::ShaderMSAAStorage)
   {
@@ -193,6 +196,14 @@ static bool PassesChecks(const BuiltinShaderConfig &config, const VkDriverInfo &
   if(config.checks & FeatureCheck::Geometry)
   {
     if(!features.geometryShader)
+    {
+      return false;
+    }
+  }
+
+  if(config.checks & FeatureCheck::MultiView)
+  {
+    if(!driver->MultiView())
     {
       return false;
     }
@@ -262,8 +273,8 @@ VulkanShaderCache::VulkanShaderCache(WrappedVulkan *driver)
   rdcspv::CompilationSettings compileSettings;
   compileSettings.lang = rdcspv::InputLanguage::VulkanGLSL;
 
-  m_Buffer2MSSupported =
-      PassesChecks(builtinShaders[(size_t)BuiltinShader::Buffer2MSCS], driverVersion, availFeatures);
+  m_Buffer2MSSupported = PassesChecks(builtinShaders[(size_t)BuiltinShader::Buffer2MSCS], driver,
+                                      driverVersion, availFeatures);
 
   for(auto i : indices<BuiltinShader>())
   {
@@ -271,7 +282,7 @@ VulkanShaderCache::VulkanShaderCache(WrappedVulkan *driver)
 
     RDCASSERT(config.builtin == (BuiltinShader)i);
 
-    bool passesChecks = PassesChecks(config, driverVersion, enabledFeatures);
+    bool passesChecks = PassesChecks(config, driver, driverVersion, enabledFeatures);
 
     if(!passesChecks)
       continue;

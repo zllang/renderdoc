@@ -2344,6 +2344,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         CHECK_PHYS_EXT_FEATURE(protectedMemory);
         CHECK_PHYS_EXT_FEATURE(samplerYcbcrConversion);
         CHECK_PHYS_EXT_FEATURE(shaderDrawParameters);
+
+        m_MultiView |= ext->multiview != VK_FALSE;
       }
       END_PHYS_EXT_CHECK();
 
@@ -2487,6 +2489,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         CHECK_PHYS_EXT_FEATURE(multiview);
         CHECK_PHYS_EXT_FEATURE(multiviewGeometryShader);
         CHECK_PHYS_EXT_FEATURE(multiviewTessellationShader);
+
+        m_MultiView |= ext->multiview != VK_FALSE;
       }
       END_PHYS_EXT_CHECK();
 
