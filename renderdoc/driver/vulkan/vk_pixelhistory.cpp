@@ -540,37 +540,22 @@ private:
         VkBufferDeviceAddressInfo getAddressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
         getAddressInfo.buffer = dummybuf.UnwrappedBuffer();
 
+        editor.SetBufferStorageMode(BufferStorageMode::KHR_bda32);
+        editor.PrepareAddedBufferAccess();
+
         VkDevice dev = m_pDriver->GetDev();
         VkDeviceAddress bufferAddress =
             ObjDisp(dev)->GetBufferDeviceAddress(Unwrap(dev), &getAddressInfo);
 
         rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
-        rdcspv::Id bufptrtype = editor.DeclareType(
-            rdcspv::Pointer(uint32Type, rdcspv::StorageClass::PhysicalStorageBuffer));
+
+        // we know because we're using KHR_bda that no globals will be added, we can ignore this
+        rdcarray<rdcspv::Id> dummyAddedGlobals;
+        rdcpair<rdcspv::Id, rdcspv::Id> bufVar = editor.AddBufferVariable(
+            dummyAddedGlobals, uint32Type, "_rd_dummyBuf", 0, 0, bufferAddress);
+        RDCASSERT(dummyAddedGlobals.empty());
 
         rdcspv::Id uint1 = editor.AddConstantImmediate<uint32_t>(uint32_t(1));
-
-        editor.AddExtension("SPV_KHR_physical_storage_buffer");
-
-        {
-          // change the memory model to physical storage buffer 64
-          rdcspv::Iter it = editor.Begin(rdcspv::Section::MemoryModel);
-          rdcspv::OpMemoryModel model(it);
-          model.addressingModel = rdcspv::AddressingModel::PhysicalStorageBuffer64;
-          it = model;
-        }
-
-        editor.AddCapability(rdcspv::Capability::PhysicalStorageBufferAddresses);
-
-        rdcspv::Id addressConstantLSB =
-            editor.AddConstantImmediate<uint32_t>(bufferAddress & 0xFFFFFFFF);
-        rdcspv::Id addressConstantMSB =
-            editor.AddConstantImmediate<uint32_t>((bufferAddress >> 32) & 0xFFFFFFFF);
-
-        rdcspv::Id uintPair = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 2));
-
-        rdcspv::Id addressConstant = editor.AddConstant(rdcspv::OpSpecConstantComposite(
-            uintPair, editor.MakeId(), {addressConstantLSB, addressConstantMSB}));
 
         rdcspv::Id scope = editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::Scope::Device);
         rdcspv::Id semantics =
@@ -598,13 +583,13 @@ private:
                   it.opcode() == rdcspv::Op::NoLine)
               ++it;
 
-            rdcspv::Id structPtr = editor.AddOperation(
-                it, rdcspv::OpBitcast(bufptrtype, editor.MakeId(), addressConstant));
-            it++;
+            rdcspv::OperationList ops;
 
-            editor.AddOperation(it, rdcspv::OpAtomicUMax(uint32Type, editor.MakeId(), structPtr,
-                                                         scope, semantics, uint1));
-            it++;
+            ops.add(rdcspv::OpAtomicUMax(uint32Type, editor.MakeId(),
+                                         editor.LoadBufferVariable(ops, bufVar), scope, semantics,
+                                         uint1));
+
+            it = editor.AddOperations(it, ops);
           }
         }
       }
