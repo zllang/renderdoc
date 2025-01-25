@@ -372,7 +372,8 @@ void main()
                 {
                     4,
                     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    UINT32_MAX,
+                    1000000,    // this must still be under the maxDescriptorSet* counts even though
+                                // we'll trim this massively on allocation
                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
                 },
             })
