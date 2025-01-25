@@ -36,7 +36,6 @@
 
 RDOC_CONFIG(rdcstr, Vulkan_Debug_PostVSDumpDirPath, "",
             "Path to dump gnerated SPIR-V compute shaders for fetching post-vs.");
-RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_DisableBufferDeviceAddress);
 
 #undef None
 
@@ -61,22 +60,18 @@ struct VkXfbQueryResult
 static const char *PatchedMeshOutputEntryPoint = "rdc";
 static const uint32_t MeshOutputDispatchWidth = 128;
 static uint32_t MeshOutputBufferArraySize = 64;
+static uint32_t MeshOutputVBufferSpecConstant = 0;
+static uint32_t MeshOutputIBufferSpecConstant = MeshOutputBufferArraySize;
+static uint32_t MeshOutputOutputSpecConstant = MeshOutputIBufferSpecConstant + 1;
 
 // 0 = output
 // 1 = indices
 // 2 = vbuffers
 static const uint32_t MeshOutputReservedBindings = 3;
 
-enum StorageMode
-{
-  Binding,
-  EXT_bda,
-  KHR_bda,
-};
-
 static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
                                        const SPIRVPatchData &patchData, const rdcstr &entryName,
-                                       StorageMode storageMode, rdcarray<uint32_t> instDivisor,
+                                       BufferStorageMode storageMode, rdcarray<uint32_t> instDivisor,
                                        const ActionDescription *action, uint32_t numVerts,
                                        uint32_t numViews, uint32_t baseSpecConstant,
                                        rdcarray<uint32_t> &modSpirv, uint32_t &bufStride)
@@ -84,38 +79,14 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
   rdcspv::Editor editor(modSpirv);
 
   editor.Prepare();
+  editor.SetBufferStorageMode(storageMode);
 
   uint32_t numInputs = (uint32_t)refl.inputSignature.size();
 
   uint32_t numOutputs = (uint32_t)refl.outputSignature.size();
   RDCASSERT(numOutputs > 0);
 
-  if(storageMode == Binding)
-  {
-    for(rdcspv::Iter it = editor.Begin(rdcspv::Section::Annotations),
-                     end = editor.End(rdcspv::Section::Annotations);
-        it < end; ++it)
-    {
-      // we will use descriptor set 0 bindings 0..N for our own purposes when not using buffer
-      // device address.
-      //
-      // Since bindings are arbitrary, we just increase all user bindings to make room, and we'll
-      // redeclare the descriptor set layouts and pipeline layout. This is inevitable in the case
-      // where all descriptor sets are already used. In theory we only have to do this with set 0,
-      // but that requires knowing which variables are in set 0 and it's simpler to increase all
-      // bindings.
-      if(it.opcode() == rdcspv::Op::Decorate)
-      {
-        rdcspv::OpDecorate dec(it);
-        if(dec.decoration == rdcspv::Decoration::Binding)
-        {
-          RDCASSERT(dec.decoration.binding < (0xffffffff - MeshOutputReservedBindings));
-          dec.decoration.binding += MeshOutputReservedBindings;
-          it = dec;
-        }
-      }
-    }
-  }
+  editor.OffsetBindingsToMatchReservation(MeshOutputReservedBindings);
 
   struct inputOutputIDs
   {
@@ -531,11 +502,7 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
     }
   }
 
-  rdcspv::StorageClass bufferClass;
-  if(storageMode == Binding)
-    bufferClass = editor.StorageBufferClass();
-  else
-    bufferClass = rdcspv::StorageClass::PhysicalStorageBuffer;
+  rdcspv::StorageClass bufferClass = editor.PrepareAddedBufferAccess();
 
   // declare necessary variables per-output, types and constants. We do this last so that we don't
   // add a private pointer that we later try and deduplicate when collapsing output/input pointers
@@ -632,144 +599,63 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
   rdcspv::Id u32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
   rdcspv::Id uvec4Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 4));
 
-  rdcspv::Id uvec4StructPtrType;
-  rdcspv::Id uintStructPtrType;
-
   rdcspv::Id arraySize = editor.AddConstantImmediate<uint32_t>(MeshOutputBufferArraySize);
 
-  rdcspv::Id vbuffersVariable, ibufferVariable;
+  rdcpair<rdcspv::Id, rdcspv::Id> ibufferVar;
 
-  rdcarray<rdcspv::Id> vbufferSpecConsts;
-  rdcarray<rdcspv::Id> vbufferVariables;
-  vbufferSpecConsts.resize(MeshOutputBufferArraySize);
-  vbufferVariables.resize(MeshOutputBufferArraySize);
-  rdcspv::Id ibufferSpecConst;
-  rdcspv::Id outputSpecConst;
+  // we use an array-of-binds for binding mode so this can be either a single variable or an array of addresses
+  rdcpair<rdcspv::Id, rdcspv::Id> vbuffersBindVar;
+  rdcarray<rdcpair<rdcspv::Id, rdcspv::Id>> vbufferAddresses;
+  rdcarray<rdcspv::Id> vbufferVars;
+  vbufferAddresses.resize(MeshOutputBufferArraySize);
+  vbufferVars.resize(MeshOutputBufferArraySize);
+
+  if(action->flags & ActionFlags::Indexed)
+  {
+    rdcspv::Id indexArray = editor.AddType(rdcspv::OpTypeRuntimeArray(editor.MakeId(), u32Type));
+    editor.AddDecoration(rdcspv::OpDecorate(
+        indexArray, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(sizeof(uint32_t))));
+
+    rdcspv::Id ibStruct = editor.AddType(rdcspv::OpTypeStruct(editor.MakeId(), {indexArray}));
+
+    editor.AddDecoration(rdcspv::OpMemberDecorate(
+        ibStruct, 0, rdcspv::DecorationParam<rdcspv::Decoration::Offset>(0)));
+
+    ibufferVar = editor.AddBufferVariable(globals, ibStruct, "__rd_ibuffer", 1,
+                                          baseSpecConstant + MeshOutputIBufferSpecConstant * 2, 0);
+  }
 
   {
-    rdcspv::Id runtimeArrayID =
-        editor.AddType(rdcspv::OpTypeRuntimeArray(editor.MakeId(), uvec4Type));
+    rdcspv::Id rawVBArray = editor.AddType(rdcspv::OpTypeRuntimeArray(editor.MakeId(), uvec4Type));
     editor.AddDecoration(rdcspv::OpDecorate(
-        runtimeArrayID,
-        rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(sizeof(uint32_t) * 4)));
+        rawVBArray, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(sizeof(uint32_t) * 4)));
 
-    rdcspv::Id uvec4StructType =
-        editor.AddType(rdcspv::OpTypeStruct(editor.MakeId(), {runtimeArrayID}));
-    editor.SetName(uvec4StructType, "__rd_uvec4Struct");
+    rdcspv::Id vbStruct = editor.AddType(rdcspv::OpTypeStruct(editor.MakeId(), {rawVBArray}));
+    editor.SetName(vbStruct, "rawVB");
 
     editor.AddDecoration(rdcspv::OpMemberDecorate(
-        uvec4StructType, 0, rdcspv::DecorationParam<rdcspv::Decoration::Offset>(0)));
+        vbStruct, 0, rdcspv::DecorationParam<rdcspv::Decoration::Offset>(0)));
 
-    uvec4StructPtrType = editor.DeclareType(rdcspv::Pointer(uvec4StructType, bufferClass));
-    editor.SetName(uvec4StructPtrType, "__rd_uvec4Struct_ptr");
-
-    runtimeArrayID = editor.AddType(rdcspv::OpTypeRuntimeArray(editor.MakeId(), u32Type));
-    editor.AddDecoration(rdcspv::OpDecorate(
-        runtimeArrayID, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(sizeof(uint32_t))));
-
-    rdcspv::Id uintStructType =
-        editor.AddType(rdcspv::OpTypeStruct(editor.MakeId(), {runtimeArrayID}));
-
-    editor.SetName(uintStructType, "__rd_uintStruct");
-
-    editor.AddDecoration(rdcspv::OpMemberDecorate(
-        uintStructType, 0, rdcspv::DecorationParam<rdcspv::Decoration::Offset>(0)));
-
-    uintStructPtrType = editor.DeclareType(rdcspv::Pointer(uintStructType, bufferClass));
-    editor.SetName(uintStructPtrType, "__rd_uintStruct_ptr");
-
-    if(storageMode == Binding)
+    if(IsBinding(storageMode))
     {
-      editor.DecorateStorageBufferStruct(uvec4StructType);
-      editor.DecorateStorageBufferStruct(uintStructType);
+      editor.DecorateStorageBufferStruct(vbStruct);
 
-      rdcspv::Id structArrayType = editor.AddType(
-          rdcspv::OpTypeArray(editor.MakeId(), uvec4StructType,
+      // an arrayed binding is an array of block-decorated structs
+
+      rdcspv::Id vbuffersType = editor.AddType(
+          rdcspv::OpTypeArray(editor.MakeId(), vbStruct,
                               editor.AddConstantImmediate<uint32_t>(MeshOutputBufferArraySize)));
-      rdcspv::Id vbuffersType = editor.DeclareType(rdcspv::Pointer(structArrayType, bufferClass));
 
-      vbuffersVariable = editor.MakeId();
-      editor.AddVariable(rdcspv::OpVariable(vbuffersType, vbuffersVariable, bufferClass));
-      editor.AddDecoration(rdcspv::OpDecorate(
-          vbuffersVariable, rdcspv::DecorationParam<rdcspv::Decoration::DescriptorSet>(0)));
-      editor.AddDecoration(rdcspv::OpDecorate(
-          vbuffersVariable, rdcspv::DecorationParam<rdcspv::Decoration::Binding>(2)));
-
-      globals.push_back(vbuffersVariable);
-
-      editor.SetName(vbuffersVariable, "__rd_vbuffers");
-
-      if(action->flags & ActionFlags::Indexed)
-      {
-        rdcspv::Id ibufferType = editor.DeclareType(rdcspv::Pointer(uintStructType, bufferClass));
-
-        ibufferVariable = editor.MakeId();
-        editor.AddVariable(rdcspv::OpVariable(ibufferType, ibufferVariable, bufferClass));
-        editor.AddDecoration(rdcspv::OpDecorate(
-            ibufferVariable, rdcspv::DecorationParam<rdcspv::Decoration::DescriptorSet>(0)));
-        editor.AddDecoration(rdcspv::OpDecorate(
-            ibufferVariable, rdcspv::DecorationParam<rdcspv::Decoration::Binding>(1)));
-
-        globals.push_back(ibufferVariable);
-
-        editor.SetName(ibufferVariable, "__rd_ibuffer");
-      }
+      vbuffersBindVar = editor.AddBufferVariable(globals, vbuffersType, "__rd_vbuffers", 2, 0, 0);
     }
     else
     {
-      editor.AddDecoration(rdcspv::OpDecorate(uvec4StructType, rdcspv::Decoration::Block));
-      editor.AddDecoration(rdcspv::OpDecorate(uintStructType, rdcspv::Decoration::Block));
-
-      // add the extension
-      editor.AddExtension(storageMode == KHR_bda ? "SPV_KHR_physical_storage_buffer"
-                                                 : "SPV_EXT_physical_storage_buffer");
-
-      // change the memory model to physical storage buffer 64
-      rdcspv::Iter it = editor.Begin(rdcspv::Section::MemoryModel);
-      rdcspv::OpMemoryModel model(it);
-      model.addressingModel = rdcspv::AddressingModel::PhysicalStorageBuffer64;
-      it = model;
-
-      // add capabilities
-      editor.AddCapability(rdcspv::Capability::PhysicalStorageBufferAddresses);
-
-      if(storageMode == EXT_bda)
-        editor.AddCapability(rdcspv::Capability::Int64);
-
-      for(uint32_t i = 0; i <= MeshOutputBufferArraySize + 1; i++)
+      // for BDA access, we need an array of addresses per-buffer
+      for(uint32_t i = 0; i < MeshOutputBufferArraySize; i++)
       {
-        rdcspv::Id *dstId = NULL;
-        if(i < MeshOutputBufferArraySize)
-          dstId = &vbufferSpecConsts[i];
-        else if(i == MeshOutputBufferArraySize)
-          dstId = &ibufferSpecConst;
-        else if(i == MeshOutputBufferArraySize + 1)
-          dstId = &outputSpecConst;
-
-        if(!dstId)
-          break;
-
-        if(storageMode == KHR_bda)
-        {
-          rdcspv::Id addressConstantLSB =
-              editor.AddSpecConstantImmediate<uint32_t>(0U, baseSpecConstant + i * 2 + 0);
-          rdcspv::Id addressConstantMSB =
-              editor.AddSpecConstantImmediate<uint32_t>(0U, baseSpecConstant + i * 2 + 1);
-
-          rdcspv::Id uint2 = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 2));
-
-          *dstId = editor.AddConstant(rdcspv::OpSpecConstantComposite(
-              uint2, editor.MakeId(), {addressConstantLSB, addressConstantMSB}));
-        }
-        else
-        {
-          *dstId = editor.AddSpecConstantImmediate<uint64_t>(0ULL, baseSpecConstant + i * 2);
-        }
-
-        if(i == MeshOutputBufferArraySize)
-          editor.SetName(*dstId, "__rd_ibufferConst");
-        else
-          editor.SetName(*dstId, StringFormat::Fmt("__rd_vbufferConst%u", i));
+        vbufferAddresses[i] = editor.AddBufferVariable(
+            globals, vbStruct, StringFormat::Fmt("__rd_vbuffer%u", i), 2,
+            baseSpecConstant + MeshOutputVBufferSpecConstant * 2 + i * 2, 0);
       }
     }
   }
@@ -782,8 +668,7 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
     editor.AddCapability(rdcspv::Capability::SampledBuffer);
   }
 
-  rdcspv::Id outBufferVarID;
-  rdcspv::Id outputStructPtrType;
+  rdcpair<rdcspv::Id, rdcspv::Id> outBufferVar;
   rdcspv::Id numVertsConstID = editor.AddConstantImmediate<uint32_t>(numVerts);
   rdcspv::Id numInstConstID = editor.AddConstantImmediate<uint32_t>(action->numInstances);
   rdcspv::Id numViewsConstID = editor.AddConstantImmediate<uint32_t>(numViews);
@@ -837,10 +722,6 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
     rdcspv::Id outputStructID = editor.DeclareStructType({runtimeArrayID});
     editor.SetName(outputStructID, "meshOutput");
 
-    // meshOutput *
-    outputStructPtrType = editor.DeclareType(rdcspv::Pointer(outputStructID, bufferClass));
-    editor.SetName(outputStructPtrType, "meshOutput_ptr");
-
     // the array is the only element in the output struct, so
     // it's at offset 0
     editor.AddDecoration(rdcspv::OpMemberDecorate(
@@ -850,27 +731,8 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
     editor.AddDecoration(rdcspv::OpDecorate(
         runtimeArrayID, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(bufStride)));
 
-    if(storageMode == Binding)
-    {
-      // meshOutput *outputData;
-      outBufferVarID =
-          editor.AddVariable(rdcspv::OpVariable(outputStructPtrType, editor.MakeId(), bufferClass));
-      editor.SetName(outBufferVarID, "outputData");
-
-      globals.push_back(outBufferVarID);
-
-      editor.DecorateStorageBufferStruct(outputStructID);
-
-      // set binding
-      editor.AddDecoration(rdcspv::OpDecorate(
-          outBufferVarID, rdcspv::DecorationParam<rdcspv::Decoration::DescriptorSet>(0)));
-      editor.AddDecoration(rdcspv::OpDecorate(
-          outBufferVarID, rdcspv::DecorationParam<rdcspv::Decoration::Binding>(0)));
-    }
-    else
-    {
-      editor.AddDecoration(rdcspv::OpDecorate(outputStructID, rdcspv::Decoration::Block));
-    }
+    outBufferVar = editor.AddBufferVariable(globals, outputStructID, "_rd_outputData", 0,
+                                            baseSpecConstant + MeshOutputOutputSpecConstant * 2, 0);
   }
 
   rdcspv::Id uint32Vec3ID = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 3));
@@ -950,6 +812,7 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
   rdcspv::Id zero = editor.AddConstantImmediate<uint32_t>(0);
 
   rdcspv::MemoryAccessAndParamDatas memoryAccess;
+  memoryAccess.setAligned(sizeof(uint32_t));
 
   // add the wrapper function
   {
@@ -962,51 +825,19 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
 
     ops.add(rdcspv::OpLabel(editor.MakeId()));
     {
-      // convert the pointers here
-      if(storageMode != Binding)
+      outBufferVar.second = editor.LoadBufferVariable(ops, outBufferVar);
+      if(ibufferVar.second != rdcspv::Id())
+        ibufferVar.second = editor.LoadBufferVariable(ops, ibufferVar);
+      if(!vbufferAddresses.empty())
       {
-        memoryAccess.setAligned(sizeof(uint32_t));
-
-        if(ibufferSpecConst != rdcspv::Id())
-        {
-          // if we don't have the struct as a bind, we need to cast it from the pointer. In
-          // KHR_buffer_device_address we bitcast since we store it as a uint2
-          if(storageMode == KHR_bda)
-            ibufferVariable =
-                ops.add(rdcspv::OpBitcast(uintStructPtrType, editor.MakeId(), ibufferSpecConst));
-          else
-            ibufferVariable = ops.add(
-                rdcspv::OpConvertUToPtr(uintStructPtrType, editor.MakeId(), ibufferSpecConst));
-
-          editor.SetName(ibufferVariable, "__rd_ibuffer");
-        }
-
         for(size_t s = 0; s < refl.inputSignature.size(); s++)
         {
           uint32_t idx = refl.inputSignature[s].regIndex;
 
-          if(vbufferSpecConsts[idx] != rdcspv::Id() && vbufferVariables[idx] == rdcspv::Id())
+          if(vbufferAddresses[idx].second != rdcspv::Id() && vbufferVars[idx] == rdcspv::Id())
           {
-            if(storageMode == KHR_bda)
-              vbufferVariables[idx] = ops.add(
-                  rdcspv::OpBitcast(uvec4StructPtrType, editor.MakeId(), vbufferSpecConsts[idx]));
-            else
-              vbufferVariables[idx] = ops.add(rdcspv::OpConvertUToPtr(
-                  uvec4StructPtrType, editor.MakeId(), vbufferSpecConsts[idx]));
-
-            editor.SetName(vbufferVariables[idx], StringFormat::Fmt("__rd_vbuffers[%u]", idx));
+            vbufferVars[idx] = editor.LoadBufferVariable(ops, vbufferAddresses[idx]);
           }
-        }
-
-        {
-          if(storageMode == KHR_bda)
-            outBufferVarID =
-                ops.add(rdcspv::OpBitcast(outputStructPtrType, editor.MakeId(), outputSpecConst));
-          else
-            outBufferVarID = ops.add(
-                rdcspv::OpConvertUToPtr(outputStructPtrType, editor.MakeId(), outputSpecConst));
-
-          editor.SetName(outBufferVarID, "__rd_outbuf");
         }
       }
 
@@ -1066,7 +897,7 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
         rdcspv::Id idxPtr;
 
         // idxptr = &ibuffer.member0[vertexIndex]
-        idxPtr = ops.add(rdcspv::OpAccessChain(uintPtrType, editor.MakeId(), ibufferVariable,
+        idxPtr = ops.add(rdcspv::OpAccessChain(uintPtrType, editor.MakeId(), ibufferVar.second,
                                                {zero, vertexIndexID}));
 
         // vertexIndex = *idxptr
@@ -1258,14 +1089,14 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
           // plain uvec4*
 
           // uvec4 *vertex = &vbuffers[reg].member0[idx]
-          if(storageMode == Binding)
+          if(IsBinding(storageMode))
             ptrId =
-                ops.add(rdcspv::OpAccessChain(uvec4PtrType, editor.MakeId(), vbuffersVariable,
+                ops.add(rdcspv::OpAccessChain(uvec4PtrType, editor.MakeId(), vbuffersBindVar.second,
                                               {idxs[refl.inputSignature[i].regIndex], zero, idx}));
           else
             // uvec4 *vertex = &vbufferN.member0[idx]
             ptrId = ops.add(rdcspv::OpAccessChain(uvec4PtrType, editor.MakeId(),
-                                                  vbufferVariables[refl.inputSignature[i].regIndex],
+                                                  vbufferVars[refl.inputSignature[i].regIndex],
                                                   {zero, idx}));
 
           // uvec4 result = *vertex
@@ -1300,15 +1131,15 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
                                                         editor.AddConstantImmediate<uint32_t>(1)));
 
             // uvec4 *vertex = &vbuffers[reg].member0[nextidx]
-            if(storageMode == Binding)
+            if(IsBinding(storageMode))
               ptrId = ops.add(
-                  rdcspv::OpAccessChain(uvec4PtrType, editor.MakeId(), vbuffersVariable,
+                  rdcspv::OpAccessChain(uvec4PtrType, editor.MakeId(), vbuffersBindVar.second,
                                         {idxs[refl.inputSignature[i].regIndex], zero, nextidx}));
             else
               // uvec4 *vertex = &vbufferN.member0[nextidx]
-              ptrId = ops.add(rdcspv::OpAccessChain(
-                  uvec4PtrType, editor.MakeId(), vbufferVariables[refl.inputSignature[i].regIndex],
-                  {zero, nextidx}));
+              ptrId = ops.add(rdcspv::OpAccessChain(uvec4PtrType, editor.MakeId(),
+                                                    vbufferVars[refl.inputSignature[i].regIndex],
+                                                    {zero, nextidx}));
             rdcspv::Id result2 =
                 ops.add(rdcspv::OpLoad(uvec4Type, editor.MakeId(), ptrId, memoryAccess));
 
@@ -1451,8 +1282,9 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
         rdcspv::Id writePtr;
 
         // type *writePtr = &outBuffer.verts[arraySlot].outputN
-        writePtr = ops.add(rdcspv::OpAccessChain(outs[o].ssboPtrType, editor.MakeId(), outBufferVarID,
-                                                 {zero, arraySlotID, outs[o].indexConst}));
+        writePtr =
+            ops.add(rdcspv::OpAccessChain(outs[o].ssboPtrType, editor.MakeId(), outBufferVar.second,
+                                          {zero, arraySlotID, outs[o].indexConst}));
 
         // *writePtr = loaded;
         ops.add(rdcspv::OpStore(writePtr, loaded, memoryAccess));
@@ -1586,6 +1418,7 @@ static void AddTaskShaderPayloadStores(const rdcarray<SpecConstant> &specInfo,
   rdcspv::Editor editor(modSpirv);
 
   editor.Prepare();
+  editor.SetBufferStorageMode(BufferStorageMode::KHR_bda64);
 
   rdcspv::Id boolType = editor.DeclareType(rdcspv::scalar<bool>());
   rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
@@ -1608,7 +1441,6 @@ static void AddTaskShaderPayloadStores(const rdcarray<SpecConstant> &specInfo,
   rdcspv::Id payloadTaskStructType;
   rdcspv::Id payloadBlockStructType;
 
-  rdcspv::Id baseAddrId;
   rdcspv::Id outSlotAddr;
 
   {
@@ -1620,21 +1452,10 @@ static void AddTaskShaderPayloadStores(const rdcarray<SpecConstant> &specInfo,
     editor.SetName(outSlotAddr, "outSlot");
   }
 
-  // set up BDA if it's not already used
-  {
-    editor.AddExtension("SPV_KHR_physical_storage_buffer");
+  editor.PrepareAddedBufferAccess();
 
-    rdcspv::Iter it = editor.Begin(rdcspv::Section::MemoryModel);
-    rdcspv::OpMemoryModel model(it);
-    model.addressingModel = rdcspv::AddressingModel::PhysicalStorageBuffer64;
-    it = model;
-
-    editor.AddCapability(rdcspv::Capability::PhysicalStorageBufferAddresses);
-    editor.AddCapability(rdcspv::Capability::Int64);
-
-    baseAddrId = editor.AddSpecConstantImmediate<uint64_t>(0U, outSpecConstant);
-    editor.SetName(baseAddrId, "baseAddr");
-  }
+  rdcspv::Id baseAddrId = editor.AddSpecConstantImmediate<uint64_t>(0U, outSpecConstant);
+  editor.SetName(baseAddrId, "baseAddr");
 
   {
     rdcspv::Iter it = editor.GetEntry(entryID);
@@ -1861,6 +1682,7 @@ static void ConvertToFixedTaskFeeder(const rdcarray<SpecConstant> &specInfo,
   rdcspv::Editor editor(modSpirv);
 
   editor.Prepare();
+  editor.SetBufferStorageMode(BufferStorageMode::KHR_bda64);
 
   // remove all debug names that exist currently as they may name instructions we're going to remove
   for(rdcspv::Iter it = editor.Begin(rdcspv::Section::DebugNames),
@@ -1876,23 +1698,10 @@ static void ConvertToFixedTaskFeeder(const rdcarray<SpecConstant> &specInfo,
       editor.DeclareType(rdcspv::Pointer(uvec4Type, rdcspv::StorageClass::PhysicalStorageBuffer));
   rdcspv::Id uint64Type = editor.DeclareType(rdcspv::scalar<uint64_t>());
 
-  rdcspv::Id baseAddrId;
+  editor.PrepareAddedBufferAccess();
 
-  // set up BDA if it's not already used
-  {
-    editor.AddExtension("SPV_KHR_physical_storage_buffer");
-
-    rdcspv::Iter it = editor.Begin(rdcspv::Section::MemoryModel);
-    rdcspv::OpMemoryModel model(it);
-    model.addressingModel = rdcspv::AddressingModel::PhysicalStorageBuffer64;
-    it = model;
-
-    editor.AddCapability(rdcspv::Capability::PhysicalStorageBufferAddresses);
-    editor.AddCapability(rdcspv::Capability::Int64);
-
-    baseAddrId = editor.AddSpecConstantImmediate<uint64_t>(0U, inSpecConstant);
-    editor.SetName(baseAddrId, "baseAddr");
-  }
+  rdcspv::Id baseAddrId = editor.AddSpecConstantImmediate<uint64_t>(0U, inSpecConstant);
+  editor.SetName(baseAddrId, "baseAddr");
 
   rdcarray<rdcspv::Id> newGlobals;
 
@@ -2164,8 +1973,8 @@ static void AddMeshShaderOutputStores(const ShaderReflection &refl,
   rdcspv::Editor editor(modSpirv);
 
   editor.Prepare();
+  editor.SetBufferStorageMode(BufferStorageMode::KHR_bda64);
 
-  rdcspv::Id baseAddrId;
   rdcspv::Id outSlotAddr;
   rdcspv::Id boolType = editor.DeclareType(rdcspv::scalar<bool>());
   rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
@@ -2191,21 +2000,10 @@ static void AddMeshShaderOutputStores(const ShaderReflection &refl,
     editor.SetName(outSlotAddr, "outSlot");
   }
 
-  // set up BDA if it's not already used
-  {
-    editor.AddExtension("SPV_KHR_physical_storage_buffer");
+  editor.PrepareAddedBufferAccess();
 
-    rdcspv::Iter it = editor.Begin(rdcspv::Section::MemoryModel);
-    rdcspv::OpMemoryModel model(it);
-    model.addressingModel = rdcspv::AddressingModel::PhysicalStorageBuffer64;
-    it = model;
-
-    editor.AddCapability(rdcspv::Capability::PhysicalStorageBufferAddresses);
-    editor.AddCapability(rdcspv::Capability::Int64);
-
-    baseAddrId = editor.AddSpecConstantImmediate<uint64_t>(0U, outSpecConstant);
-    editor.SetName(baseAddrId, "baseAddr");
-  }
+  rdcspv::Id baseAddrId = editor.AddSpecConstantImmediate<uint64_t>(0U, outSpecConstant);
+  editor.SetName(baseAddrId, "baseAddr");
 
   rdcarray<rdcspv::Id> newGlobals;
 
@@ -2931,8 +2729,7 @@ void VulkanReplay::FetchMeshOut(uint32_t eventId, VulkanRenderState &state)
     return;
   }
 
-  if(!m_pDriver->GetExtensions(NULL).ext_KHR_buffer_device_address ||
-     Vulkan_Debug_DisableBufferDeviceAddress())
+  if(!IsKHRBDA(m_StorageMode))
   {
     ret.meshout.status =
         "KHR_buffer_device_address extension not available, can't fetch mesh shader output";
@@ -4302,39 +4099,6 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
   VkResult vkr = VK_SUCCESS;
   VkDevice dev = m_Device;
 
-  VkDescriptorPool descpool = VK_NULL_HANDLE;
-  rdcarray<VkDescriptorSetLayout> setLayouts;
-  rdcarray<VkDescriptorSet> descSets;
-
-  VkPipelineLayout pipeLayout = VK_NULL_HANDLE;
-
-  StorageMode storageMode = Binding;
-
-  if(m_pDriver->GetExtensions(NULL).ext_KHR_buffer_device_address)
-  {
-    storageMode = KHR_bda;
-  }
-  else if(m_pDriver->GetExtensions(NULL).ext_EXT_buffer_device_address)
-  {
-    storageMode = EXT_bda;
-
-    if(!m_pDriver->GetDeviceEnabledFeatures().shaderInt64)
-    {
-      static bool warned = false;
-      if(!warned)
-      {
-        warned = true;
-        RDCLOG(
-            "EXT_buffer_device_address is available but shaderInt64 isn't, falling back to binding "
-            "storage mode");
-      }
-    }
-  }
-
-  if(Vulkan_Debug_DisableBufferDeviceAddress() ||
-     m_pDriver->GetDriverInfo().BufferDeviceAddressBrokenDriver())
-    storageMode = Binding;
-
   if(m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers - 2 <
      MeshOutputBufferArraySize)
   {
@@ -4358,7 +4122,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
     }
   }
 
-  VkDescriptorSetLayoutBinding newBindings[] = {
+  rdcarray<VkDescriptorSetLayoutBinding> newBindings = {
       // output buffer
       {
           0,
@@ -4384,92 +4148,25 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
           NULL,
       },
   };
-  RDCCOMPILE_ASSERT(ARRAY_COUNT(newBindings) == MeshOutputReservedBindings,
-                    "MeshOutputReservedBindings is wrong");
+  RDCASSERTMSG("MeshOutputReservedBindings is wrong",
+               newBindings.size() == MeshOutputReservedBindings, newBindings.size());
 
-  // the spec says only one push constant range may be used per stage, so at most one has
-  // VERTEX_BIT. Find it, and make it COMPUTE_BIT
-  VkPushConstantRange push;
-  uint32_t numPush = 0;
-  rdcarray<VkPushConstantRange> oldPush =
-      state.graphics.shaderObject ? shadObjInfo.pushRanges
-                                  : creationInfo.m_PipelineLayout[pipeInfo.vertLayout].pushRanges;
+  // make copy of state to draw from
+  VulkanRenderState modifiedstate = state;
 
-  // ensure the push range is visible to the compute shader
-  for(const VkPushConstantRange &range : oldPush)
+  AddedDescriptorData patchedBufferdata =
+      PrepareExtraBufferDescriptor(modifiedstate, false, newBindings, true);
+
+  if(patchedBufferdata.empty())
   {
-    if(range.stageFlags & VK_SHADER_STAGE_VERTEX_BIT)
-    {
-      push = range;
-      push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      numPush = 1;
-      break;
-    }
+    ret.vsout.status = "Couldn't allocate and patch compatible descriptors for vertex output fetch";
+    return;
   }
 
-  if(storageMode == Binding)
-  {
-    // create a duplicate set of descriptor sets, all visible to compute, with bindings shifted to
-    // account for new ones we need. This also copies the existing bindings into the new sets
-    PatchReservedDescriptors(state.graphics, descpool, setLayouts, descSets,
-                             VK_SHADER_STAGE_COMPUTE_BIT, newBindings, ARRAY_COUNT(newBindings));
-
-    // if the pool failed due to limits, it will be NULL so bail now
-    if(descpool == VK_NULL_HANDLE)
-    {
-      ret.vsout.status =
-          "Couldn't allocate and patch compatible descriptors for vertex output fetch";
-      return;
-    }
-
-    VkPipelineLayoutCreateInfo pipeLayoutInfo = {
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        NULL,
-        0,
-        (uint32_t)setLayouts.size(),
-        setLayouts.data(),
-        numPush,
-        &push,
-    };
-
-    vkr = m_pDriver->vkCreatePipelineLayout(dev, &pipeLayoutInfo, NULL, &pipeLayout);
-    CHECK_VKR(m_pDriver, vkr);
-  }
-  else
-  {
-    // using BDA we don't need to add any new bindings but we *do* need to patch the descriptor set
-    // layouts to be compute visible. However with update-after-bind descriptors in the mix we can't
-    // always reliably do this, as making a copy of the descriptor sets can't be done (in general).
-    //
-    // To get around this we patch descriptor set layouts at create time so that COMPUTE_BIT is
-    // present wherever VERTEX_BIT was, so we can use the application's descriptor sets and layouts
-
-    const rdcarray<ResourceId> &sets =
-        state.graphics.shaderObject
-            ? shadObjInfo.descSetLayouts
-            : creationInfo.m_PipelineLayout[pipeInfo.vertLayout].descSetLayouts;
-
-    setLayouts.reserve(sets.size());
-
-    for(size_t i = 0; i < sets.size(); i++)
-      setLayouts.push_back(GetResourceManager()->GetCurrentHandle<VkDescriptorSetLayout>(sets[i]));
-
-    VkPipelineLayoutCreateInfo pipeLayoutInfo = {
-        VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        NULL,
-        0,
-        (uint32_t)setLayouts.size(),
-        setLayouts.data(),
-        numPush,
-        &push,
-    };
-
-    vkr = m_pDriver->vkCreatePipelineLayout(dev, &pipeLayoutInfo, NULL, &pipeLayout);
-    CHECK_VKR(m_pDriver, vkr);
-
-    // clear the array because it's not needed after and we want to avoid releasing real resources
-    setLayouts.clear();
-  }
+  // we should always get a new pipeline layout when we're doing vertex-to-compute, since even if we
+  // don't change set layouts we might need to fiddle with push constants (and we don't skip the new
+  // layout create if there are no push ranges)
+  RDCASSERT(patchedBufferdata.pipeLayout != VK_NULL_HANDLE);
 
   VkBuffer meshBuffer = VK_NULL_HANDLE, readbackBuffer = VK_NULL_HANDLE;
   VkDeviceMemory meshMem = VK_NULL_HANDLE, readbackMem = VK_NULL_HANDLE;
@@ -4660,7 +4357,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
     };
 
     // the flag is the same for KHR and EXT
-    if(storageMode != Binding)
+    if(IsBDA(m_StorageMode))
       bufInfo.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     vkr = m_pDriver->vkCreateBuffer(dev, &bufInfo, NULL, &uniqIdxBuf);
@@ -4680,7 +4377,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
         m_pDriver->GetUploadMemoryIndex(mrq.memoryTypeBits),
     };
 
-    if(storageMode == KHR_bda)
+    if(IsKHRBDA(m_StorageMode))
       allocInfo.pNext = &memFlags;
 
     vkr = m_pDriver->vkAllocateMemory(dev, &allocInfo, NULL, &uniqIdxBufMem);
@@ -4997,7 +4694,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
           bufInfo.size = elemSize * (maxInstance + 1);
 
         // the flag is the same for KHR and EXT
-        if(storageMode != Binding)
+        if(IsBDA(m_StorageMode))
           bufInfo.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
         vkr = m_pDriver->vkCreateBuffer(dev, &bufInfo, NULL, &vbuffers[attr].buf);
@@ -5013,7 +4710,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
             m_pDriver->GetUploadMemoryIndex(mrq.memoryTypeBits),
         };
 
-        if(storageMode == KHR_bda)
+        if(IsKHRBDA(m_StorageMode))
           allocInfo.pNext = &memFlags;
 
         vkr = m_pDriver->vkAllocateMemory(dev, &allocInfo, NULL, &vbuffers[attr].mem);
@@ -5211,10 +4908,10 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
       vbuffers[attr].descriptor.offset = 0;
       vbuffers[attr].descriptor.range = VK_WHOLE_SIZE;
 
-      if(!descSets.empty())
+      if(!patchedBufferdata.descSets.empty())
       {
         descWrites[numWrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descWrites[numWrites].dstSet = descSets[0];
+        descWrites[numWrites].dstSet = patchedBufferdata.descSets[0];
         descWrites[numWrites].dstBinding = 2;
         descWrites[numWrites].dstArrayElement = attr;
         descWrites[numWrites].descriptorCount = 1;
@@ -5225,10 +4922,10 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
     }
 
     // add a write of the index buffer
-    if(uniqIdxBuf != VK_NULL_HANDLE && !descSets.empty())
+    if(uniqIdxBuf != VK_NULL_HANDLE && !patchedBufferdata.descSets.empty())
     {
       descWrites[numWrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-      descWrites[numWrites].dstSet = descSets[0];
+      descWrites[numWrites].dstSet = patchedBufferdata.descSets[0];
       descWrites[numWrites].dstBinding = 1;
       descWrites[numWrites].dstArrayElement = 0;
       descWrites[numWrites].descriptorCount = 1;
@@ -5244,7 +4941,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
   if(!Vulkan_Debug_PostVSDumpDirPath().empty())
     FileIO::WriteAll(Vulkan_Debug_PostVSDumpDirPath() + "/debug_postvs_vert.spv", modSpirv);
 
-  ConvertToMeshOutputCompute(*refl, *vertShad.patchData, vertShad.entryPoint, storageMode,
+  ConvertToMeshOutputCompute(*refl, *vertShad.patchData, vertShad.entryPoint, m_StorageMode,
                              attrInstDivisor, action, numVerts, numViews, baseSpecConstant,
                              modSpirv, bufStride);
 
@@ -5269,7 +4966,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
     bufInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 
     // the flag is the same for KHR and EXT
-    if(storageMode != Binding)
+    if(IsBDA(m_StorageMode))
       bufInfo.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
     vkr = m_pDriver->vkCreateBuffer(dev, &bufInfo, NULL, &meshBuffer);
@@ -5297,7 +4994,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
         m_pDriver->GetGPULocalMemoryIndex(mrq.memoryTypeBits),
     };
 
-    if(storageMode == KHR_bda)
+    if(IsKHRBDA(m_StorageMode))
       allocInfo.pNext = &memFlags;
 
     vkr = m_pDriver->vkAllocateMemory(dev, &allocInfo, NULL, &meshMem);
@@ -5337,7 +5034,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
   VkComputePipelineCreateInfo compPipeInfo = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
 
   // repoint pipeline layout
-  compPipeInfo.layout = pipeLayout;
+  compPipeInfo.layout = patchedBufferdata.pipeLayout;
 
   // create vertex shader with modified code
   VkShaderModuleCreateInfo moduleCreateInfo = {
@@ -5354,8 +5051,8 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
   compPipeInfo.stage.pName = PatchedMeshOutputEntryPoint;
   compPipeInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 
-  // append our own if we're using BDA
-  if(storageMode != Binding)
+  // append our own specialisation constants if we're using BDA
+  if(IsBDA(m_StorageMode))
   {
     // ensure we're 64-bit aligned first
     specData.resize(AlignUp(specData.size(), (size_t)8));
@@ -5383,7 +5080,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
       if(getAddressInfo.buffer == VK_NULL_HANDLE)
         continue;
 
-      if(storageMode == KHR_bda)
+      if(IsKHRBDA(m_StorageMode))
         addresses[i] = m_pDriver->vkGetBufferDeviceAddress(dev, &getAddressInfo);
       else
         addresses[i] = m_pDriver->vkGetBufferDeviceAddressEXT(dev, &getAddressInfo);
@@ -5394,12 +5091,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
 
       // for EXT we have one 64-bit spec constant per address, for KHR we have a uvec2 - two
       // constants
-      if(storageMode == EXT_bda)
-      {
-        entry.size = sizeof(uint64_t);
-        specEntries.push_back(entry);
-      }
-      else
+      if(IsKHRBDA(m_StorageMode))
       {
         entry.size = sizeof(uint32_t);
         specEntries.push_back(entry);
@@ -5408,6 +5100,11 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
         entry.constantID++;
 
         entry.size = sizeof(uint32_t);
+        specEntries.push_back(entry);
+      }
+      else
+      {
+        entry.size = sizeof(uint64_t);
         specEntries.push_back(entry);
       }
     }
@@ -5435,33 +5132,8 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
     return;
   }
 
-  // make copy of state to draw from
-  VulkanRenderState modifiedstate = state;
-
   // bind created pipeline to partial replay state
   modifiedstate.compute.pipeline = GetResID(pipe);
-
-  // move graphics descriptor sets onto the compute pipe.
-  modifiedstate.compute.descSets = modifiedstate.graphics.descSets;
-
-  if(!descSets.empty())
-  {
-    // replace descriptor set IDs with our temporary sets. The offsets we keep the same. If the
-    // original draw had no sets, we ensure there's room (with no offsets needed)
-    if(modifiedstate.compute.descSets.empty())
-      modifiedstate.compute.descSets.resize(1);
-
-    for(size_t i = 0; i < descSets.size(); i++)
-    {
-      modifiedstate.compute.descSets[i].pipeLayout = GetResID(pipeLayout);
-      modifiedstate.compute.descSets[i].descSet = GetResID(descSets[i]);
-    }
-  }
-  else
-  {
-    for(size_t i = 0; i < modifiedstate.compute.descSets.size(); i++)
-      modifiedstate.compute.descSets[i].pipeLayout = GetResID(pipeLayout);
-  }
 
   {
     VkCommandBuffer cmd = m_pDriver->GetNextCmd();
@@ -5506,11 +5178,20 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
     fetchdesc.offset = 0;
     fetchdesc.range = bufSize;
 
-    if(!descSets.empty())
+    if(!patchedBufferdata.descSets.empty())
     {
       VkWriteDescriptorSet write = {
-          VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, NULL, descSets[0], 0,   0, 1,
-          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,      NULL, &fetchdesc,  NULL};
+          VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+          NULL,
+          patchedBufferdata.descSets[0],
+          0,
+          0,
+          1,
+          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          NULL,
+          &fetchdesc,
+          NULL,
+      };
       m_pDriver->vkUpdateDescriptorSets(dev, 1, &write, 0, NULL);
     }
 
@@ -5664,20 +5345,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
   ret.vsout.hasPosOut = refl->outputSignature[0].systemValue == ShaderBuiltin::Position;
   ret.vsout.flipY = state.views.empty() ? false : state.views[0].height < 0.0f;
 
-  if(descpool != VK_NULL_HANDLE)
-  {
-    // delete descriptors. Technically we don't have to free the descriptor sets, but our tracking
-    // on replay doesn't handle destroying children of pooled objects so we do it explicitly anyway.
-    m_pDriver->vkFreeDescriptorSets(dev, descpool, (uint32_t)descSets.size(), descSets.data());
-
-    m_pDriver->vkDestroyDescriptorPool(dev, descpool, NULL);
-
-    for(VkDescriptorSetLayout layout : setLayouts)
-      m_pDriver->vkDestroyDescriptorSetLayout(dev, layout, NULL);
-  }
-
-  // delete pipeline layout
-  m_pDriver->vkDestroyPipelineLayout(dev, pipeLayout, NULL);
+  patchedBufferdata.Free();
 
   // delete pipeline
   m_pDriver->vkDestroyPipeline(dev, pipe, NULL);
