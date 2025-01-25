@@ -1472,12 +1472,12 @@ void AnnotateShader(const ShaderReflection &refl, const SPIRVPatchData &patchDat
 
 void VulkanReplay::ClearFeedbackCache()
 {
-  m_BindlessFeedback.Usage.clear();
+  m_BindlessFeedback.clear();
 }
 
 bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
 {
-  if(m_BindlessFeedback.Usage.find(eventId) != m_BindlessFeedback.Usage.end())
+  if(m_BindlessFeedback.find(eventId) != m_BindlessFeedback.end())
     return false;
 
   if(!Vulkan_BindlessFeedback())
@@ -1485,7 +1485,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
 
   // create it here so we won't re-run any code if the event is re-selected. We'll mark it as valid
   // if it actually has any data in it later.
-  VKDynamicShaderFeedback &result = m_BindlessFeedback.Usage[eventId];
+  VKDynamicShaderFeedback &result = m_BindlessFeedback[eventId];
 
   const VulkanRenderState &state = m_pDriver->m_RenderState;
   VulkanCreationInfo &creationInfo = m_pDriver->m_CreationInfo;
@@ -1680,13 +1680,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
     }
   }
 
-  // we go through the driver for all these creations since they need to be properly
-  // registered in order to be put in the partial replay state. Our patched shader is valid so we
-  // don't need to replay after doing the feedback execute
-  VkResult vkr = VK_SUCCESS;
-  VkDevice dev = m_Device;
-
-  m_BindlessFeedback.ResizeFeedbackBuffer(m_pDriver, feedbackData.feedbackStorageSize);
+  m_PatchedShaderFeedback.ResizeFeedbackBuffer(m_pDriver, feedbackData.feedbackStorageSize);
 
   rdcarray<VkDescriptorSetLayoutBinding> newBindings = {
       {
@@ -1712,7 +1706,8 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
     return false;
 
   if(!patchedBufferdata.descSets.empty())
-    m_BindlessFeedback.FeedbackBuffer.WriteDescriptor(Unwrap(patchedBufferdata.descSets[0]), 0, 0);
+    m_PatchedShaderFeedback.FeedbackBuffer.WriteDescriptor(Unwrap(patchedBufferdata.descSets[0]), 0,
+                                                           0);
 
   std::map<uint32_t, PrintfData> printfData[NumShaderStages];
 
@@ -1752,14 +1747,14 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
     {
       AnnotateShader<uint64_t>(*pipeInfo.shaders[idx].refl, *pipeInfo.shaders[idx].patchData,
                                ShaderStage(idx), entryName, feedbackData.offsetMap, maxSlot,
-                               usePrimitiveID, m_BindlessFeedback.FeedbackBuffer.Address(),
+                               usePrimitiveID, m_PatchedShaderFeedback.FeedbackBuffer.Address(),
                                m_StorageMode, usesMultiview, modSpirv, printfData[idx]);
     }
     else
     {
       AnnotateShader<uint32_t>(*pipeInfo.shaders[idx].refl, *pipeInfo.shaders[idx].patchData,
                                ShaderStage(idx), entryName, feedbackData.offsetMap, maxSlot,
-                               usePrimitiveID, m_BindlessFeedback.FeedbackBuffer.Address(),
+                               usePrimitiveID, m_PatchedShaderFeedback.FeedbackBuffer.Address(),
                                m_StorageMode, usesMultiview, modSpirv, printfData[idx]);
     }
 
@@ -1768,65 +1763,14 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
 
     return true;
   };
+
   PrepareStateForPatchedShader(patchedBufferdata, modifiedstate, result.compute, patchCallback);
 
-  {
-    VkCommandBuffer cmd = m_pDriver->GetNextCmd();
-
-    if(cmd == VK_NULL_HANDLE)
-      return false;
-
-    VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL,
-                                          VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-
-    vkr = ObjDisp(dev)->BeginCommandBuffer(Unwrap(cmd), &beginInfo);
-    CHECK_VKR(m_pDriver, vkr);
-
-    // fill destination buffer with 0s to ensure a baseline to then feedback against
-    ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(), 0,
-                                feedbackData.feedbackStorageSize, 0);
-
-    VkBufferMemoryBarrier feedbackbufBarrier = {
-        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        NULL,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(),
-        0,
-        feedbackData.feedbackStorageSize,
-    };
-
-    // wait for the above fill to finish.
-    DoPipelineBarrier(cmd, 1, &feedbackbufBarrier);
-
-    if(result.compute)
-    {
-      modifiedstate.BindPipeline(m_pDriver, cmd, VulkanRenderState::BindCompute, true);
-
-      ObjDisp(cmd)->CmdDispatch(Unwrap(cmd), action->dispatchDimension[0],
-                                action->dispatchDimension[1], action->dispatchDimension[2]);
-    }
-    else
-    {
-      modifiedstate.BeginRenderPassAndApplyState(m_pDriver, cmd, VulkanRenderState::BindGraphics,
-                                                 false);
-
-      m_pDriver->ReplayDraw(cmd, *action);
-
-      modifiedstate.EndRenderPass(cmd);
-    }
-
-    vkr = ObjDisp(dev)->EndCommandBuffer(Unwrap(cmd));
-    CHECK_VKR(m_pDriver, vkr);
-
-    m_pDriver->SubmitCmds();
-    m_pDriver->FlushQ();
-  }
+  if(!RunFeedbackAction(feedbackData.feedbackStorageSize, action, modifiedstate))
+    return false;
 
   bytebuf data;
-  GetDebugManager()->GetBufferData(m_BindlessFeedback.FeedbackBuffer, 0, 0, data);
+  GetDebugManager()->GetBufferData(m_PatchedShaderFeedback.FeedbackBuffer, 0, 0, data);
 
   for(auto it = feedbackData.offsetMap.begin(); it != feedbackData.offsetMap.end(); ++it)
   {

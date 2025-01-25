@@ -3942,9 +3942,6 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     return new ShaderDebugTrace;
   }
 
-  VkDevice dev = m_pDriver->GetDev();
-  VkResult vkr = VK_SUCCESS;
-
   uint32_t sample = inputs.sample;
   uint32_t primitive = inputs.primitive;
   uint32_t view = inputs.view;
@@ -4125,7 +4122,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
            feedbackStorageSize);
   }
 
-  m_BindlessFeedback.ResizeFeedbackBuffer(m_pDriver, feedbackStorageSize);
+  m_PatchedShaderFeedback.ResizeFeedbackBuffer(m_pDriver, feedbackStorageSize);
 
   struct SpecData
   {
@@ -4168,9 +4165,10 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   }
 
   if(!patchedBufferdata.descSets.empty())
-    m_BindlessFeedback.FeedbackBuffer.WriteDescriptor(Unwrap(patchedBufferdata.descSets[0]), 0, 0);
+    m_PatchedShaderFeedback.FeedbackBuffer.WriteDescriptor(Unwrap(patchedBufferdata.descSets[0]), 0,
+                                                           0);
 
-  specData.bufferAddress = m_BindlessFeedback.FeedbackBuffer.Address();
+  specData.bufferAddress = m_PatchedShaderFeedback.FeedbackBuffer.Address();
   if(specData.bufferAddress && Vulkan_Debug_ShaderDebugLogging())
   {
     RDCLOG("Got buffer address of %llu", specData.bufferAddress);
@@ -4249,53 +4247,18 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
 
   PrepareStateForPatchedShader(patchedBufferdata, modifiedstate, false, patchCallback);
 
+  if(!RunFeedbackAction(feedbackStorageSize, action, modifiedstate))
   {
-    VkCommandBuffer cmd = m_pDriver->GetNextCmd();
+    delete apiWrapper;
 
-    if(cmd == VK_NULL_HANDLE)
-      return new ShaderDebugTrace;
+    ShaderDebugTrace *ret = new ShaderDebugTrace;
+    ret->stage = ShaderStage::Pixel;
 
-    VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL,
-                                          VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-
-    vkr = ObjDisp(dev)->BeginCommandBuffer(Unwrap(cmd), &beginInfo);
-    CHECK_VKR(m_pDriver, vkr);
-
-    // fill destination buffer with 0s to ensure a baseline to then feedback against
-    ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(), 0,
-                                feedbackStorageSize, 0);
-
-    VkBufferMemoryBarrier feedbackbufBarrier = {
-        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        NULL,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        m_BindlessFeedback.FeedbackBuffer.UnwrappedBuffer(),
-        0,
-        feedbackStorageSize,
-    };
-
-    // wait for the above fill to finish.
-    DoPipelineBarrier(cmd, 1, &feedbackbufBarrier);
-
-    modifiedstate.BeginRenderPassAndApplyState(m_pDriver, cmd, VulkanRenderState::BindGraphics,
-                                               false);
-
-    m_pDriver->ReplayDraw(cmd, *action);
-
-    modifiedstate.EndRenderPass(cmd);
-
-    vkr = ObjDisp(dev)->EndCommandBuffer(Unwrap(cmd));
-    CHECK_VKR(m_pDriver, vkr);
-
-    m_pDriver->SubmitCmds();
-    m_pDriver->FlushQ();
+    return ret;
   }
 
   bytebuf data;
-  GetDebugManager()->GetBufferData(m_BindlessFeedback.FeedbackBuffer, 0, 0, data);
+  GetDebugManager()->GetBufferData(m_PatchedShaderFeedback.FeedbackBuffer, 0, 0, data);
 
   byte *base = data.data();
   uint32_t numHits = ((uint32_t *)base)[0];

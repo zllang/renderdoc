@@ -3652,6 +3652,67 @@ void VulkanReplay::PrepareStateForPatchedShader(
   });
 }
 
+bool VulkanReplay::RunFeedbackAction(VkDeviceSize bufferSize, const ActionDescription *action,
+                                     VulkanRenderState &modifiedstate)
+{
+  VkResult vkr = VK_SUCCESS;
+  VkDevice dev = m_Device;
+  VkCommandBuffer cmd = m_pDriver->GetNextCmd();
+
+  if(cmd == VK_NULL_HANDLE)
+    return false;
+
+  VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL,
+                                        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+
+  vkr = ObjDisp(dev)->BeginCommandBuffer(Unwrap(cmd), &beginInfo);
+  CHECK_VKR(m_pDriver, vkr);
+
+  // fill destination buffer with 0s to ensure a baseline to then feedback against
+  ObjDisp(dev)->CmdFillBuffer(Unwrap(cmd), m_PatchedShaderFeedback.FeedbackBuffer.UnwrappedBuffer(),
+                              0, bufferSize, 0);
+
+  VkBufferMemoryBarrier feedbackbufBarrier = {
+      VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+      NULL,
+      VK_ACCESS_TRANSFER_WRITE_BIT,
+      VK_ACCESS_SHADER_WRITE_BIT,
+      VK_QUEUE_FAMILY_IGNORED,
+      VK_QUEUE_FAMILY_IGNORED,
+      m_PatchedShaderFeedback.FeedbackBuffer.UnwrappedBuffer(),
+      0,
+      bufferSize,
+  };
+
+  // wait for the above fill to finish.
+  DoPipelineBarrier(cmd, 1, &feedbackbufBarrier);
+
+  if(action->flags & ActionFlags::Dispatch)
+  {
+    modifiedstate.BindPipeline(m_pDriver, cmd, VulkanRenderState::BindCompute, true);
+
+    ObjDisp(cmd)->CmdDispatch(Unwrap(cmd), action->dispatchDimension[0],
+                              action->dispatchDimension[1], action->dispatchDimension[2]);
+  }
+  else
+  {
+    modifiedstate.BeginRenderPassAndApplyState(m_pDriver, cmd, VulkanRenderState::BindGraphics,
+                                               false);
+
+    m_pDriver->ReplayDraw(cmd, *action);
+
+    modifiedstate.EndRenderPass(cmd);
+  }
+
+  vkr = ObjDisp(dev)->EndCommandBuffer(Unwrap(cmd));
+  CHECK_VKR(m_pDriver, vkr);
+
+  m_pDriver->SubmitCmds();
+  m_pDriver->FlushQ();
+
+  return true;
+}
+
 void VulkanDebugManager::CustomShaderRendering::Destroy(WrappedVulkan *driver)
 {
   driver->vkDestroyRenderPass(driver->GetDev(), TexRP, NULL);
@@ -3737,7 +3798,7 @@ void VulkanReplay::CreateResources()
     m_StorageMode = BufferStorageMode::Descriptor;
   }
 
-  m_BindlessFeedback.m_StorageMode = m_StorageMode;
+  m_PatchedShaderFeedback.m_StorageMode = m_StorageMode;
 
   GpaVkContextOpenInfo context = {Unwrap(m_pDriver->GetInstance()), Unwrap(m_pDriver->GetPhysDev()),
                                   Unwrap(m_pDriver->GetDev())};

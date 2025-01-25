@@ -546,6 +546,9 @@ private:
                          rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo)>
           stagePatchCallback);
 
+  bool RunFeedbackAction(VkDeviceSize bufferSize, const ActionDescription *action,
+                         VulkanRenderState &modifiedstate);
+
   VulkanDebugManager *GetDebugManager();
   VulkanResourceManager *GetResourceManager();
 
@@ -848,9 +851,9 @@ private:
 
     BufferStorageMode m_StorageMode;
     GPUBuffer FeedbackBuffer;
+  } m_PatchedShaderFeedback;
 
-    std::map<uint32_t, VKDynamicShaderFeedback> Usage;
-  } m_BindlessFeedback;
+  std::map<uint32_t, VKDynamicShaderFeedback> m_BindlessFeedback;
 
   ShaderDebugData m_ShaderDebugData;
 

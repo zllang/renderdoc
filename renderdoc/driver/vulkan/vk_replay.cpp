@@ -2153,7 +2153,7 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
         &state.compute.descSets,
     };
 
-    const VKDynamicShaderFeedback &usage = m_BindlessFeedback.Usage[eventId];
+    const VKDynamicShaderFeedback &usage = m_BindlessFeedback[eventId];
 
     ret.shaderMessages = usage.messages;
 
@@ -2680,7 +2680,7 @@ rdcarray<DescriptorAccess> VulkanReplay::GetDescriptorAccess(uint32_t eventId)
       access = DescriptorAccess();
   }
 
-  const VKDynamicShaderFeedback &usage = m_BindlessFeedback.Usage[eventId];
+  const VKDynamicShaderFeedback &usage = m_BindlessFeedback[eventId];
 
   if(usage.valid)
     ret.append(usage.access);
