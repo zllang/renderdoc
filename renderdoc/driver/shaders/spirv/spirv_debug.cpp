@@ -2822,7 +2822,8 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       {
         // get current position
         ShaderVariable curCoord(rdcstr(), 0.0f, 0.0f, 0.0f, 0.0f);
-        debugger.GetAPIWrapper()->FillInputValue(curCoord, ShaderBuiltin::Position, 0, 0);
+        debugger.GetAPIWrapper()->FillInputValue(curCoord, ShaderBuiltin::Position, workgroupIndex,
+                                                 0, 0);
 
         // co-ords are relative to the current position
         setUintComp(coord, 0, uintComp(coord, 0) + (uint32_t)floatComp(curCoord, 0));

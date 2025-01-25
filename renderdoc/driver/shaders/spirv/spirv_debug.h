@@ -69,8 +69,8 @@ public:
   virtual bool WriteTexel(ShaderBindIndex imageBind, const ShaderVariable &coord, uint32_t sample,
                           const ShaderVariable &value) = 0;
 
-  virtual void FillInputValue(ShaderVariable &var, ShaderBuiltin builtin, uint32_t location,
-                              uint32_t component) = 0;
+  virtual void FillInputValue(ShaderVariable &var, ShaderBuiltin builtin, uint32_t threadIndex,
+                              uint32_t location, uint32_t component) = 0;
 
   enum TextureType
   {
@@ -93,17 +93,6 @@ public:
 
   virtual bool CalculateMathOp(ThreadState &lane, GLSLstd450 op,
                                const rdcarray<ShaderVariable> &params, ShaderVariable &output) = 0;
-
-  struct DerivativeDeltas
-  {
-    ShaderVariable ddxcoarse;
-    ShaderVariable ddycoarse;
-    ShaderVariable ddxfine;
-    ShaderVariable ddyfine;
-  };
-
-  virtual DerivativeDeltas GetDerivative(ShaderBuiltin builtin, uint32_t location,
-                                         uint32_t component, VarType type) = 0;
 };
 
 typedef ShaderVariable (*ExtInstImpl)(ThreadState &, uint32_t, const rdcarray<Id> &);
@@ -408,9 +397,6 @@ private:
   virtual void PreParse(uint32_t maxId);
   virtual void PostParse();
   virtual void RegisterOp(Iter it);
-
-  uint32_t ApplyDerivatives(uint32_t quadIndex, const Decorations &curDecorations,
-                            uint32_t location, const DataType &inType, ShaderVariable &outVar);
 
   template <typename ShaderVarType, bool allocate>
   uint32_t WalkVariable(const Decorations &curDecorations, const DataType &type,

@@ -954,7 +954,6 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 #define GLOBAL_POINTER(id, list) PointerId(id, &GlobalState::list, global.list)
 #define THREAD_POINTER(id, list) PointerId(id, &ThreadState::list, active.list)
 
-  rdcarray<Id> inputIDs, outputIDs;
   rdcarray<PointerId> pointerIDs;
 
   // allocate storage for globals with opaque storage classes, and prepare to set up pointers to
@@ -1002,11 +1001,14 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
       bool addSource = m_DebugInfo.valid ? m_DebugInfo.globals.contains(v.id) : true;
 
+      // modified in a loop below as needed
+      uint32_t laneIndex = 0;
+
       // fill the interface variable
-      auto fillInputCallback = [this, isInput, addSource, ret, &sigNames, &rawName, &sourceName](
-                                   ShaderVariable &var, const Decorations &curDecorations,
-                                   const DataType &type, uint64_t location,
-                                   const rdcstr &accessSuffix) {
+      auto fillInputCallback = [this, isInput, addSource, ret, &sigNames, &rawName, &sourceName,
+                                &laneIndex](ShaderVariable &var, const Decorations &curDecorations,
+                                            const DataType &type, uint64_t location,
+                                            const rdcstr &accessSuffix) {
         if(!var.members.empty())
           return;
 
@@ -1026,7 +1028,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
           if(curDecorations.flags & Decorations::HasBuiltIn)
             builtin = MakeShaderBuiltin(stage, curDecorations.builtIn);
 
-          this->apiWrapper->FillInputValue(var, builtin, (uint32_t)location, component);
+          this->apiWrapper->FillInputValue(var, builtin, laneIndex, (uint32_t)location, component);
         }
         else
         {
@@ -1034,7 +1036,15 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
           memset(&var.value, 0xcc, sizeof(var.value));
         }
 
-        if(sourceName != rawName)
+        bool addSourceVar = false;
+
+        if(!isInput && addSource)
+          addSourceVar = true;
+
+        if(isInput && laneIndex == activeLaneIndex)
+          addSourceVar = true;
+
+        if(sourceName != rawName && addSourceVar)
         {
           rdcstr debugVarName = rawName + accessSuffix;
 
@@ -1052,29 +1062,32 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
             sourceVar.variables.push_back(DebugVariableReference(
                 isInput ? DebugVariableType::Input : DebugVariableType::Variable, debugVarName, x));
 
-          if(isInput)
-            ret->sourceVars.push_back(sourceVar);
-          else if(addSource)
+          if(addSourceVar)
             ret->sourceVars.push_back(sourceVar);
         }
       };
 
-      WalkVariable<ShaderVariable, true>(decorations[v.id], dataTypes[type.InnerType()], ~0U, var,
-                                         rdcstr(), fillInputCallback);
-
       if(isInput)
       {
-        // create the opaque storage
-        active.inputs.push_back(var);
+        for(laneIndex = 0; laneIndex < workgroupSize; laneIndex++)
+        {
+          // create the opaque storage
+          workgroup[laneIndex].inputs.push_back(var);
+
+          WalkVariable<ShaderVariable, true>(decorations[v.id], dataTypes[type.InnerType()], ~0U,
+                                             workgroup[laneIndex].inputs.back(), rdcstr(),
+                                             fillInputCallback);
+        }
 
         // then make sure we know which ID to set up for the pointer
-        inputIDs.push_back(v.id);
         pointerIDs.push_back(THREAD_POINTER(v.id, inputs));
       }
       else
       {
+        WalkVariable<ShaderVariable, true>(decorations[v.id], dataTypes[type.InnerType()], ~0U, var,
+                                           rdcstr(), fillInputCallback);
+
         active.outputs.push_back(var);
-        outputIDs.push_back(v.id);
         liveGlobals.push_back(v.id);
         pointerIDs.push_back(THREAD_POINTER(v.id, outputs));
       }
@@ -1479,7 +1492,6 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
     if(i != activeLaneIndex)
     {
       lane.nextInstruction = active.nextInstruction;
-      lane.inputs = active.inputs;
       lane.outputs = active.outputs;
       lane.privates = active.privates;
       lane.ids = active.ids;
@@ -1513,39 +1525,6 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
   ret->readWriteResources = global.readWriteResources;
   ret->samplers = global.samplers;
   ret->inputs = active.inputs;
-
-  if(stage == ShaderStage::Pixel)
-  {
-    // apply derivatives to generate the correct inputs for the quad neighbours
-    for(uint32_t q = 0; q < workgroupSize; q++)
-    {
-      if(q == activeLaneIndex)
-        continue;
-
-      for(size_t i = 0; i < inputIDs.size(); i++)
-      {
-        Id id = inputIDs[i];
-
-        const DataType &type = dataTypes[idTypes[id]];
-
-        // global variables should all be pointers into opaque storage
-        RDCASSERT(type.type == DataType::PointerType);
-
-        const DataType &innertype = dataTypes[type.InnerType()];
-
-        auto derivCallback = [this, q](ShaderVariable &var, const Decorations &dec,
-                                       const DataType &type, uint64_t location, const rdcstr &) {
-          if(!var.members.empty())
-            return;
-
-          ApplyDerivatives(q, dec, (uint32_t)location, type, var);
-        };
-
-        WalkVariable<ShaderVariable, false>(decorations[id], innertype, ~0U, workgroup[q].inputs[i],
-                                            rdcstr(), derivCallback);
-      }
-    }
-  }
 
   return ret;
 }
@@ -3551,201 +3530,6 @@ uint32_t Debugger::WalkVariable(
 
   // for auto-assigning locations, we return the number of locations
   return numLocations;
-}
-
-template <typename FloatType>
-static void ApplyDerivative(uint32_t activeLaneIndex, uint32_t quadIndex, FloatType *dst,
-                            DebugAPIWrapper::DerivativeDeltas &derivs)
-{
-  // We make the assumption that the coarse derivatives are generated from (0,0) in the quad, and
-  // fine derivatives are generated from the destination index and its neighbours in X and Y.
-  // This isn't spec'd but we must assume something and this will hopefully get us closest to
-  // reproducing actual results.
-  //
-  // For debugging, we need members of the quad to be able to generate coarse and fine
-  // derivatives.
-  //
-  // For (0,0) we only need the coarse derivatives to get our neighbours (1,0) and (0,1) which
-  // will give us coarse and fine derivatives being identical.
-  //
-  // For the others we will need to use a combination of coarse and fine derivatives to get the
-  // diagonal element in the quad. In the examples below, remember that the quad indices are:
-  //
-  // +---+---+
-  // | 0 | 1 |
-  // +---+---+
-  // | 2 | 3 |
-  // +---+---+
-  //
-  // And that we have definitions of the derivatives:
-  //
-  // ddx_coarse = (1,0) - (0,0)
-  // ddy_coarse = (0,1) - (0,0)
-  //
-  // i.e. the same for all members of the quad
-  //
-  // ddx_fine   = (x,y) - (1-x,y)
-  // ddy_fine   = (x,y) - (x,1-y)
-  //
-  // i.e. the difference to the neighbour of our desired invocation (the one we have the actual
-  // inputs for, from gathering above).
-  //
-  // So e.g. if our thread is at (1,1) destIdx = 3
-  //
-  // (1,0) = (1,1) - ddx_fine
-  // (0,1) = (1,1) - ddy_fine
-  // (0,0) = (1,1) - ddy_fine - ddx_coarse
-  //
-  // and ddy_coarse is unused. For (1,0) destIdx = 1:
-  //
-  // (1,1) = (1,0) + ddy_fine
-  // (0,1) = (1,0) - ddx_coarse + ddy_coarse
-  // (0,0) = (1,0) - ddx_coarse
-  //
-  // and ddx_fine is unused (it's identical to ddx_coarse anyway)
-
-  // in the diagrams below * marks the active lane index.
-  //
-  //   V and ^ == coarse ddy
-  //   , and ` == fine ddy
-  //   < and > == coarse ddx
-  //   { and } == fine ddx
-  //
-  // We are basically making one or two cardinal direction moves from the starting point
-  // (activeLaneIndex) to the end point (quadIndex).
-  RDCASSERTNOTEQUAL(activeLaneIndex, quadIndex);
-
-#define ADD_DERIV(src)       \
-  for(int i = 0; i < 4; i++) \
-    dst[i] += comp<FloatType>(src, i);
-#define SUB_DERIV(src)       \
-  for(int i = 0; i < 4; i++) \
-    dst[i] -= comp<FloatType>(src, i);
-
-  switch(activeLaneIndex)
-  {
-    case 0:
-    {
-      // +---+---+
-      // |*0 > 1 |
-      // +-V-+-V-+
-      // | 2 | 3 |
-      // +---+---+
-      switch(quadIndex)
-      {
-        case 0: break;
-        case 1: ADD_DERIV(derivs.ddxcoarse); break;
-        case 2: ADD_DERIV(derivs.ddycoarse); break;
-        case 3:
-          ADD_DERIV(derivs.ddxcoarse);
-          ADD_DERIV(derivs.ddycoarse);
-          break;
-        default: break;
-      }
-      break;
-    }
-    case 1:
-    {
-      // we need to use fine to get from 1 to 3 as coarse only ever involves 0->1 and 0->2
-      // +---+---+
-      // | 0 < 1*|
-      // +-V-+-,-+
-      // | 2 | 3 |
-      // +---+---+
-      switch(quadIndex)
-      {
-        case 0: SUB_DERIV(derivs.ddxcoarse); break;
-        case 1: break;
-        case 2:
-          SUB_DERIV(derivs.ddxcoarse);
-          ADD_DERIV(derivs.ddycoarse);
-          break;
-        case 3: ADD_DERIV(derivs.ddyfine); break;
-        default: break;
-      }
-      break;
-    }
-    case 2:
-    {
-      // +---+---+
-      // | 0 > 1 |
-      // +-^-+---+
-      // |*2 } 3 |
-      // +---+---+
-      switch(quadIndex)
-      {
-        case 0: SUB_DERIV(derivs.ddycoarse); break;
-        case 1:
-          SUB_DERIV(derivs.ddycoarse);
-          ADD_DERIV(derivs.ddxcoarse);
-          break;
-        case 2: break;
-        case 3: ADD_DERIV(derivs.ddxfine); break;
-        default: break;
-      }
-      break;
-    }
-    case 3:
-    {
-      // +---+---+
-      // | 0 < 1 |
-      // +---+-`-+
-      // | 2 { 3*|
-      // +---+---+
-      switch(quadIndex)
-      {
-        case 0:
-          SUB_DERIV(derivs.ddyfine);
-          SUB_DERIV(derivs.ddxcoarse);
-          break;
-        case 1: SUB_DERIV(derivs.ddyfine); break;
-        case 2: SUB_DERIV(derivs.ddxfine); break;
-        case 3: break;
-        default: break;
-      }
-      break;
-    }
-    default: break;
-  }
-}
-
-uint32_t Debugger::ApplyDerivatives(uint32_t quadIndex, const Decorations &curDecorations,
-                                    uint32_t location, const DataType &inType, ShaderVariable &outVar)
-{
-  // only floats have derivatives
-  if(outVar.type == VarType::Float || outVar.type == VarType::Half || outVar.type == VarType::Double)
-  {
-    ShaderBuiltin builtin = ShaderBuiltin::Undefined;
-    if(curDecorations.flags & Decorations::HasBuiltIn)
-      builtin = MakeShaderBuiltin(stage, curDecorations.builtIn);
-
-    uint32_t component = 0;
-    for(const DecorationAndParamData &dec : curDecorations.others)
-    {
-      if(dec.value == Decoration::Component)
-      {
-        component = dec.component;
-        break;
-      }
-    }
-
-    if(curDecorations.flags & Decorations::HasLocation)
-      location = curDecorations.location;
-
-    DebugAPIWrapper::DerivativeDeltas derivs =
-        apiWrapper->GetDerivative(builtin, location, component, outVar.type);
-
-    if(outVar.type == VarType::Float)
-      ApplyDerivative<float>(activeLaneIndex, quadIndex, outVar.value.f32v.data(), derivs);
-    else if(outVar.type == VarType::Half)
-      ApplyDerivative<half_float::half>(activeLaneIndex, quadIndex,
-                                        (half_float::half *)outVar.value.f16v.data(), derivs);
-    else if(outVar.type == VarType::Double)
-      ApplyDerivative<double>(activeLaneIndex, quadIndex, outVar.value.f64v.data(), derivs);
-  }
-
-  // each row consumes a new location
-  return outVar.rows;
 }
 
 bool Debugger::IsDebugExtInstSet(Id id) const
