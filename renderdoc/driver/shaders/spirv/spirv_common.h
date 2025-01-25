@@ -455,3 +455,32 @@ enum class ShaderBuiltin : uint32_t;
 
 ShaderStage MakeShaderStage(rdcspv::ExecutionModel model);
 ShaderBuiltin MakeShaderBuiltin(ShaderStage stage, const rdcspv::BuiltIn el);
+
+enum class BufferStorageMode : uint32_t
+{
+  Unknown,
+  // patched in plain descriptor
+  Descriptor,
+  // legacy path - EXT_buffer_device_address only
+  EXT_bda,
+  // KHR_buffer_device_address, but with uint2 addresses to not require int64 types/maths
+  KHR_bda32,
+  // like above, but requiring int64
+  KHR_bda64,
+};
+
+constexpr bool IsBDA(BufferStorageMode mode)
+{
+  return mode == BufferStorageMode::EXT_bda || mode == BufferStorageMode::KHR_bda32 ||
+         mode == BufferStorageMode::KHR_bda64;
+}
+
+constexpr bool IsKHRBDA(BufferStorageMode mode)
+{
+  return mode == BufferStorageMode::KHR_bda32 || mode == BufferStorageMode::KHR_bda64;
+}
+
+constexpr bool IsBinding(BufferStorageMode mode)
+{
+  return mode == BufferStorageMode::Descriptor;
+}

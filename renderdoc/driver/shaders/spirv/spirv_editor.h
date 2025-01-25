@@ -58,6 +58,13 @@ struct Binding
   bool operator==(const Binding &o) const { return set == o.set && binding == o.binding; }
 };
 
+struct StructMember
+{
+  Id type;
+  rdcstr name;
+  uint32_t offset;
+};
+
 template <typename SPIRVType>
 using TypeToId = std::pair<SPIRVType, Id>;
 
@@ -71,6 +78,7 @@ public:
   ~Editor();
 
   void Prepare();
+  void SetBufferStorageMode(BufferStorageMode mode) { m_StorageMode = mode; }
   void CreateEmpty(uint32_t major, uint32_t minor);
 
   Id MakeId();
@@ -90,6 +98,26 @@ public:
   {
     UnregisterOp(iter);
     iter.nopRemove();
+  }
+
+  void OffsetBindingsToMatchReservation(size_t numReservedBindings);
+  StorageClass PrepareAddedBufferAccess();
+  rdcpair<Id, Id> AddBufferVariable(rdcarray<Id> &addedGlobals, Id varType, const rdcstr &name,
+                                    uint32_t binding, uint32_t specID, uint64_t fixedAddr);
+  Id LoadBufferVariable(OperationList &ops, rdcpair<Id, Id> var);
+
+  Id FindEntryID(ShaderEntryPoint entry);
+  void AddEntryGlobals(Id entry, const rdcarray<Id> &newGlobals);
+
+  rdcpair<Id, Id> AddBuiltinInputLoad(OperationList &ops, ShaderStage stage, BuiltIn builtin,
+                                      Id type);
+  Id AddBuiltinInputLoad(OperationList &ops, rdcarray<Id> &addedGlobals, ShaderStage stage,
+                         BuiltIn builtin, Id type)
+  {
+    rdcpair<Id, Id> ret = AddBuiltinInputLoad(ops, stage, builtin, type);
+    if(ret.second != rdcspv::Id())
+      addedGlobals.push_back(ret.second);
+    return ret.first;
   }
 
   StorageClass StorageBufferClass() { return m_StorageBufferClass; }
@@ -175,10 +203,8 @@ public:
     return it->second;
   }
 
-  rdcpair<Id, Id> AddBuiltinInputLoad(OperationList &ops, ShaderStage stage, BuiltIn builtin,
-                                      Id type);
-
   Id DeclareStructType(const rdcarray<Id> &members);
+  Id DeclareStructType(const rdcstr &name, const rdcarray<StructMember> &members);
 
   // helper for AddConstant
   template <typename T>
@@ -270,7 +296,11 @@ private:
 
   std::map<BuiltIn, BuiltinInputData> builtinInputs;
 
+  BufferStorageMode m_StorageMode = BufferStorageMode::Unknown;
+
   std::map<Id, Binding> bindings;
+  rdcarray<Id> m_BufferBlockTypes;
+  rdcarray<Id> m_BlockTypes;
 
   std::map<Scalar, Id> scalarTypeToId;
   std::map<Vector, Id> vectorTypeToId;
