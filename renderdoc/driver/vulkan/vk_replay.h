@@ -503,13 +503,6 @@ private:
   void FillDescriptor(Descriptor &dstel, const DescriptorSetSlot &srcel);
   void FillSamplerDescriptor(SamplerDescriptor &dstel, const DescriptorSetSlot &srcel);
 
-  void PatchReservedDescriptors(const VulkanStatePipeline &pipe, VkDescriptorPool &descpool,
-                                rdcarray<VkDescriptorSetLayout> &setLayouts,
-                                rdcarray<VkDescriptorSet> &descSets,
-                                VkShaderStageFlagBits patchedBindingStage,
-                                const VkDescriptorSetLayoutBinding *newBindings,
-                                size_t newBindingsCount);
-
   void FetchVSOut(uint32_t eventId, VulkanRenderState &state);
   void FetchTessGSOut(uint32_t eventId, VulkanRenderState &state);
   void FetchMeshOut(uint32_t eventId, VulkanRenderState &state);
