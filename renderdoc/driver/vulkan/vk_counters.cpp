@@ -165,6 +165,11 @@ rdcarray<GPUCounter> VulkanReplay::EnumerateCounters()
     m_KHRCounters.resize(khrCounters);
     m_KHRCountersDescriptions.resize(khrCounters);
 
+    for(VkPerformanceCounterKHR &count : m_KHRCounters)
+      count.sType = VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_KHR;
+    for(VkPerformanceCounterDescriptionKHR &desc : m_KHRCountersDescriptions)
+      desc.sType = VK_STRUCTURE_TYPE_PERFORMANCE_COUNTER_DESCRIPTION_KHR;
+
     ObjDisp(physDev)->EnumeratePhysicalDeviceQueueFamilyPerformanceQueryCountersKHR(
         Unwrap(physDev), 0, &khrCounters, &m_KHRCounters[0], &m_KHRCountersDescriptions[0]);
 
@@ -629,14 +634,23 @@ struct VulkanKHRCallback : public VulkanActionCallback
   }
   void PreMisc(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
   {
+    // ignore renderpass boundaries as it's illegal to start and end queries across the boundary
+    if(flags & ActionFlags::PassBoundary)
+      return;
     PreDraw(eid, flags, cmd);
   }
   bool PostMisc(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
   {
+    // ignore renderpass boundaries as it's illegal to start and end queries across the boundary
+    if(flags & ActionFlags::PassBoundary)
+      return false;
     return PostDraw(eid, flags, cmd);
   }
   void PostRemisc(uint32_t eid, ActionFlags flags, VkCommandBuffer cmd) override
   {
+    // ignore renderpass boundaries as it's illegal to start and end queries across the boundary
+    if(flags & ActionFlags::PassBoundary)
+      return;
     PostRedraw(eid, flags, cmd);
   }
   void AliasEvent(uint32_t primary, uint32_t alias) override
@@ -735,6 +749,8 @@ rdcarray<CounterResult> VulkanReplay::FetchCountersKHR(const rdcarray<GPUCounter
     m_pDriver->ReplayLog(0, maxEID, eReplay_Full);
     m_pDriver->SetSubmitChain(NULL);
   }
+
+  m_pDriver->vkDeviceWaitIdle(dev);
 
   rdcarray<VkPerformanceCounterResultKHR> perfResults;
   perfResults.resize(cb.m_Results.size() * counters.size());
