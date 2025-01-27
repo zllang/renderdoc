@@ -4654,7 +4654,10 @@ void WrappedVulkan::ReplayLog(uint32_t startEventID, uint32_t endEventID, Replay
       m_CleanupEvents.clear();
 
       for(const rdcpair<VkCommandPool, VkCommandBuffer> &rerecord : m_RerecordCmdList)
+      {
+        m_commandQueueFamilies.erase(GetResID(rerecord.second));
         vkFreeCommandBuffers(GetDev(), rerecord.first, 1, &rerecord.second);
+      }
 
       m_RerecordCmdList.clear();
     });

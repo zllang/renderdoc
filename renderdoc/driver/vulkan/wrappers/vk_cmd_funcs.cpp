@@ -1074,14 +1074,18 @@ bool WrappedVulkan::Serialise_vkBeginCommandBuffer(SerialiserType &ser, VkComman
 
   if(IsReplayingAndReading())
   {
-    auto cmdQueueFamilyIt = m_commandQueueFamilies.find(CommandBuffer);
-    if(cmdQueueFamilyIt == m_commandQueueFamilies.end())
+    uint32_t queueFamily = 0;
     {
-      RDCERR("Unknown queue family for %s", ToStr(CommandBuffer).c_str());
-    }
-    else
-    {
-      InsertCommandQueueFamily(BakedCommandBuffer, cmdQueueFamilyIt->second);
+      auto cmdQueueFamilyIt = m_commandQueueFamilies.find(CommandBuffer);
+      if(cmdQueueFamilyIt == m_commandQueueFamilies.end())
+      {
+        RDCERR("Unknown queue family for %s", ToStr(CommandBuffer).c_str());
+      }
+      else
+      {
+        queueFamily = cmdQueueFamilyIt->second;
+        InsertCommandQueueFamily(BakedCommandBuffer, queueFamily);
+      }
     }
 
     m_LastCmdBufferID = BakedCommandBuffer;
@@ -1229,6 +1233,8 @@ bool WrappedVulkan::Serialise_vkBeginCommandBuffer(SerialiserType &ser, VkComman
         RDCDEBUG("vkBegin - re-recording %s -> %s into %s", ToStr(CommandBuffer).c_str(),
                  ToStr(BakedCommandBuffer).c_str(), ToStr(GetResID(cmd)).c_str());
 #endif
+
+        InsertCommandQueueFamily(GetResID(cmd), queueFamily);
 
         // we store under both baked and non baked ID.
         // The baked ID is the 'real' entry, the non baked is simply so it
