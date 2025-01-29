@@ -851,6 +851,8 @@ private:
 
     BufferStorageMode m_StorageMode;
     GPUBuffer FeedbackBuffer;
+
+    VkPipelineCache PipeCache = VK_NULL_HANDLE;
   } m_PatchedShaderFeedback;
 
   std::map<uint32_t, VKDynamicShaderFeedback> m_BindlessFeedback;

@@ -3471,9 +3471,19 @@ void VulkanReplay::PrepareStateForPatchedShader(
       m_pDriver->GetShaderCache()->MakeGraphicsPipelineInfo(graphicsInfo, pipelineId);
   }
 
+  VkResult vkr = VK_SUCCESS;
   VkShaderModuleCreateInfo moduleCreateInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
 
-  VkResult vkr = VK_SUCCESS;
+  // create an in-memory pipeline cache for patched shaders
+  if(m_PatchedShaderFeedback.PipeCache == VK_NULL_HANDLE)
+  {
+    VkPipelineCacheCreateInfo createInfo = {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+
+    vkr =
+        m_pDriver->vkCreatePipelineCache(dev, &createInfo, NULL, &m_PatchedShaderFeedback.PipeCache);
+    CHECK_VKR(m_pDriver, vkr);
+  }
+
   VkPipeline pipe = VK_NULL_HANDLE;
   if(pipelineId != ResourceId() && compute)
   {
@@ -3497,7 +3507,8 @@ void VulkanReplay::PrepareStateForPatchedShader(
 
     // we don't use a pipeline cache because a hard-coded address will cause failures often and
     // bloat the cache.
-    vkr = m_pDriver->vkCreateComputePipelines(dev, VK_NULL_HANDLE, 1, &computeInfo, NULL, &pipe);
+    vkr = m_pDriver->vkCreateComputePipelines(dev, m_PatchedShaderFeedback.PipeCache, 1,
+                                              &computeInfo, NULL, &pipe);
     CHECK_VKR(m_pDriver, vkr);
 
     // delete shader module
@@ -3567,7 +3578,8 @@ void VulkanReplay::PrepareStateForPatchedShader(
 
     // we don't use a pipeline cache because a hard-coded address will cause failures often and
     // bloat the cache.
-    vkr = m_pDriver->vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &graphicsInfo, NULL, &pipe);
+    vkr = m_pDriver->vkCreateGraphicsPipelines(dev, m_PatchedShaderFeedback.PipeCache, 1,
+                                               &graphicsInfo, NULL, &pipe);
     CHECK_VKR(m_pDriver, vkr);
 
     // delete shader modules
@@ -5391,6 +5403,8 @@ void VulkanReplay::Feedback::ResizeFeedbackBuffer(WrappedVulkan *driver,
 void VulkanReplay::Feedback::Destroy(WrappedVulkan *driver)
 {
   FeedbackBuffer.Destroy();
+
+  driver->vkDestroyPipelineCache(driver->GetDev(), PipeCache, NULL);
 }
 
 void ShaderDebugData::Init(WrappedVulkan *driver, VkDescriptorPool descriptorPool)
