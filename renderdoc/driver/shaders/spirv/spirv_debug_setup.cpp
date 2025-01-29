@@ -1495,8 +1495,13 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
       lane.outputs = active.outputs;
       lane.privates = active.privates;
       lane.ids = active.ids;
-      // mark as inactive/helper lane
-      lane.helperInvocation = true;
+    }
+
+    if(stage == ShaderStage::Pixel)
+    {
+      ShaderVariable var(rdcstr(), 0U, 0U, 0U, 0U);
+      apiWrapper->FillInputValue(var, ShaderBuiltin::IsHelper, i, 0, 0);
+      lane.helperInvocation = var.value.u32v[0] != 0;
     }
 
     // now that the globals are allocated and their storage won't move, we can take pointers to them

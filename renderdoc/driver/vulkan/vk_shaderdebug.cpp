@@ -36,7 +36,7 @@
 #undef None
 
 RDOC_CONFIG(rdcstr, Vulkan_Debug_PSDebugDumpDirPath, "",
-            "Path to dump pixel shader debugging generated SPIR-V files.");
+            "Path to dump shader debugging generated SPIR-V files.");
 RDOC_CONFIG(bool, Vulkan_Debug_ShaderDebugLogging, false,
             "Output verbose debug logging messages when debugging shaders.");
 
@@ -2923,17 +2923,40 @@ enum class InputSpecConstant
 static const uint32_t validMagicNumber = 12345;
 static const uint32_t NumReservedBindings = 1;
 
-struct PSHitBase
+// things we need to readback once per hit thread
+struct ResultDataBase
 {
   Vec4f pos;
+
   uint32_t prim;
   uint32_t sample;
   uint32_t view;
   uint32_t valid;
+
   float ddxDerivCheck;
   uint32_t laneIndex;
   uint32_t padding[2];
-  // PSInput base, ddx, ....
+  // LaneData lanes[N]
+};
+
+struct VertexLaneData
+{
+  uint32_t inst;    // allow/expect instance to vary across subgroup just in case
+  uint32_t vert;    // vertex id (either auto-generated or index)
+  uint32_t padding[2];
+};
+
+struct PixelLaneData
+{
+  Vec4f fragCoord;    // per-lane coord
+  uint32_t helper;    // per-lane helper bit
+  uint32_t padding[3];
+};
+
+struct ComputeLaneData
+{
+  uint32_t threadid[3];    // per-lane thread id (in case it's not trivial)
+  uint32_t padding;
 };
 
 // We make the assumption that the coarse derivatives are generated from (0,0) in the quad, and
@@ -2992,6 +3015,22 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
                                                      rdcspv::OperationList &ops, rdcspv::Id type,
                                                      rdcspv::Id base, rdcspv::Id laneIndex)
 {
+  const rdcspv::DataType &dataType = editor.GetDataType(type);
+  uint32_t count = dataType.vector().count;
+
+  // if the input is a uint (can happen for e.g. the IsHelper builtin we want to query)
+  // first we convert to float. We assume that the values are low enough that this will be lossless
+  bool converted = false;
+  if(dataType.vector().scalar.type != rdcspv::Op::TypeFloat)
+  {
+    converted = true;
+    // assume only uint32 scalars
+    RDCASSERT(count <= 1 && dataType.vector().scalar.signedness == false &&
+              dataType.vector().scalar.width == 32);
+    type = editor.DeclareType(rdcspv::scalar<float>());
+    base = ops.add(rdcspv::OpConvertUToF(type, editor.MakeId(), base));
+  }
+
   rdcspv::Id ddxCoarse = ops.add(rdcspv::OpDPdxCoarse(type, editor.MakeId(), base));
   rdcspv::Id ddyCoarse = ops.add(rdcspv::OpDPdyCoarse(type, editor.MakeId(), base));
   rdcspv::Id ddxFine = ops.add(rdcspv::OpDPdxFine(type, editor.MakeId(), base));
@@ -3015,7 +3054,6 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
   };
 
   // broadcast to number of components in the input type
-  uint32_t count = editor.GetDataType(type).vector().count;
 
   if(count >= 2)
   {
@@ -3089,106 +3127,61 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
   motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[1], ddyFine, zeroFloat));
   value3 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), value3, motion));
 
+  // if we converted to float for the deriv ops, convert back now
+  if(converted)
+  {
+    rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
+    value0 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value0));
+    value1 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value1));
+    value2 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value2));
+    value3 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value3));
+  }
+
   return {value0, value1, value2, value3};
 }
 
-static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t structStride,
-                                 const uint32_t paramAlign,
-                                 VulkanCreationInfo::ShaderModuleReflection &shadRefl,
-                                 BufferStorageMode storageMode, bool usePrimitiveID,
-                                 bool useSampleID, bool useViewIndex)
+static void CreateInputFetcher(rdcarray<uint32_t> &spv,
+                               VulkanCreationInfo::ShaderModuleReflection &shadRefl,
+                               BufferStorageMode storageMode, bool usePrimitiveID, bool useSampleID,
+                               bool useViewIndex)
 {
-  rdcspv::Editor editor(fragspv);
+  rdcspv::Editor editor(spv);
+
+  ShaderStage stage = ShaderStage(shadRefl.stageIndex);
+
+  uint32_t paramAlign = 16;
+
+  for(const SigParameter &sig : shadRefl.refl->inputSignature)
+  {
+    if(VarTypeByteSize(sig.varType) * sig.compCount > paramAlign)
+      paramAlign = 32;
+  }
+
+  // conservatively calculate structure stride with full amount for every input element
+  uint32_t structStride = (uint32_t)shadRefl.refl->inputSignature.size() * paramAlign;
+
+  switch(stage)
+  {
+    case ShaderStage::Vertex: structStride += sizeof(VertexLaneData); break;
+    case ShaderStage::Pixel: structStride += sizeof(PixelLaneData); break;
+    case ShaderStage::Task:
+    case ShaderStage::Mesh:
+    case ShaderStage::Compute: structStride += sizeof(ComputeLaneData); break;
+    default: break;
+  }
 
   editor.Prepare();
   editor.SetBufferStorageMode(storageMode);
 
   editor.OffsetBindingsToMatchReservation(NumReservedBindings);
 
-  rdcspv::Id entryID;
+  // the original entry ID we're patching
+  rdcspv::Id originalEntry = editor.FindEntryID({shadRefl.entryPoint, stage});
+  // the new wrapped entry function we'll add
+  rdcspv::Id entryID = editor.MakeId();
 
-  // first delete all functions. We will recreate the entry point with just what we need
-  {
-    rdcarray<rdcspv::Id> removedIds;
-
-    rdcspv::Iter it = editor.Begin(rdcspv::Section::Functions);
-    rdcspv::Iter end = editor.End(rdcspv::Section::Functions);
-    while(it < end)
-    {
-      removedIds.push_back(rdcspv::OpDecoder(it).result);
-      editor.Remove(it);
-      it++;
-    }
-
-    it = editor.Begin(rdcspv::Section::EntryPoints);
-    end = editor.End(rdcspv::Section::EntryPoints);
-    while(it < end)
-    {
-      rdcspv::OpEntryPoint e(it);
-      if(e.name == shadRefl.entryPoint && e.executionModel == rdcspv::ExecutionModel::Fragment)
-      {
-        // remember the Id of our entry point
-        entryID = e.entryPoint;
-      }
-      else
-      {
-        // remove all other entry points
-        removedIds.push_back(e.entryPoint);
-        editor.Remove(it);
-      }
-      it++;
-    }
-
-    it = editor.Begin(rdcspv::Section::ExecutionMode);
-    end = editor.End(rdcspv::Section::ExecutionMode);
-    while(it < end)
-    {
-      // this can also handle ExecutionModeId and we don't care about the difference
-      rdcspv::OpExecutionMode execMode(it);
-
-      // remove any execution modes not for our entry
-      if(execMode.entryPoint != entryID)
-        editor.Remove(it);
-      it++;
-    }
-
-    // remove any OpName that refers to deleted IDs - functions or results
-    it = editor.Begin(rdcspv::Section::DebugNames);
-    end = editor.End(rdcspv::Section::DebugNames);
-    while(it < end)
-    {
-      if(it.opcode() == rdcspv::Op::Name)
-      {
-        rdcspv::OpName name(it);
-
-        if(removedIds.contains(name.target))
-          editor.Remove(it);
-      }
-      it++;
-    }
-
-    // same for decorations
-    it = editor.Begin(rdcspv::Section::Annotations);
-    end = editor.End(rdcspv::Section::Annotations);
-    while(it < end)
-    {
-      if(it.opcode() == rdcspv::Op::Decorate)
-      {
-        rdcspv::OpDecorate dec(it);
-
-        if(removedIds.contains(dec.target))
-          editor.Remove(it);
-      }
-      else if(it.opcode() == rdcspv::Op::DecorateId)
-      {
-        rdcspv::OpDecorateId dec(it);
-
-        if(removedIds.contains(dec.target))
-          editor.Remove(it);
-      }
-      it++;
-    }
-  }
+  // repoint the entry declaration
+  editor.ChangeEntry(originalEntry, entryID);
 
   rdcspv::MemoryAccessAndParamDatas alignedAccess;
   alignedAccess.setAligned(sizeof(uint32_t));
@@ -3196,6 +3189,7 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
   rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
   rdcspv::Id floatType = editor.DeclareType(rdcspv::scalar<float>());
   rdcspv::Id boolType = editor.DeclareType(rdcspv::scalar<bool>());
+  rdcspv::Id uint3Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 3));
   rdcspv::Id float4Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), 4));
   rdcspv::Id float2Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), 2));
 
@@ -3210,45 +3204,101 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
 
   rdcarray<rdcspv::Id> newGlobals;
 
-  rdcspv::Id PSInput;
+  rdcspv::Id LaneData;
 
-  enum PSHitBaseMember
+  enum ResultBaseMember
   {
-    PSHitBase_pos,
-    PSHitBase_prim,
-    PSHitBase_sample,
-    PSHitBase_view,
-    PSHitBase_valid,
-    PSHitBase_ddxDerivCheck,
-    PSHitBase_laneIndex,
-    PSHitBase_firstUser,
+    ResultBase_pos,
+    ResultBase_prim,
+    ResultBase_sample,
+    ResultBase_view,
+    ResultBase_valid,
+    ResultBase_ddxDerivCheck,
+    ResultBase_laneIndex,
+    ResultBase_firstUser,
   };
 
   struct inputValue
   {
+    size_t structIndex;
+    rdcarray<rdcspv::Id> data;
     rdcspv::Id valueType;
-    rdcarray<rdcspv::Id> laneValues;
-    uint32_t structIndex;
   };
 
-  // float4 pixel position prepended always
-  inputValue posValue;
-  rdcarray<inputValue> values;
-  values.resize(shadRefl.refl->inputSignature.size());
+  struct fixedValue : public inputValue
+  {
+    rdcspv::OperationList loadOps;
+    rdcspv::Id base;
+  };
+
+  rdcarray<fixedValue> fixedValues;
+
+  // input signature elements to read
+  rdcarray<inputValue> inputSigValues;
+  inputSigValues.resize(shadRefl.refl->inputSignature.size());
 
   {
     rdcarray<rdcspv::StructMember> structMembers;
     uint32_t offset = 0;
 
-    // float4 pixel position prepended always
-    {
-      rdcspv::Scalar base = rdcspv::scalar<float>();
+    // declare fixed lane data first
 
-      posValue.structIndex = 0;
-      posValue.valueType = float4Type;
-      structMembers.push_back({float4Type, "__rd_pos", 0});
-      offset += sizeof(Vec4f);
+    if(stage == ShaderStage::Vertex)
+    {
+      fixedValue inst;
+      inst.structIndex = structMembers.size();
+      inst.valueType = uint32Type;
+      inst.base = editor.AddBuiltinInputLoad(inst.loadOps, newGlobals, stage,
+                                             rdcspv::BuiltIn::InstanceIndex, uint32Type);
+      fixedValues.push_back(inst);
+      structMembers.push_back({uint32Type, "__rd_inst", offsetof(VertexLaneData, inst)});
+
+      fixedValue vert;
+      vert.structIndex = structMembers.size();
+      vert.valueType = uint32Type;
+      vert.base = editor.AddBuiltinInputLoad(vert.loadOps, newGlobals, stage,
+                                             rdcspv::BuiltIn::VertexIndex, uint32Type);
+      fixedValues.push_back(vert);
+      structMembers.push_back({uint32Type, "__rd_vert", offsetof(VertexLaneData, vert)});
+
+      offset += sizeof(VertexLaneData);
     }
+    else if(stage == ShaderStage::Pixel)
+    {
+      fixedValue fragCoord;
+      fragCoord.structIndex = structMembers.size();
+      fragCoord.valueType = float4Type;
+      fragCoord.base = editor.AddBuiltinInputLoad(fragCoord.loadOps, newGlobals, stage,
+                                                  rdcspv::BuiltIn::FragCoord, float4Type);
+      fixedValues.push_back(fragCoord);
+      structMembers.push_back({float4Type, "__rd_pos", offsetof(PixelLaneData, fragCoord)});
+
+      fixedValue helper;
+      helper.structIndex = structMembers.size();
+      helper.valueType = uint32Type;
+      helper.base = editor.AddBuiltinInputLoad(helper.loadOps, newGlobals, stage,
+                                               rdcspv::BuiltIn::HelperInvocation, boolType);
+      helper.base = helper.loadOps.add(rdcspv::OpSelect(uint32Type, editor.MakeId(), helper.base,
+                                                        getUIntConst(1), getUIntConst(0)));
+      fixedValues.push_back(helper);
+      structMembers.push_back({uint32Type, "__rd_helper", offsetof(PixelLaneData, helper)});
+
+      offset += sizeof(PixelLaneData);
+    }
+    else if(stage == ShaderStage::Compute || stage == ShaderStage::Task || stage == ShaderStage::Mesh)
+    {
+      fixedValue threadid;
+      threadid.structIndex = structMembers.size();
+      threadid.valueType = uint3Type;
+      threadid.base = editor.AddBuiltinInputLoad(threadid.loadOps, newGlobals, stage,
+                                                 rdcspv::BuiltIn::LocalInvocationId, uint3Type);
+      fixedValues.push_back(threadid);
+      structMembers.push_back({uint3Type, "__rd_threadid", offsetof(ComputeLaneData, threadid)});
+
+      offset += sizeof(ComputeLaneData);
+    }
+
+    // now add input signature values
 
     for(size_t i = 0; i < shadRefl.refl->inputSignature.size(); i++)
     {
@@ -3256,7 +3306,7 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
 
       rdcspv::Scalar base = rdcspv::scalar(param.varType);
 
-      values[i].structIndex = (uint32_t)structMembers.size();
+      inputSigValues[i].structIndex = structMembers.size();
 
       uint32_t width = (base.width / 8);
 
@@ -3264,15 +3314,19 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       if(base.type == rdcspv::Op::TypeBool)
         width = 4;
 
-      if(param.compCount == 1)
-        values[i].valueType = editor.DeclareType(base);
-      else
-        values[i].valueType = editor.DeclareType(rdcspv::Vector(base, param.compCount));
+      rdcspv::Id valueType;
 
-      if(values[i].valueType == boolType)
+      if(param.compCount == 1)
+        valueType = editor.DeclareType(base);
+      else
+        valueType = editor.DeclareType(rdcspv::Vector(base, param.compCount));
+
+      inputSigValues[i].valueType = valueType;
+
+      if(valueType == boolType)
         structMembers.push_back({uint32Type, param.varName, offset});
       else
-        structMembers.push_back({values[i].valueType, param.varName, offset});
+        structMembers.push_back({valueType, param.varName, offset});
       offset += param.compCount * width;
 
       // align offset conservatively, to 16-byte aligned. We do this with explicit uints so we can
@@ -3287,7 +3341,7 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
 
     RDCASSERT(offset <= structStride);
 
-    PSInput = editor.DeclareStructType("__rd_PSInput", structMembers);
+    LaneData = editor.DeclareStructType("__rd_LaneData", structMembers);
   }
 
   rdcspv::Id arrayLength =
@@ -3306,50 +3360,52 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
 
   editor.SetName(destXY, "destXY");
 
-  rdcspv::Id PSHitType;
+  rdcspv::Id ResultDataBaseType;
 
   const uint32_t numLanes = 4;
 
   {
-    rdcarray<rdcspv::StructMember> PSHitMembers;
+    rdcarray<rdcspv::StructMember> members;
 
-    PSHitMembers.push_back({float4Type, "pos", offsetof(PSHitBase, pos)});
-    PSHitMembers.push_back({uint32Type, "prim", offsetof(PSHitBase, prim)});
-    PSHitMembers.push_back({uint32Type, "sample", offsetof(PSHitBase, sample)});
-    PSHitMembers.push_back({uint32Type, "view", offsetof(PSHitBase, view)});
-    PSHitMembers.push_back({uint32Type, "valid", offsetof(PSHitBase, valid)});
-    PSHitMembers.push_back({floatType, "ddxDerivCheck", offsetof(PSHitBase, ddxDerivCheck)});
-    PSHitMembers.push_back({uint32Type, "laneIndex", offsetof(PSHitBase, laneIndex)});
+    members.push_back({float4Type, "pos", offsetof(ResultDataBase, pos)});
+    members.push_back({uint32Type, "prim", offsetof(ResultDataBase, prim)});
+    members.push_back({uint32Type, "sample", offsetof(ResultDataBase, sample)});
+    members.push_back({uint32Type, "view", offsetof(ResultDataBase, view)});
+    members.push_back({uint32Type, "valid", offsetof(ResultDataBase, valid)});
+    members.push_back({floatType, "ddxDerivCheck", offsetof(ResultDataBase, ddxDerivCheck)});
+    members.push_back({uint32Type, "laneIndex", offsetof(ResultDataBase, laneIndex)});
 
-    // uint2 padding
+    // padding
 
-    const uint32_t dataStart = (uint32_t)AlignUp(sizeof(PSHitBase), sizeof(Vec4f));
+    const uint32_t dataStart = (uint32_t)AlignUp(sizeof(ResultDataBase), sizeof(Vec4f));
 
     RDCASSERT((structStride % sizeof(Vec4f)) == 0);
 
-    rdcspv::Id PSInputArray = editor.AddType(rdcspv::OpTypeArray(
-        editor.MakeId(), PSInput, editor.AddConstantImmediate<uint32_t>(numLanes)));
+    rdcspv::Id LaneDataArray = editor.AddType(rdcspv::OpTypeArray(
+        editor.MakeId(), LaneData, editor.AddConstantImmediate<uint32_t>(numLanes)));
     editor.AddDecoration(rdcspv::OpDecorate(
-        PSInputArray, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(structStride)));
+        LaneDataArray, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(structStride)));
 
-    PSHitMembers.push_back({PSInputArray, "LaneData", dataStart});
+    members.push_back({LaneDataArray, "LaneData", dataStart});
 
-    PSHitType = editor.DeclareStructType("PSHit", PSHitMembers);
+    ResultDataBaseType = editor.DeclareStructType("ResultData", members);
   }
 
-  rdcspv::Id PSHitRTArray = editor.AddType(rdcspv::OpTypeRuntimeArray(editor.MakeId(), PSHitType));
+  rdcspv::Id ResultDataRTArray =
+      editor.AddType(rdcspv::OpTypeRuntimeArray(editor.MakeId(), ResultDataBaseType));
 
-  editor.AddDecoration(rdcspv::OpDecorate(
-      PSHitRTArray, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(structStride * 4 +
-                                                                             sizeof(PSHitBase))));
+  editor.AddDecoration(rdcspv::OpDecorate(ResultDataRTArray,
+                                          rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(
+                                              structStride * 4 + sizeof(ResultDataBase))));
 
   rdcspv::Id bufBase =
       editor.DeclareStructType("__rd_HitStorage", {
                                                       {uint32Type, "hit_count", 0},
                                                       {uint32Type, "total_count", sizeof(uint32_t)},
-                                                      // uint2 padding>
+                                                      {uint32Type, "dummy", sizeof(uint32_t) * 2},
+                                                      // uint padding
 
-                                                      {PSHitRTArray, "hits", sizeof(Vec4f)},
+                                                      {ResultDataRTArray, "hits", sizeof(Vec4f)},
                                                   });
 
   rdcspv::StorageClass bufferClass = editor.PrepareAddedBufferAccess();
@@ -3372,65 +3428,87 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
 
   rdcspv::Id glsl450 = editor.ImportExtInst("GLSL.std.450");
 
-  // allow ourselves to use fine derivatives
-  editor.AddCapability(rdcspv::Capability::DerivativeControl);
+  // allow pixel shaders to use fine derivatives
+  if(stage == ShaderStage::Pixel)
+    editor.AddCapability(rdcspv::Capability::DerivativeControl);
 
   {
     rdcspv::OperationList ops;
 
     rdcspv::Id voidType = editor.DeclareType(rdcspv::scalar<void>());
+    rdcspv::Id uintPtr = editor.DeclareType(rdcspv::Pointer(uint32Type, bufferClass));
+
+    rdcspv::Id scope = editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::Scope::Device);
+    rdcspv::Id semantics =
+        editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::MemorySemantics::AcquireRelease);
 
     ops.add(rdcspv::OpFunction(voidType, entryID, rdcspv::FunctionControl::None,
                                editor.DeclareType(rdcspv::FunctionType(voidType, {}))));
 
+    rdcspv::Id structPtr;
+
     ops.add(rdcspv::OpLabel(editor.MakeId()));
     {
-      // look up the fragcoord
-      rdcspv::Id fragCoordLoaded = editor.AddBuiltinInputLoad(
-          ops, newGlobals, ShaderStage::Fragment, rdcspv::BuiltIn::FragCoord, float4Type);
+      structPtr = editor.LoadBufferVariable(ops, hitBuffer);
 
-      // grab x and y
-      rdcspv::Id fragXY = ops.add(rdcspv::OpVectorShuffle(
-          float2Type, editor.MakeId(), fragCoordLoaded, fragCoordLoaded, {0, 1}));
+      // we store ddx as a derivative check - it is expected to be 1.0 so store that as fixed for other stages
+      rdcspv::Id fragCoord, ddxDerivativeCheck = editor.AddConstantImmediate<float>(1.0f);
+      rdcspv::Id laneIndex;
 
-      /*
-      // figure out the TL pixel's coords and calculate our index relative to it. Assume even top
-      // left (towards 0,0) though the spec does not guarantee this is the actual quad
-      int yTL = y & (~1);
-
-      // get the index of our desired pixel
-      */
-
-      rdcspv::Id mask = getUIntConst(1);
-
-      // int x01 = x & 1;
-      rdcspv::Id xInt = ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), fragXY, {0}));
-      xInt = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), xInt));
-      rdcspv::Id x01 = ops.add(rdcspv::OpBitwiseAnd(uint32Type, editor.MakeId(), xInt, mask));
-
-      // int y01 = y & 1;
-      rdcspv::Id yInt = ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), fragXY, {1}));
-      yInt = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), yInt));
-      rdcspv::Id y01 = ops.add(rdcspv::OpBitwiseAnd(uint32Type, editor.MakeId(), yInt, mask));
-
-      // int destIdx = x01 + 2 * y01;
-      rdcspv::Id laneIndex =
-          ops.add(rdcspv::OpIMul(uint32Type, editor.MakeId(), getUIntConst(2), y01));
-      laneIndex = ops.add(rdcspv::OpIAdd(uint32Type, editor.MakeId(), laneIndex, x01));
-
-      // float4 pixel position prepended always
+      if(stage == ShaderStage::Pixel)
       {
-        rdcspv::Id valueType = posValue.valueType;
+        fragCoord = editor.AddBuiltinInputLoad(ops, newGlobals, stage, rdcspv::BuiltIn::FragCoord,
+                                               float4Type);
 
-        rdcspv::Id base = fragCoordLoaded;
+        ddxDerivativeCheck = ops.add(rdcspv::OpDPdx(float4Type, editor.MakeId(), fragCoord));
+        ddxDerivativeCheck =
+            ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), ddxDerivativeCheck, {0}));
+
+        // grab x and y
+        rdcspv::Id fragXY = ops.add(
+            rdcspv::OpVectorShuffle(float2Type, editor.MakeId(), fragCoord, fragCoord, {0, 1}));
+
+        /*
+        // figure out the TL pixel's coords and calculate our index relative to it. Assume even top
+        // left (towards 0,0) though the spec does not guarantee this is the actual quad
+        int yTL = y & (~1);
+
+        // get the index of our desired pixel
+        */
+
+        rdcspv::Id mask = getUIntConst(1);
+
+        // int x01 = x & 1;
+        rdcspv::Id xInt =
+            ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), fragXY, {0}));
+        xInt = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), xInt));
+        rdcspv::Id x01 = ops.add(rdcspv::OpBitwiseAnd(uint32Type, editor.MakeId(), xInt, mask));
+
+        // int y01 = y & 1;
+        rdcspv::Id yInt =
+            ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), fragXY, {1}));
+        yInt = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), yInt));
+        rdcspv::Id y01 = ops.add(rdcspv::OpBitwiseAnd(uint32Type, editor.MakeId(), yInt, mask));
+
+        // int destIdx = x01 + 2 * y01;
+        laneIndex = ops.add(rdcspv::OpIMul(uint32Type, editor.MakeId(), getUIntConst(2), y01));
+        laneIndex = ops.add(rdcspv::OpIAdd(uint32Type, editor.MakeId(), laneIndex, x01));
+        editor.SetName(laneIndex, "laneIndex");
+      }
+
+      for(fixedValue &val : fixedValues)
+      {
+        ops.append(val.loadOps);
+
+        rdcspv::Id valueType = val.valueType;
 
         // use derivatives where needed to fetch position in other lanes
-        posValue.laneValues = CalcQuadValuesFromDerivs(editor, ops, valueType, base, laneIndex);
-        RDCASSERTEQUAL(numLanes, posValue.laneValues.size());
+        val.data = CalcQuadValuesFromDerivs(editor, ops, valueType, val.base, laneIndex);
+        RDCASSERTEQUAL(numLanes, val.data.size());
       }
 
       // grab all the values here and get any derivatives we need now before we branch non-uniformly
-      for(size_t i = 0; i < values.size(); i++)
+      for(size_t i = 0; i < inputSigValues.size(); i++)
       {
         const SPIRVInterfaceAccess &access = shadRefl.patchData.inputs[i];
         const SigParameter &param = shadRefl.refl->inputSignature[i];
@@ -3439,7 +3517,7 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
         for(uint32_t idx : access.accessChain)
           accessIndices.push_back(getUIntConst(idx));
 
-        rdcspv::Id valueType = values[i].valueType;
+        rdcspv::Id valueType = inputSigValues[i].valueType;
 
         rdcspv::Id ptrType =
             editor.DeclareType(rdcspv::Pointer(valueType, rdcspv::StorageClass::Input));
@@ -3469,19 +3547,15 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
         // only float values have derivatives
         if(VarTypeCompType(param.varType) == CompType::Float)
         {
-          values[i].laneValues = CalcQuadValuesFromDerivs(editor, ops, valueType, base, laneIndex);
-          RDCASSERTEQUAL(numLanes, values[i].laneValues.size());
+          inputSigValues[i].data = CalcQuadValuesFromDerivs(editor, ops, valueType, base, laneIndex);
+          RDCASSERTEQUAL(numLanes, inputSigValues[i].data.size());
         }
         // other values are all flat so we can duplicate
         else
         {
-          values[i].laneValues.fill(numLanes, base);
+          inputSigValues[i].data.fill(numLanes, base);
         }
       }
-
-      rdcspv::Id structPtr = editor.LoadBufferVariable(ops, hitBuffer);
-
-      rdcspv::Id uintPtr = editor.DeclareType(rdcspv::Pointer(uint32Type, bufferClass));
 
       // get a pointer to buffer.hit_count
       rdcspv::Id hit_count =
@@ -3491,45 +3565,45 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       rdcspv::Id total_count =
           ops.add(rdcspv::OpAccessChain(uintPtr, editor.MakeId(), structPtr, {getUIntConst(1)}));
 
-      rdcspv::Id scope = editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::Scope::Device);
-      rdcspv::Id semantics =
-          editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::MemorySemantics::AcquireRelease);
+      // identify the desired thread
+      rdcspv::Id desiredThread;
 
-      // increment total_count
-      ops.add(rdcspv::OpAtomicIAdd(uint32Type, editor.MakeId(), total_count, scope, semantics,
-                                   getUIntConst(1)));
+      // bool desiredThread = all(abs(gl_FragCoord.xy - dest.xy) < 0.5f);
+      if(stage == ShaderStage::Pixel)
+      {
+        rdcspv::Id bool2Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<bool>(), 2));
 
-      rdcspv::Id fragCoord_ddx =
-          ops.add(rdcspv::OpDPdx(float4Type, editor.MakeId(), fragCoordLoaded));
+        // subtract frag coord from the destination co-ord in x-y to get relative
+        rdcspv::Id fragXY = ops.add(
+            rdcspv::OpVectorShuffle(float2Type, editor.MakeId(), fragCoord, fragCoord, {0, 1}));
+        rdcspv::Id fragXYRelative =
+            ops.add(rdcspv::OpFSub(float2Type, editor.MakeId(), fragXY, destXY));
 
-      rdcspv::Id bool2Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<bool>(), 2));
+        // abs()
+        rdcspv::Id fragXYAbs = ops.add(rdcspv::OpGLSL450(
+            float2Type, editor.MakeId(), glsl450, rdcspv::GLSLstd450::FAbs, {fragXYRelative}));
 
-      // subtract from the destination co-ord
-      rdcspv::Id fragXYRelative =
-          ops.add(rdcspv::OpFSub(float2Type, editor.MakeId(), fragXY, destXY));
+        rdcspv::Id half = editor.AddConstantImmediate<float>(0.5f);
+        rdcspv::Id threshold = editor.AddConstant(
+            rdcspv::OpConstantComposite(float2Type, editor.MakeId(), {half, half}));
 
-      // abs()
-      rdcspv::Id fragXYAbs = ops.add(rdcspv::OpGLSL450(float2Type, editor.MakeId(), glsl450,
-                                                       rdcspv::GLSLstd450::FAbs, {fragXYRelative}));
+        // less than 0.5
+        rdcspv::Id inPixelXY =
+            ops.add(rdcspv::OpFOrdLessThan(bool2Type, editor.MakeId(), fragXYAbs, threshold));
 
-      rdcspv::Id half = editor.AddConstantImmediate<float>(0.5f);
-      rdcspv::Id threshold =
-          editor.AddConstant(rdcspv::OpConstantComposite(float2Type, editor.MakeId(), {half, half}));
-
-      // less than 0.5
-      rdcspv::Id inPixelXY =
-          ops.add(rdcspv::OpFOrdLessThan(bool2Type, editor.MakeId(), fragXYAbs, threshold));
-
-      // both less than 0.5
-      rdcspv::Id inPixel = ops.add(rdcspv::OpAll(boolType, editor.MakeId(), inPixelXY));
-
-      // bool inPixel = all(abs(gl_FragCoord.xy - dest.xy) < 0.5f);
+        // both less than 0.5
+        desiredThread = ops.add(rdcspv::OpAll(boolType, editor.MakeId(), inPixelXY));
+      }
 
       rdcspv::Id killLabel = editor.MakeId();
       rdcspv::Id continueLabel = editor.MakeId();
       ops.add(rdcspv::OpSelectionMerge(killLabel, rdcspv::SelectionControl::None));
-      ops.add(rdcspv::OpBranchConditional(inPixel, continueLabel, killLabel));
+      ops.add(rdcspv::OpBranchConditional(desiredThread, continueLabel, killLabel));
       ops.add(rdcspv::OpLabel(continueLabel));
+
+      // increment total_count
+      ops.add(rdcspv::OpAtomicIAdd(uint32Type, editor.MakeId(), total_count, scope, semantics,
+                                   getUIntConst(1)));
 
       // allocate a slot with atomic add
       rdcspv::Id slot = ops.add(rdcspv::OpAtomicIAdd(uint32Type, editor.MakeId(), hit_count, scope,
@@ -3545,22 +3619,23 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       ops.add(rdcspv::OpBranchConditional(inRange, continueLabel, killLabel2));
       ops.add(rdcspv::OpLabel(continueLabel));
 
-      rdcspv::Id hitptr = editor.DeclareType(rdcspv::Pointer(PSHitType, bufferClass));
+      rdcspv::Id hitptr = editor.DeclareType(rdcspv::Pointer(ResultDataBaseType, bufferClass));
 
       // get a pointer to the hit for our slot
       rdcspv::Id hit =
-          ops.add(rdcspv::OpAccessChain(hitptr, editor.MakeId(), structPtr, {getUIntConst(2), slot}));
+          ops.add(rdcspv::OpAccessChain(hitptr, editor.MakeId(), structPtr, {getUIntConst(3), slot}));
 
       // store fixed properties
 
-      rdcspv::Id storePtr = ops.add(
-          rdcspv::OpAccessChain(float4BufPtr, editor.MakeId(), hit, {getUIntConst(PSHitBase_pos)}));
-      ops.add(rdcspv::OpStore(storePtr, fragCoordLoaded, alignedAccess));
+      rdcspv::Id storePtr = ops.add(rdcspv::OpAccessChain(float4BufPtr, editor.MakeId(), hit,
+                                                          {getUIntConst(ResultBase_pos)}));
+      if(fragCoord != rdcspv::Id())
+        ops.add(rdcspv::OpStore(storePtr, fragCoord, alignedAccess));
 
       rdcspv::Id primitiveID;
       if(usePrimitiveID)
       {
-        primitiveID = editor.AddBuiltinInputLoad(ops, newGlobals, ShaderStage::Fragment,
+        primitiveID = editor.AddBuiltinInputLoad(ops, newGlobals, stage,
                                                  rdcspv::BuiltIn::PrimitiveId, uint32Type);
         editor.AddCapability(rdcspv::Capability::Geometry);
       }
@@ -3570,14 +3645,14 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       }
 
       storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(PSHitBase_prim)}));
+                                               {getUIntConst(ResultBase_prim)}));
       ops.add(rdcspv::OpStore(storePtr, primitiveID, alignedAccess));
 
       rdcspv::Id sampleIndex;
       if(useSampleID)
       {
-        sampleIndex = editor.AddBuiltinInputLoad(ops, newGlobals, ShaderStage::Fragment,
-                                                 rdcspv::BuiltIn::SampleId, uint32Type);
+        sampleIndex = editor.AddBuiltinInputLoad(ops, newGlobals, stage, rdcspv::BuiltIn::SampleId,
+                                                 uint32Type);
         editor.AddCapability(rdcspv::Capability::SampleRateShading);
       }
       else
@@ -3586,14 +3661,14 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       }
 
       storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(PSHitBase_sample)}));
+                                               {getUIntConst(ResultBase_sample)}));
       ops.add(rdcspv::OpStore(storePtr, sampleIndex, alignedAccess));
 
       rdcspv::Id viewIndex;
       if(useViewIndex)
       {
-        viewIndex = editor.AddBuiltinInputLoad(ops, newGlobals, ShaderStage::Fragment,
-                                               rdcspv::BuiltIn::ViewIndex, uint32Type);
+        viewIndex = editor.AddBuiltinInputLoad(ops, newGlobals, stage, rdcspv::BuiltIn::ViewIndex,
+                                               uint32Type);
         editor.AddCapability(rdcspv::Capability::MultiView);
         editor.AddExtension("SPV_KHR_multiview");
       }
@@ -3603,65 +3678,65 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       }
 
       storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(PSHitBase_view)}));
+                                               {getUIntConst(ResultBase_view)}));
       ops.add(rdcspv::OpStore(storePtr, viewIndex, alignedAccess));
 
       storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(PSHitBase_valid)}));
+                                               {getUIntConst(ResultBase_valid)}));
       ops.add(rdcspv::OpStore(storePtr, editor.AddConstantImmediate(validMagicNumber), alignedAccess));
 
-      // store ddx(gl_FragCoord.x) to check that derivatives are working
+      // store derivative health check for pixel shaders
       storePtr = ops.add(rdcspv::OpAccessChain(floatBufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(PSHitBase_ddxDerivCheck)}));
-      rdcspv::Id fragCoord_ddx_x =
-          ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), fragCoord_ddx, {0}));
-      ops.add(rdcspv::OpStore(storePtr, fragCoord_ddx_x, alignedAccess));
+                                               {getUIntConst(ResultBase_ddxDerivCheck)}));
+      ops.add(rdcspv::OpStore(storePtr, ddxDerivativeCheck, alignedAccess));
 
-      // store the laneIndex (index in quad we are)
+      // store the laneIndex
       storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(PSHitBase_laneIndex)}));
+                                               {getUIntConst(ResultBase_laneIndex)}));
       ops.add(rdcspv::OpStore(storePtr, laneIndex, alignedAccess));
 
       {
-        rdcspv::Id PSInputPtrType = editor.DeclareType(rdcspv::Pointer(PSInput, bufferClass));
+        rdcspv::Id LaneDataPtrType = editor.DeclareType(rdcspv::Pointer(LaneData, bufferClass));
 
         rdcarray<rdcspv::Id> perLaneOutputStruct;
 
         {
-          perLaneOutputStruct.resize(posValue.laneValues.size());
-          for(uint32_t j = 0; j < posValue.laneValues.size(); j++)
+          perLaneOutputStruct.resize(numLanes);
+          for(uint32_t j = 0; j < numLanes; j++)
             perLaneOutputStruct[j] =
-                ops.add(rdcspv::OpAccessChain(PSInputPtrType, editor.MakeId(), hit,
-                                              {getUIntConst(PSHitBase_firstUser), getUIntConst(j)}));
+                ops.add(rdcspv::OpAccessChain(LaneDataPtrType, editor.MakeId(), hit,
+                                              {getUIntConst(ResultBase_firstUser), getUIntConst(j)}));
         }
 
-        // float4 pixel position prepended always
+        for(fixedValue &val : fixedValues)
         {
-          rdcspv::Id valueType = posValue.valueType;
+          rdcspv::Id valueType = val.valueType;
           rdcspv::Id ptrType = editor.DeclareType(rdcspv::Pointer(valueType, bufferClass));
 
-          for(size_t j = 0; j < posValue.laneValues.size(); j++)
+          RDCASSERT(numLanes == val.data.size());
+
+          for(size_t j = 0; j < val.data.size(); j++)
           {
             rdcspv::Id ptr =
                 ops.add(rdcspv::OpAccessChain(ptrType, editor.MakeId(), perLaneOutputStruct[j],
-                                              {getUIntConst(posValue.structIndex)}));
-            ops.add(rdcspv::OpStore(ptr, posValue.laneValues[j], alignedAccess));
+                                              {getUIntConst((uint32_t)val.structIndex)}));
+            ops.add(rdcspv::OpStore(ptr, val.data[j], alignedAccess));
           }
         }
 
-        for(size_t i = 0; i < values.size(); i++)
+        for(size_t i = 0; i < inputSigValues.size(); i++)
         {
-          rdcspv::Id valueType = values[i].valueType;
+          rdcspv::Id valueType = inputSigValues[i].valueType;
           if(valueType == boolType)
             valueType = uint32Type;
           rdcspv::Id ptrType = editor.DeclareType(rdcspv::Pointer(valueType, bufferClass));
 
-          for(size_t j = 0; j < values[i].laneValues.size(); j++)
+          for(size_t j = 0; j < inputSigValues[i].data.size(); j++)
           {
-            rdcspv::Id ptr =
-                ops.add(rdcspv::OpAccessChain(ptrType, editor.MakeId(), perLaneOutputStruct[j],
-                                              {getUIntConst(values[i].structIndex)}));
-            ops.add(rdcspv::OpStore(ptr, values[i].laneValues[j], alignedAccess));
+            rdcspv::Id ptr = ops.add(
+                rdcspv::OpAccessChain(ptrType, editor.MakeId(), perLaneOutputStruct[j],
+                                      {getUIntConst((uint32_t)inputSigValues[i].structIndex)}));
+            ops.add(rdcspv::OpStore(ptr, inputSigValues[i].data[j], alignedAccess));
           }
         }
       }
@@ -3672,8 +3747,41 @@ static void CreatePSInputFetcher(rdcarray<uint32_t> &fragspv, const uint32_t str
       ops.add(rdcspv::OpBranch(killLabel));
       ops.add(rdcspv::OpLabel(killLabel));
     }
-    // don't return, kill. This makes it well-defined that we don't write anything to our outputs
-    ops.add(rdcspv::OpKill());
+
+    // we want to "call" the original function to ensure the compiler does hopefully as close
+    // codegen as possible to the original but we don't want to actually execute it. To do this we
+    // use an atomic max with a dummy value and only call the function if the value is *larger* -
+    // the compiler can't know what value was pre-existing in the buffer (though we know it was
+    // zero) so it can't eliminate either branch, but in practice we will always return
+
+    rdcspv::Id trueLabel = editor.MakeId();
+    rdcspv::Id falseLabel = editor.MakeId();
+
+    // get a pointer to buffer.dummy
+    rdcspv::Id dummy =
+        ops.add(rdcspv::OpAccessChain(uintPtr, editor.MakeId(), structPtr, {getUIntConst(2)}));
+
+    dummy = ops.add(rdcspv::OpAtomicUMax(uint32Type, editor.MakeId(), dummy, scope, semantics,
+                                         getUIntConst(1)));
+    rdcspv::Id dummyCompare =
+        ops.add(rdcspv::OpULessThan(boolType, editor.MakeId(), dummy, getUIntConst(2)));
+
+    ops.add(rdcspv::OpSelectionMerge(falseLabel, rdcspv::SelectionControl::None));
+    ops.add(rdcspv::OpBranchConditional(dummyCompare, trueLabel, falseLabel));
+
+    ops.add(rdcspv::OpLabel(trueLabel));
+
+    //  don't return, kill. This makes it well-defined that we don't write anything to our outputs
+    if(ShaderStage(shadRefl.stageIndex) == ShaderStage::Pixel)
+      ops.add(rdcspv::OpKill());
+    else
+      ops.add(rdcspv::OpReturn());
+
+    ops.add(rdcspv::OpLabel(falseLabel));
+
+    ops.add(rdcspv::OpFunctionCall(voidType, editor.MakeId(), originalEntry));
+
+    ops.add(rdcspv::OpReturn());
 
     ops.add(rdcspv::OpFunctionEnd());
 
@@ -4105,14 +4213,14 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   }
 
   // conservatively calculate structure stride with full amount for every input element
-  // float4 pixel position prepended always
-  const uint32_t structStride =
-      sizeof(Vec4f) + (uint32_t)shadRefl.refl->inputSignature.size() * paramAlign;
+  uint32_t structStride = (uint32_t)shadRefl.refl->inputSignature.size() * paramAlign;
+
+  structStride += sizeof(PixelLaneData);
 
   uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
 
-  // struct size is PSHit header plus Nx structStride for the number of threads
-  uint32_t structSize = sizeof(PSHitBase) + structStride * numThreads;
+  // struct size is ResultDataBase header plus Nx structStride for the number of threads
+  uint32_t structSize = sizeof(ResultDataBase) + structStride * numThreads;
 
   VkDeviceSize feedbackStorageSize = overdrawLevels * structSize + sizeof(Vec4f) + 1024;
 
@@ -4221,8 +4329,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     specMaps[0].size = sizeof(SpecData::bufferAddress);
   }
 
-  auto patchCallback = [this, &shadRefl, &fragSpecInfo, structStride, paramAlign, usePrimitiveID,
-                        useSampleID, useViewIndex](
+  auto patchCallback = [this, &shadRefl, &fragSpecInfo, usePrimitiveID, useSampleID, useViewIndex](
                            const AddedDescriptorData &patchedBufferdata, VkShaderStageFlagBits stage,
                            const char *entryName, const rdcarray<uint32_t> &origSpirv,
                            rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo) {
@@ -4234,8 +4341,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     if(!Vulkan_Debug_PSDebugDumpDirPath().empty())
       FileIO::WriteAll(Vulkan_Debug_PSDebugDumpDirPath() + "/debug_psinput_before.spv", modSpirv);
 
-    CreatePSInputFetcher(modSpirv, structStride, paramAlign, shadRefl, m_StorageMode,
-                         usePrimitiveID, useSampleID, useViewIndex);
+    CreateInputFetcher(modSpirv, shadRefl, m_StorageMode, usePrimitiveID, useSampleID, useViewIndex);
 
     if(!Vulkan_Debug_PSDebugDumpDirPath().empty())
       FileIO::WriteAll(Vulkan_Debug_PSDebugDumpDirPath() + "/debug_psinput_after.spv", modSpirv);
@@ -4261,20 +4367,20 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   GetDebugManager()->GetBufferData(m_PatchedShaderFeedback.FeedbackBuffer, 0, 0, data);
 
   byte *base = data.data();
-  uint32_t numHits = ((uint32_t *)base)[0];
-  uint32_t totalHits = ((uint32_t *)base)[1];
+  uint32_t hit_count = ((uint32_t *)base)[0];
+  uint32_t total_count = ((uint32_t *)base)[1];
 
-  if(numHits > overdrawLevels)
+  if(hit_count > overdrawLevels)
   {
-    RDCERR("%u hits, more than max overdraw levels allowed %u. Clamping", numHits, overdrawLevels);
-    numHits = overdrawLevels;
+    RDCERR("%u hits, more than max overdraw levels allowed %u. Clamping", hit_count, overdrawLevels);
+    hit_count = overdrawLevels;
   }
 
   base += sizeof(Vec4f);
 
-  PSHitBase *winner = NULL;
+  ResultDataBase *winner = NULL;
 
-  RDCLOG("Got %u hit candidates out of %u total instances", numHits, totalHits);
+  RDCLOG("Got %u hit candidates out of %u total instances", hit_count, total_count);
 
   // if we encounter multiple hits at our destination pixel co-ord (or any other) we
   // check to see if a specific primitive was requested (via primitive parameter not
@@ -4288,9 +4394,9 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   if(!state.depthTestEnable)
     depthOp = VK_COMPARE_OP_ALWAYS;
 
-  for(uint32_t i = 0; i < numHits; i++)
+  for(uint32_t i = 0; i < hit_count; i++)
   {
-    PSHitBase *hit = (PSHitBase *)(base + structSize * i);
+    ResultDataBase *hit = (ResultDataBase *)(base + structSize * i);
 
     if(hit->valid != validMagicNumber)
     {
@@ -4390,22 +4496,18 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     rdcspv::Debugger *debugger = new rdcspv::Debugger;
     debugger->Parse(shader.spirv.GetSPIRV());
 
-    // the data immediately follows the PSHit header. Every piece of data is uniformly aligned,
-    // either 16-byte by default or 32-byte if larger components exist. The output is in input
-    // signature order.
-    byte *PSInputs = (byte *)(winner + 1);
-    byte *value[] = {
-        (byte *)(PSInputs + 0 * structStride),
-        (byte *)(PSInputs + 1 * structStride),
-        (byte *)(PSInputs + 2 * structStride),
-        (byte *)(PSInputs + 3 * structStride),
-    };
-
-    RDCCOMPILE_ASSERT(numThreads == ARRAY_COUNT(value), "Mis-sized values");
+    // the per-thread data immediately follows the ResultDataBase header. Every piece of data is
+    // uniformly aligned, either 16-byte by default or 32-byte if larger components exist. The
+    // output is in input signature order.
+    byte *LaneData = (byte *)(winner + 1);
 
     for(uint32_t t = 0; t < numThreads; t++)
     {
-      // float4 pixel position prepended always
+      byte *value = LaneData + t * structStride;
+
+      // read PixelLaneData
+      PixelLaneData *pixelData = (PixelLaneData *)value;
+      value += sizeof(PixelLaneData);
       {
         ShaderVariable &var = apiWrapper->thread_builtins[t][ShaderBuiltin::Position];
 
@@ -4413,9 +4515,16 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
         var.columns = 4;
         var.type = VarType::Float;
 
-        memcpy(var.value.u8v.data(), value[t], sizeof(Vec4f));
+        memcpy(var.value.u8v.data(), &pixelData->fragCoord, sizeof(Vec4f));
+      }
+      {
+        ShaderVariable &var = apiWrapper->thread_builtins[t][ShaderBuiltin::IsHelper];
 
-        value[t] += sizeof(Vec4f);
+        var.rows = 1;
+        var.columns = 1;
+        var.type = VarType::Bool;
+
+        memcpy(var.value.u8v.data(), &pixelData->helper, sizeof(uint32_t));
       }
 
       for(size_t i = 0; i < shadRefl.refl->inputSignature.size(); i++)
@@ -4442,7 +4551,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
 
         const size_t sz = elemSize * param.compCount;
 
-        memcpy((var.value.u8v.data()) + elemSize * comp, value[t] + i * paramAlign, sz);
+        memcpy((var.value.u8v.data()) + elemSize * comp, value + i * paramAlign, sz);
       }
     }
 
