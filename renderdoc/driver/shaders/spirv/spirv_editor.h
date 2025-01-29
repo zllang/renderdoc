@@ -108,6 +108,7 @@ public:
 
   Id FindEntryID(ShaderEntryPoint entry);
   void AddEntryGlobals(Id entry, const rdcarray<Id> &newGlobals);
+  void ChangeEntry(Id from, Id to);
 
   rdcpair<Id, Id> AddBuiltinInputLoad(OperationList &ops, ShaderStage stage, BuiltIn builtin,
                                       Id type);

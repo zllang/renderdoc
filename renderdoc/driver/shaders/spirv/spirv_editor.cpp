@@ -442,6 +442,58 @@ void Editor::AddEntryGlobals(Id entry, const rdcarray<Id> &newGlobals)
   }
 }
 
+void Editor::ChangeEntry(Id from, Id to)
+{
+  rdcspv::Iter it = GetEntry(from);
+
+  // this copies into the helper struct
+  rdcspv::OpEntryPoint e(it);
+
+  RDCASSERT(e.entryPoint == from);
+  e.entryPoint = to;
+
+  UnregisterOp(it);
+  it = e;
+  RegisterOp(it);
+
+  // update any execution modes to apply to the new function
+
+  it = rdcspv::Iter(m_SPIRV, m_Sections[Section::ExecutionMode].startOffset);
+  rdcspv::Iter end(m_SPIRV, m_Sections[Section::ExecutionMode].endOffset);
+
+  while(it && it < end)
+  {
+    if(it.opcode() == Op::ExecutionMode)
+    {
+      OpExecutionMode execMode(it);
+
+      if(execMode.entryPoint == from)
+      {
+        execMode.entryPoint = to;
+
+        UnregisterOp(it);
+        it = execMode;
+        RegisterOp(it);
+      }
+    }
+    else if(it.opcode() == Op::ExecutionModeId)
+    {
+      OpExecutionModeId execMode(it);
+
+      if(execMode.entryPoint == from)
+      {
+        execMode.entryPoint = to;
+
+        UnregisterOp(it);
+        it = execMode;
+        RegisterOp(it);
+      }
+    }
+
+    it++;
+  }
+}
+
 rdcpair<Id, Id> Editor::AddBuiltinInputLoad(OperationList &ops, ShaderStage stage, BuiltIn builtin,
                                             Id type)
 {
