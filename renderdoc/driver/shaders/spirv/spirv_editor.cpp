@@ -62,6 +62,11 @@ Scalar::Scalar(Iter it)
 Id OperationList::add(const rdcspv::Operation &op)
 {
   push_back(op);
+
+#if ENABLED(RDOC_DEVEL)
+  OpDecoder::ForEachID(op.AsIter(), [](rdcspv::Id id, bool) { RDCASSERT(id != rdcspv::Id()); });
+#endif
+
   return OpDecoder(op.AsIter()).result;
 }
 
@@ -587,6 +592,10 @@ Id Editor::AddOperation(Iter iter, const Operation &op)
   // update offsets
   addWords(iter.offs(), op.size());
 
+#if ENABLED(RDOC_DEVEL)
+  OpDecoder::ForEachID(iter, [](rdcspv::Id id, bool) { RDCASSERT(id != rdcspv::Id()); });
+#endif
+
   return OpDecoder(iter).result;
 }
 
@@ -603,6 +612,10 @@ Iter Editor::AddOperations(Iter iter, const OperationList &ops)
 
 void Editor::RegisterOp(Iter it)
 {
+#if ENABLED(RDOC_DEVEL)
+  OpDecoder::ForEachID(it, [](rdcspv::Id id, bool) { RDCASSERT(id != rdcspv::Id()); });
+#endif
+
   Processor::RegisterOp(it);
 
   OpDecoder opdata(it);
