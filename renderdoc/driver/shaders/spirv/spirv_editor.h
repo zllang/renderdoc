@@ -26,6 +26,7 @@
 
 #include <stdint.h>
 #include <map>
+#include <unordered_map>
 #include "api/replay/rdcarray.h"
 #include "spirv_common.h"
 #include "spirv_processor.h"
@@ -297,6 +298,9 @@ private:
 
   std::map<BuiltIn, BuiltinInputData> builtinInputs;
 
+  // optimise for repeated U32 constants, only register once
+  std::unordered_map<uint32_t, rdcspv::Id> m_U32Consts;
+
   BufferStorageMode m_StorageMode = BufferStorageMode::Unknown;
 
   std::map<Id, Binding> bindings;
@@ -333,6 +337,18 @@ inline Id Editor::AddConstantImmediate(bool b)
   rdcarray<uint32_t> words = {typeId.value(), MakeId().value()};
 
   return AddConstant(Operation(b ? Op::ConstantTrue : Op::ConstantFalse, words));
+}
+
+template <>
+inline Id Editor::AddConstantImmediate(uint32_t b)
+{
+  Id typeId = DeclareType(scalar<uint32_t>());
+
+  if(m_U32Consts[b] != rdcspv::Id())
+    return m_U32Consts[b];
+
+  rdcspv::Id constantId = MakeId();
+  return AddConstant(Operation(Op::Constant, {typeId.value(), constantId.value(), b}));
 }
 
 template <>

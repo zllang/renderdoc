@@ -678,6 +678,15 @@ void Editor::RegisterOp(Iter it)
     if(decorate.decoration == Decoration::BufferBlock)
       m_BufferBlockTypes.push_back(decorate.target);
   }
+  else if(opdata.op == Op::Constant)
+  {
+    if(dataTypes[opdata.resultType].IsU32())
+    {
+      uint32_t val = it.word(3);
+      if(m_U32Consts[val] == rdcspv::Id())
+        m_U32Consts[val] = opdata.result;
+    }
+  }
 }
 
 void Editor::UnregisterOp(Iter it)
@@ -739,6 +748,15 @@ void Editor::UnregisterOp(Iter it)
       m_BlockTypes.removeOne(decorate.target);
     if(decorate.decoration == Decoration::BufferBlock)
       m_BufferBlockTypes.removeOne(decorate.target);
+  }
+  else if(opdata.op == Op::Constant)
+  {
+    if(dataTypes[opdata.resultType].IsU32())
+    {
+      uint32_t val = it.word(3);
+      if(m_U32Consts[val] == opdata.result)
+        m_U32Consts[val] = rdcspv::Id();
+    }
   }
 }
 

@@ -372,6 +372,11 @@ struct DataType
   const Vector &vector() const { return basicType.vector; }
   const Matrix &matrix() const { return basicType; }
   Id InnerType() const { return pointerType.baseId; }
+  bool IsU32() const
+  {
+    return type == Type::ScalarType && basicType.vector.scalar.width == 32 &&
+           basicType.vector.scalar.type == Op::TypeInt && !basicType.vector.scalar.signedness;
+  }
   bool IsOpaqueType() const
   {
     switch(type)
