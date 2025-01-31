@@ -33,6 +33,10 @@ struct DescSetLayout;
 
 struct VulkanStatePipeline
 {
+  VulkanStatePipeline(VkPipelineBindPoint bindPoint) : bindPoint(bindPoint) {}
+
+  VkPipelineBindPoint bindPoint;
+
   ResourceId pipeline;
 
   // shader object
@@ -164,7 +168,9 @@ struct VulkanRenderState
   bool ActiveRenderPass() const { return renderPass != ResourceId() || dynamicRendering.active; }
   VkRect2D renderArea = {};
 
-  VulkanStatePipeline compute, graphics, rt;
+  VulkanStatePipeline compute = VulkanStatePipeline(VK_PIPELINE_BIND_POINT_COMPUTE);
+  VulkanStatePipeline graphics = VulkanStatePipeline(VK_PIPELINE_BIND_POINT_GRAPHICS);
+  VulkanStatePipeline rt = VulkanStatePipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
   VulkanStatePipeline &GetPipeline(VkPipelineBindPoint pipelineBindPoint)
   {
