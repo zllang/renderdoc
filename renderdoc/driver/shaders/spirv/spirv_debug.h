@@ -44,6 +44,18 @@ enum class GatherChannel : uint8_t
   Alpha = 3,
 };
 
+enum class ThreadProperty : uint32_t
+{
+  Helper,
+  QuadId,
+  QuadLane,
+  Active,
+  Elected,
+  Count,
+};
+
+ITERABLE_OPERATORS(ThreadProperty);
+
 struct ThreadState;
 
 class DebugAPIWrapper
@@ -71,6 +83,8 @@ public:
 
   virtual void FillInputValue(ShaderVariable &var, ShaderBuiltin builtin, uint32_t threadIndex,
                               uint32_t location, uint32_t component) = 0;
+
+  virtual uint32_t GetThreadProperty(uint32_t threadIndex, ThreadProperty prop) = 0;
 
   enum TextureType
   {

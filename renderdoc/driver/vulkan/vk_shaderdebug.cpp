@@ -544,6 +544,16 @@ public:
            threadIndex, location, component);
   }
 
+  uint32_t GetThreadProperty(uint32_t threadIndex, rdcspv::ThreadProperty prop) override
+  {
+    if(prop >= rdcspv::ThreadProperty::Count)
+      return 0;
+    if(threadIndex >= thread_props.size())
+      return 0;
+
+    return thread_props[threadIndex][(size_t)prop];
+  }
+
   bool CalculateSampleGather(rdcspv::ThreadState &lane, rdcspv::Op opcode,
                              DebugAPIWrapper::TextureType texType, ShaderBindIndex imageBind,
                              ShaderBindIndex samplerBind, const ShaderVariable &uv,
@@ -1455,6 +1465,8 @@ public:
 
   // per-thread custom inputs by location [thread][location]
   rdcarray<rdcarray<ShaderVariable>> location_inputs;
+
+  rdcarray<rdcfixedarray<uint32_t, arraydim<rdcspv::ThreadProperty>()>> thread_props;
 
 private:
   WrappedVulkan *m_pDriver = NULL;
