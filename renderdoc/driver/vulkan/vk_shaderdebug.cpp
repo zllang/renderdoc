@@ -2932,6 +2932,14 @@ enum class InputSpecConstant
   Count,
 };
 
+enum class SubgroupCapability
+{
+  None = 0,
+  EXTBallot,
+  Vulkan1_1_NoBallot,
+  Vulkan1_1,
+};
+
 static const uint32_t validMagicNumber = 12345;
 static const uint32_t NumReservedBindings = 1;
 
@@ -3155,7 +3163,8 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
 static void CreateInputFetcher(rdcarray<uint32_t> &spv,
                                VulkanCreationInfo::ShaderModuleReflection &shadRefl,
                                BufferStorageMode storageMode, bool usePrimitiveID, bool useSampleID,
-                               bool useViewIndex)
+                               bool useViewIndex, SubgroupCapability subgroupCapability,
+                               uint32_t maxSubgroupSize)
 {
   rdcspv::Editor editor(spv);
 
@@ -4117,11 +4126,66 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   VulkanAPIWrapper *apiWrapper =
       new VulkanAPIWrapper(m_pDriver, c, ShaderStage::Pixel, eventId, shadRefl.refl->resourceId);
 
-  static const uint32_t numThreads = 4;
+  // if we don't have subgroup ballots we assume we have no real meaningful subgroup capabilities at
+  // all except for 'basic'. The only thing basic lets you do is fetch the subgroup ID, and
+  // determine which lane is the first active (OpGroupNonUniformElect).
+  // in this case we effectively consider it non-subgroup and just read those values directly to
+  // fill in, but otherwise simulate as if there were no subgroup use.
+  SubgroupCapability subgroupCapability = SubgroupCapability::None;
+  uint32_t maxSubgroupSize = 4;
 
-  apiWrapper->location_inputs.resize(numThreads);
-  apiWrapper->thread_builtins.resize(numThreads);
+  // for our purposes vulkan 1.1 fully deprecated the old EXT_shader_subgroup_* pair of extensions
+  // as the only thing that wasn't deprecated was a non-constant broadcast ID which we don't need
+  if(m_pDriver->GetExtensions(NULL).vulkanVersion >= VK_API_VERSION_1_1)
+  {
+    VkPhysicalDeviceSubgroupProperties subProps = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES,
+    };
 
+    VkPhysicalDeviceProperties2 availBase = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    availBase.pNext = &subProps;
+    m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
+
+    maxSubgroupSize = subProps.subgroupSize;
+    subgroupCapability = SubgroupCapability::Vulkan1_1_NoBallot;
+    const VkSubgroupFeatureFlags requiredFlags =
+        (VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT);
+    if((subProps.supportedOperations & requiredFlags) == requiredFlags)
+      subgroupCapability = SubgroupCapability::Vulkan1_1;
+
+    if(m_pDriver->GetExtensions(NULL).ext_EXT_subgroup_size_control)
+    {
+      VkPhysicalDeviceSubgroupSizeControlProperties subSizeProps = {
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES,
+      };
+      availBase.pNext = &subSizeProps;
+      m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
+
+      // use new upper bound in case it's higher with variable sizes
+      maxSubgroupSize = RDCMAX(maxSubgroupSize, subSizeProps.maxSubgroupSize);
+    }
+  }
+  else if(m_pDriver->GetExtensions(NULL).ext_EXT_shader_subgroup_ballot)
+  {
+    // the ballot extension only proides the subgroup size on the GPU so we need to allocate worst case up front
+
+    RDCWARN("Subgroup ballot extension is best extension enabled - using worst case subgroup size");
+
+    maxSubgroupSize = 128;
+    subgroupCapability = SubgroupCapability::EXTBallot;
+  }
+  else if(m_pDriver->GetExtensions(NULL).ext_EXT_shader_subgroup_vote)
+  {
+    // if only the vote extension is enabled we have no way to determine the subgroup size or
+    // anything, so we just fall back to treating this as a degenerate case with a single thread
+
+    RDCWARN("Subgroup vote extension is only subgroup feature enabled - treating as degenerate");
+
+    maxSubgroupSize = 1;
+    subgroupCapability = SubgroupCapability::None;
+  }
+
+  uint32_t numThreads = 4;
   std::unordered_map<ShaderBuiltin, ShaderVariable> &global_builtins = apiWrapper->global_builtins;
   global_builtins[ShaderBuiltin::DeviceIndex] = ShaderVariable(rdcstr(), 0U, 0U, 0U, 0U);
   global_builtins[ShaderBuiltin::DrawIndex] = ShaderVariable(rdcstr(), action->drawIndex, 0U, 0U, 0U);
@@ -4341,7 +4405,8 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     specMaps[0].size = sizeof(SpecData::bufferAddress);
   }
 
-  auto patchCallback = [this, &shadRefl, &fragSpecInfo, usePrimitiveID, useSampleID, useViewIndex](
+  auto patchCallback = [this, &shadRefl, &fragSpecInfo, usePrimitiveID, useSampleID, useViewIndex,
+                        subgroupCapability, maxSubgroupSize](
                            const AddedDescriptorData &patchedBufferdata, VkShaderStageFlagBits stage,
                            const char *entryName, const rdcarray<uint32_t> &origSpirv,
                            rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo) {
@@ -4353,7 +4418,8 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     if(!Vulkan_Debug_PSDebugDumpDirPath().empty())
       FileIO::WriteAll(Vulkan_Debug_PSDebugDumpDirPath() + "/debug_psinput_before.spv", modSpirv);
 
-    CreateInputFetcher(modSpirv, shadRefl, m_StorageMode, usePrimitiveID, useSampleID, useViewIndex);
+    CreateInputFetcher(modSpirv, shadRefl, m_StorageMode, usePrimitiveID, useSampleID, useViewIndex,
+                       subgroupCapability, maxSubgroupSize);
 
     if(!Vulkan_Debug_PSDebugDumpDirPath().empty())
       FileIO::WriteAll(Vulkan_Debug_PSDebugDumpDirPath() + "/debug_psinput_after.spv", modSpirv);
@@ -4512,6 +4578,12 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     // uniformly aligned, either 16-byte by default or 32-byte if larger components exist. The
     // output is in input signature order.
     byte *LaneData = (byte *)(winner + 1);
+
+    numThreads = 4;
+
+    apiWrapper->location_inputs.resize(numThreads);
+    apiWrapper->thread_builtins.resize(numThreads);
+    apiWrapper->thread_props.resize(numThreads);
 
     for(uint32_t t = 0; t < numThreads; t++)
     {
