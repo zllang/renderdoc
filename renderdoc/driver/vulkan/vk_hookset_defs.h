@@ -540,7 +540,11 @@
   DeclExt(KHR_ray_query);                              \
   DeclExt(EXT_nested_command_buffer);                  \
   DeclExt(EXT_shader_object);                          \
-  DeclExt(KHR_ray_tracing_pipeline);
+  DeclExt(KHR_ray_tracing_pipeline);                   \
+  DeclExt(EXT_subgroup_size_control);                  \
+  DeclExt(EXT_shader_subgroup_ballot);                 \
+  DeclExt(EXT_shader_subgroup_vote);                   \
+  DeclExt(KHR_shader_subgroup_uniform_control_flow);
 
 // for simplicity and since the check itself is platform agnostic,
 // these aren't protected in platform defines
@@ -670,7 +674,11 @@
   CheckExt(KHR_acceleration_structure, VKXX);                 \
   CheckExt(KHR_ray_query, VKXX);                              \
   CheckExt(EXT_shader_object, VKXX);                          \
-  CheckExt(KHR_ray_tracing_pipeline, VKXX);
+  CheckExt(KHR_ray_tracing_pipeline, VKXX);                   \
+  CheckExt(EXT_subgroup_size_control, VK13);                  \
+  CheckExt(EXT_shader_subgroup_ballot, VK11);                 \
+  CheckExt(EXT_shader_subgroup_vote, VK11);                   \
+  CheckExt(KHR_shader_subgroup_uniform_control_flow, VKXX);
 
 #define HookInitVulkanInstanceExts_PhysDev()                                                         \
   HookInitExtension(KHR_surface, GetPhysicalDeviceSurfaceSupportKHR);                                \

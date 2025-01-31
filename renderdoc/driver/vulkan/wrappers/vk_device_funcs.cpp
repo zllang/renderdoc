@@ -1762,6 +1762,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
 
     AddRequiredExtensions(false, Extensions, supportedExtensions);
 
+    VkPhysicalDeviceProperties physProps;
+    ObjDisp(physicalDevice)->GetPhysicalDeviceProperties(Unwrap(physicalDevice), &physProps);
+
     // Drop VK_KHR_driver_properties if it's not available, but add it if it is
     bool driverPropsSupported = (supportedExtensions.find(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME) !=
                                  supportedExtensions.end());
@@ -1890,6 +1893,19 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         RDCWARN(
             "VK_EXT_scalar_block_layout extension not available, mesh output from "
             "mesh stage will not be available");
+    }
+
+    // enable VK_KHR_shader_subgroup_uniform_control_flow if it's available, to make subgroup
+    // debugging more reliable/spec-clean.
+    // if we can't get it, we'll just emit the same code anyway and hope it compiles to something sensible
+    if(RDCMIN(m_EnabledExtensions.vulkanVersion, physProps.apiVersion) >= VK_MAKE_VERSION(1, 1, 0))
+    {
+      if(supportedExtensions.find(VK_KHR_SHADER_SUBGROUP_UNIFORM_CONTROL_FLOW_EXTENSION_NAME) !=
+         supportedExtensions.end())
+      {
+        Extensions.push_back(VK_KHR_SHADER_SUBGROUP_UNIFORM_CONTROL_FLOW_EXTENSION_NAME);
+        RDCLOG("Enabling VK_KHR_shader_subgroup_uniform_control_flow extension");
+      }
     }
 
     bool KHRbuffer = false, EXTbuffer = false;
@@ -3542,9 +3558,6 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       RDCLOG("Dev Ext %u: %s (%u)", i, exts[i].extensionName, exts[i].specVersion);
 
     SAFE_DELETE_ARRAY(exts);
-
-    VkPhysicalDeviceProperties physProps;
-    ObjDisp(physicalDevice)->GetPhysicalDeviceProperties(Unwrap(physicalDevice), &physProps);
 
     VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeExecFeatures = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR,
