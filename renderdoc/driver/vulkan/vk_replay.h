@@ -524,6 +524,25 @@ private:
   bool GetMinMax(ResourceId texid, const Subresource &sub, CompType typeCast, bool stencil,
                  float *minval, float *maxval);
 
+  struct AddedDescriptorData
+  {
+    WrappedVulkan *m_pDriver = NULL;
+
+    VkDescriptorPool descpool = VK_NULL_HANDLE;
+    rdcarray<VkDescriptorSetLayout> setLayouts;
+    rdcarray<VkDescriptorSet> descSets;
+    VkPipelineLayout pipeLayout = VK_NULL_HANDLE;
+
+    size_t numNewBindings;
+
+    void Free();
+    bool empty() { return m_pDriver == NULL; }
+  };
+
+  void AllocAndAddReservedDescriptors(const VulkanStatePipeline &pipe,
+                                      AddedDescriptorData &patchedBufferData,
+                                      bool vertexPatchedToCompute,
+                                      const rdcarray<VkDescriptorSetLayoutBinding> &newBindings);
   VulkanDebugManager *GetDebugManager();
   VulkanResourceManager *GetResourceManager();
 

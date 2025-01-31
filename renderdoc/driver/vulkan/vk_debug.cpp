@@ -2626,6 +2626,646 @@ void VulkanDebugManager::InitReadbackBuffer(VkDeviceSize sz)
   }
 }
 
+void VulkanReplay::AllocAndAddReservedDescriptors(
+    const VulkanStatePipeline &pipe, AddedDescriptorData &patchedBufferData,
+    bool vertexPatchedToCompute, const rdcarray<VkDescriptorSetLayoutBinding> &newBindings)
+{
+  VkDevice dev = m_Device;
+  VulkanCreationInfo &creationInfo = m_pDriver->m_CreationInfo;
+
+  VkDescriptorPool &descpool = patchedBufferData.descpool;
+  rdcarray<VkDescriptorSetLayout> &setLayouts = patchedBufferData.setLayouts;
+  rdcarray<VkDescriptorSet> &descSets = patchedBufferData.descSets;
+
+  const VulkanCreationInfo::Pipeline &pipeInfo = creationInfo.m_Pipeline[pipe.pipeline];
+
+  VkResult vkr = VK_SUCCESS;
+
+  struct AllocedWrites
+  {
+    ~AllocedWrites()
+    {
+      for(VkDescriptorBufferInfo *a : bufWrites)
+        delete[] a;
+      for(VkWriteDescriptorSetInlineUniformBlock *a : inlineWrites)
+        delete a;
+    }
+
+    rdcarray<VkDescriptorBufferInfo *> bufWrites;
+    rdcarray<VkWriteDescriptorSetInlineUniformBlock *> inlineWrites;
+  } alloced;
+
+  rdcarray<VkDescriptorBufferInfo *> &allocBufWrites = alloced.bufWrites;
+
+  rdcarray<VkWriteDescriptorSetInlineUniformBlock *> &allocInlineWrites = alloced.inlineWrites;
+
+  // one for each descriptor type. 1 of each to start with, we then increment for each descriptor
+  // we need to allocate
+  rdcarray<VkDescriptorPoolSize> poolSizes = {
+      {VK_DESCRIPTOR_TYPE_SAMPLER, 1},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+      {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1},
+      {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1},
+      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1},
+      {VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK, 0},
+  };
+
+  // array of descriptor types, used for generating lists for binding data. Each unique bitmask
+  // will have an offset (see below) pointing into this array where that bitmask's list of
+  // descriptors is
+  rdcarray<VkDescriptorType> mutableTypeArray;
+
+  // array of unique bitmasks encountered
+  rdcarray<uint64_t> mutablePoolsizeBitmask;
+  // parallel array to mutablePoolsizeBitmask with the [offset,range] in mutableTypeArray where the
+  // bitmask's type list is.
+  rdcarray<rdcpair<size_t, uint32_t>> mutableBitmaskArrayRange;
+
+  // populate mutable bitmasks. This loop is the same as the one below which is more commented
+  for(size_t i = 0; i < setLayouts.size(); i++)
+  {
+    if(i < pipeInfo.descSetLayouts.size() && i < pipe.descSets.size() &&
+       pipe.descSets[i].pipeLayout != ResourceId())
+    {
+      const VulkanCreationInfo::PipelineLayout &pipelineLayoutInfo =
+          creationInfo.m_PipelineLayout[pipe.descSets[i].pipeLayout];
+
+      if(pipelineLayoutInfo.descSetLayouts[i] == ResourceId())
+        continue;
+
+      const DescSetLayout &origLayout =
+          creationInfo.m_DescSetLayout[pipelineLayoutInfo.descSetLayouts[i]];
+
+      for(size_t b = 0; b < origLayout.bindings.size(); b++)
+      {
+        uint64_t mutableBitmask = origLayout.mutableBitmasks[b];
+
+        int bitmaskIdx = mutablePoolsizeBitmask.indexOf(mutableBitmask);
+        if(bitmaskIdx == -1)
+        {
+          bitmaskIdx = mutablePoolsizeBitmask.count();
+          mutablePoolsizeBitmask.push_back(mutableBitmask);
+          poolSizes.push_back({VK_DESCRIPTOR_TYPE_MUTABLE_EXT, 0});
+
+          uint32_t count = 0;
+          for(uint64_t m = 0; m < 64; m++)
+          {
+            if(((1ULL << m) & mutableBitmask) == 0)
+              continue;
+
+            mutableTypeArray.push_back(convert(DescriptorSlotType(m)));
+            count++;
+          }
+          mutableBitmaskArrayRange.push_back({mutableTypeArray.size() - count, count});
+        }
+      }
+    }
+  }
+
+  VkDescriptorPoolInlineUniformBlockCreateInfo inlineCreateInfo = {
+      VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO,
+  };
+
+  static const uint32_t NormalDescriptorCount = 11;
+  static const uint32_t InlinePoolIndex = 11;
+  static const uint32_t MutablePoolStart = 12;
+
+  uint32_t poolSizeCount = NormalDescriptorCount;
+
+  // count up our own
+  for(size_t i = 0; i < newBindings.size(); i++)
+  {
+    RDCASSERT((uint32_t)newBindings[i].descriptorType < NormalDescriptorCount,
+              newBindings[i].descriptorType);
+    poolSizes[newBindings[i].descriptorType].descriptorCount += newBindings[i].descriptorCount;
+  }
+
+  VkMutableDescriptorTypeCreateInfoEXT mutableCreateInfo = {
+      VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT,
+  };
+
+  // need to add our added bindings to the first descriptor set
+  rdcarray<VkDescriptorSetLayoutBinding> bindings = newBindings;
+  // this is a per-bindings array, only used for mutable descriptors
+  rdcarray<VkMutableDescriptorTypeListEXT> mutableTypeLists;
+
+  // if there are fewer sets bound than were declared in the pipeline layout, only process the
+  // bound sets (as otherwise we'd fail to copy from them). Assume the application knew what it
+  // was doing and the other sets are statically unused.
+  setLayouts.resize(RDCMIN(pipe.descSets.size(), pipeInfo.descSetLayouts.size()));
+
+  size_t boundDescs = setLayouts.size();
+
+  // need at least one set, if the shader isn't using any we'll just make our own
+  if(setLayouts.empty())
+    setLayouts.resize(1);
+
+  // start with the limits as they are, and subtract off them incrementally. When any limit would
+  // drop below 0, we fail.
+  uint32_t maxPerStageDescriptorSamplers[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSamplers,
+  };
+  uint32_t maxPerStageDescriptorUniformBuffers[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorUniformBuffers,
+  };
+  uint32_t maxPerStageDescriptorStorageBuffers[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageBuffers,
+  };
+  uint32_t maxPerStageDescriptorSampledImages[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorSampledImages,
+  };
+  uint32_t maxPerStageDescriptorStorageImages[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorStorageImages,
+  };
+  uint32_t maxPerStageDescriptorInputAttachments[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+      m_pDriver->GetDeviceProps().limits.maxPerStageDescriptorInputAttachments,
+  };
+  uint32_t maxPerStageResources[NumShaderStages] = {
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+      m_pDriver->GetDeviceProps().limits.maxPerStageResources,
+  };
+  uint32_t maxDescriptorSetSamplers = m_pDriver->GetDeviceProps().limits.maxDescriptorSetSamplers;
+  uint32_t maxDescriptorSetUniformBuffers =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetUniformBuffers;
+  uint32_t maxDescriptorSetUniformBuffersDynamic =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetUniformBuffersDynamic;
+  uint32_t maxDescriptorSetStorageBuffers =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetStorageBuffers;
+  uint32_t maxDescriptorSetStorageBuffersDynamic =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetStorageBuffersDynamic;
+  uint32_t maxDescriptorSetSampledImages =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetSampledImages;
+  uint32_t maxDescriptorSetStorageImages =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetStorageImages;
+  uint32_t maxDescriptorSetInputAttachments =
+      m_pDriver->GetDeviceProps().limits.maxDescriptorSetInputAttachments;
+
+  uint32_t maxDescriptorSetInlineUniformBlocks = 0;
+  uint32_t maxPerStageDescriptorInlineUniformBlocks[NumShaderStages] = {};
+
+  if(m_pDriver->GetExtensions(NULL).ext_EXT_inline_uniform_block)
+  {
+    VkPhysicalDeviceInlineUniformBlockProperties inlineProps = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES,
+    };
+
+    VkPhysicalDeviceProperties2 availBase = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    availBase.pNext = &inlineProps;
+    m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
+
+    maxDescriptorSetInlineUniformBlocks = inlineProps.maxDescriptorSetInlineUniformBlocks;
+    for(size_t i = 0; i < ARRAY_COUNT(maxPerStageDescriptorInlineUniformBlocks); i++)
+      maxPerStageDescriptorInlineUniformBlocks[i] =
+          inlineProps.maxPerStageDescriptorInlineUniformBlocks;
+  }
+
+  bool error = false;
+
+#define UPDATE_AND_CHECK_LIMIT(maxLimit)                                                   \
+  if(!error)                                                                               \
+  {                                                                                        \
+    if(descriptorCount > maxLimit)                                                         \
+    {                                                                                      \
+      error = true;                                                                        \
+      RDCWARN("Limit %s is exceeded. Cannot patch in required descriptor(s).", #maxLimit); \
+    }                                                                                      \
+    else                                                                                   \
+    {                                                                                      \
+      maxLimit -= descriptorCount;                                                         \
+    }                                                                                      \
+  }
+
+#define UPDATE_AND_CHECK_STAGE_LIMIT(maxLimit)                                                 \
+  if(!error)                                                                                   \
+  {                                                                                            \
+    for(uint32_t sbit = 0; sbit < NumShaderStages; sbit++)                                     \
+    {                                                                                          \
+      if(newBind.stageFlags & (1U << sbit))                                                    \
+      {                                                                                        \
+        if(descriptorCount > maxLimit[sbit])                                                   \
+        {                                                                                      \
+          error = true;                                                                        \
+          RDCWARN("Limit %s is exceeded. Cannot patch in required descriptor(s).", #maxLimit); \
+        }                                                                                      \
+        else                                                                                   \
+        {                                                                                      \
+          maxLimit[sbit] -= descriptorCount;                                                   \
+        }                                                                                      \
+      }                                                                                        \
+    }                                                                                          \
+  }
+
+  for(size_t i = 0; !error && i < setLayouts.size(); i++)
+  {
+    bool hasImmutableSamplers = false;
+
+    // except for the first layout we need to start from scratch
+    if(i > 0)
+      bindings.clear();
+
+    // clear any mutable type lists
+    mutableTypeLists.clear();
+
+    // if the shader had no descriptor sets at all, i will be invalid, so just skip and add a set
+    // with only our own bindings.
+    if(i < pipeInfo.descSetLayouts.size() && i < pipe.descSets.size() &&
+       pipe.descSets[i].pipeLayout != ResourceId())
+    {
+      const VulkanCreationInfo::PipelineLayout &pipelineLayoutInfo =
+          creationInfo.m_PipelineLayout[pipe.descSets[i].pipeLayout];
+
+      if(pipelineLayoutInfo.descSetLayouts[i] == ResourceId())
+        continue;
+
+      // use the descriptor set layout from when it was bound. If the pipeline layout declared a
+      // descriptor set layout for this set, but it's statically unused, it may be complete
+      // garbage and doesn't match what the shader uses. However the pipeline layout at descriptor
+      // set bind time must have been compatible and valid so we can use it. If this set *is* used
+      // then the pipeline layout at bind time must be compatible with the pipeline's pipeline
+      // layout, so we're fine too.
+      const DescSetLayout &origLayout =
+          creationInfo.m_DescSetLayout[pipelineLayoutInfo.descSetLayouts[i]];
+
+      WrappedVulkan::DescriptorSetInfo &setInfo =
+          m_pDriver->m_DescriptorSetState[pipe.descSets[i].descSet];
+
+      for(size_t b = 0; !error && b < origLayout.bindings.size(); b++)
+      {
+        const DescSetLayout::Binding &layoutBind = origLayout.bindings[b];
+
+        // skip empty bindings
+        if(layoutBind.layoutDescType == VK_DESCRIPTOR_TYPE_MAX_ENUM)
+          continue;
+
+        uint32_t descriptorCount = layoutBind.descriptorCount;
+
+        if(layoutBind.variableSize)
+          descriptorCount = setInfo.data.variableDescriptorCount;
+
+        // make room in the pool
+        if(layoutBind.layoutDescType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK)
+        {
+          poolSizes[InlinePoolIndex].descriptorCount += descriptorCount;
+          inlineCreateInfo.maxInlineUniformBlockBindings++;
+        }
+        else if(layoutBind.layoutDescType == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
+        {
+          int bitmaskIdx = mutablePoolsizeBitmask.indexOf(origLayout.mutableBitmasks[b]);
+          RDCASSERT(bitmaskIdx >= 0);
+          poolSizes[MutablePoolStart + bitmaskIdx].descriptorCount += descriptorCount;
+
+          // each mutable descriptor needs a type list
+          mutableTypeLists.resize_for_index(b);
+          mutableTypeLists[b].descriptorTypeCount = mutableBitmaskArrayRange[bitmaskIdx].second;
+          mutableTypeLists[b].pDescriptorTypes =
+              mutableTypeArray.data() + mutableBitmaskArrayRange[bitmaskIdx].first;
+        }
+        else
+        {
+          poolSizes[layoutBind.layoutDescType].descriptorCount += descriptorCount;
+        }
+
+        VkDescriptorSetLayoutBinding newBind;
+        // offset the binding. We offset all sets to make it easier for patching - don't need to
+        // conditionally patch shader bindings depending on which set they're in.
+        newBind.binding = uint32_t(b + newBindings.size());
+        newBind.descriptorCount = descriptorCount;
+        newBind.descriptorType = layoutBind.layoutDescType;
+
+        // we only need it available for compute, just make all bindings visible otherwise dynamic
+        // buffer offsets could be indexed wrongly. Consider the case where we have binding 0 as a
+        // fragment UBO, and binding 1 as a vertex UBO. Then there are two dynamic offsets, and
+        // the second is the one we want to use with ours. If we only add the compute visibility
+        // bit to the second UBO, then suddenly it's the *first* offset that we must provide.
+        // Instead of trying to remap offsets to match, we simply make every binding compute
+        // visible so the ordering is still the same. Since compute and graphics are disjoint this
+        // is safe.
+        if(vertexPatchedToCompute)
+          newBind.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        else
+          newBind.stageFlags = layoutBind.stageFlags;
+
+        // mutable descriptors count against all limits they can be used against. This loop will
+        // only execute for mutable descriptors, others will just execute once using their real type
+        for(uint64_t m = 0; m < 64; m++)
+        {
+          VkDescriptorType descType = layoutBind.layoutDescType;
+
+          if(descType == VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
+          {
+            // if this type's bit isn't set in the bitmask of available descriptors then continue
+            if(((1ULL << m) & origLayout.mutableBitmasks[b]) == 0)
+              continue;
+
+            // this type is allowed, convert it to an enum and check it against the limits below
+            descType = convert(DescriptorSlotType(m));
+          }
+
+          switch(descType)
+          {
+            case VK_DESCRIPTOR_TYPE_SAMPLER:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetSamplers);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorSamplers);
+              break;
+            case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetSampledImages);
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetSamplers);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorSamplers);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorSampledImages);
+              break;
+            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetSampledImages);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorSampledImages);
+              break;
+            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetStorageImages);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorStorageImages);
+              break;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetSampledImages);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorSampledImages);
+              break;
+            case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetStorageImages);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorStorageImages);
+              break;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetUniformBuffers);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorUniformBuffers);
+              break;
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetStorageBuffers);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorStorageBuffers);
+              break;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetUniformBuffersDynamic);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorUniformBuffers);
+              break;
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetStorageBuffersDynamic);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorStorageBuffers);
+              break;
+            case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetInputAttachments);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorInputAttachments);
+              break;
+            case VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK:
+              descriptorCount = 1;
+              UPDATE_AND_CHECK_LIMIT(maxDescriptorSetInlineUniformBlocks);
+              UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageDescriptorInlineUniformBlocks);
+              break;
+            default: break;
+          }
+
+          // we're only looping for mutables
+          if(layoutBind.layoutDescType != VK_DESCRIPTOR_TYPE_MUTABLE_EXT)
+            break;
+        }
+
+        UPDATE_AND_CHECK_STAGE_LIMIT(maxPerStageResources);
+
+        if(layoutBind.immutableSampler)
+        {
+          hasImmutableSamplers = true;
+          VkSampler *samplers = new VkSampler[layoutBind.descriptorCount];
+          newBind.pImmutableSamplers = samplers;
+          for(uint32_t s = 0; s < layoutBind.descriptorCount; s++)
+            samplers[s] =
+                GetResourceManager()->GetCurrentHandle<VkSampler>(layoutBind.immutableSampler[s]);
+        }
+        else
+        {
+          newBind.pImmutableSamplers = NULL;
+        }
+
+        bindings.push_back(newBind);
+      }
+    }
+
+    VkDescriptorSetLayoutCreateInfo descsetLayoutInfo = {
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        NULL,
+        0,
+        (uint32_t)bindings.size(),
+        bindings.data(),
+    };
+
+    if(!mutableTypeLists.empty())
+    {
+      descsetLayoutInfo.pNext = &mutableCreateInfo;
+      mutableCreateInfo.mutableDescriptorTypeListCount = (uint32_t)mutableTypeLists.size();
+      mutableCreateInfo.pMutableDescriptorTypeLists = mutableTypeLists.data();
+    }
+
+    if(!error)
+    {
+      // create new offseted descriptor layout
+      vkr = m_pDriver->vkCreateDescriptorSetLayout(dev, &descsetLayoutInfo, NULL, &setLayouts[i]);
+      CHECK_VKR(m_pDriver, vkr);
+    }
+
+    if(hasImmutableSamplers)
+    {
+      for(const VkDescriptorSetLayoutBinding &bind : bindings)
+        delete[] bind.pImmutableSamplers;
+    }
+  }
+
+  // if we hit an error, we can't create the descriptor set so bail out now
+  if(error)
+    return;
+
+  VkDescriptorPoolCreateInfo poolCreateInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  // 1 set for each layout
+  poolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  poolCreateInfo.maxSets = (uint32_t)setLayouts.size();
+  poolCreateInfo.poolSizeCount = poolSizeCount;
+  poolCreateInfo.pPoolSizes = poolSizes.data();
+
+  if(inlineCreateInfo.maxInlineUniformBlockBindings > 0)
+  {
+    poolCreateInfo.poolSizeCount++;
+    poolCreateInfo.pNext = &inlineCreateInfo;
+  }
+
+  poolCreateInfo.poolSizeCount += mutablePoolsizeBitmask.count();
+
+  if(!mutablePoolsizeBitmask.empty())
+  {
+    mutableTypeLists.clear();
+    mutableTypeLists.resize(poolCreateInfo.poolSizeCount);
+
+    for(size_t i = 0; i < mutablePoolsizeBitmask.size(); i++)
+    {
+      mutableTypeLists[MutablePoolStart + i].pDescriptorTypes =
+          mutableTypeArray.data() + mutableBitmaskArrayRange[i].first;
+      mutableTypeLists[MutablePoolStart + i].descriptorTypeCount = mutableBitmaskArrayRange[i].second;
+    }
+
+    poolCreateInfo.pNext = &mutableCreateInfo;
+    mutableCreateInfo.mutableDescriptorTypeListCount = (uint32_t)mutableTypeLists.size();
+    mutableCreateInfo.pMutableDescriptorTypeLists = mutableTypeLists.data();
+  }
+
+  // create descriptor pool with enough space for our descriptors
+  vkr = m_pDriver->vkCreateDescriptorPool(dev, &poolCreateInfo, NULL, &descpool);
+  CHECK_VKR(m_pDriver, vkr);
+
+  // allocate all the descriptors
+  VkDescriptorSetAllocateInfo descSetAllocInfo = {
+      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      NULL,
+      descpool,
+      (uint32_t)setLayouts.size(),
+      setLayouts.data(),
+  };
+
+  descSets.resize(setLayouts.size());
+  m_pDriver->vkAllocateDescriptorSets(dev, &descSetAllocInfo, descSets.data());
+
+  rdcarray<VkWriteDescriptorSet> descWrites;
+
+  // copy the data across from the real descriptors into our adjusted bindings
+  for(size_t i = 0; i < boundDescs; i++)
+  {
+    if(pipe.descSets[i].descSet == ResourceId())
+      continue;
+
+    const VulkanCreationInfo::PipelineLayout &pipelineLayoutInfo =
+        creationInfo.m_PipelineLayout[pipe.descSets[i].pipeLayout];
+
+    if(pipelineLayoutInfo.descSetLayouts[i] == ResourceId())
+      continue;
+
+    // as above we use the pipeline layout that was originally used to bind this descriptor set
+    // and not the pipeline layout from the pipeline, in case the pipeline statically doesn't use
+    // this set and so its descriptor set layout is garbage (doesn't match the actual bound
+    // descriptor set)
+    const DescSetLayout &origLayout =
+        creationInfo.m_DescSetLayout[pipelineLayoutInfo.descSetLayouts[i]];
+
+    WrappedVulkan::DescriptorSetInfo &setInfo =
+        m_pDriver->m_DescriptorSetState[pipe.descSets[i].descSet];
+
+    {
+      // Only write bindings that actually exist in the current descriptor
+      // set. If there are bindings that aren't set, assume the app knows
+      // what it's doing and the remaining bindings are unused.
+      for(size_t bind = 0; bind < setInfo.data.binds.size(); bind++)
+      {
+        const DescSetLayout::Binding &layoutBind = origLayout.bindings[bind];
+
+        // skip empty bindings
+        if(layoutBind.layoutDescType == VK_DESCRIPTOR_TYPE_MAX_ENUM)
+          continue;
+
+        uint32_t descriptorCount = layoutBind.descriptorCount;
+
+        if(layoutBind.variableSize)
+          descriptorCount = setInfo.data.variableDescriptorCount;
+
+        if(descriptorCount == 0)
+          continue;
+
+        DescriptorSetSlot *slots = setInfo.data.binds[bind];
+
+        // skip validity check for inline uniform block as the descriptor count means something
+        // different
+        if(layoutBind.layoutDescType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK)
+        {
+          allocInlineWrites.push_back(new VkWriteDescriptorSetInlineUniformBlock);
+          VkWriteDescriptorSetInlineUniformBlock *inlineWrite = allocInlineWrites.back();
+          inlineWrite->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK;
+          inlineWrite->pNext = NULL;
+          inlineWrite->pData = setInfo.data.inlineBytes.data() + slots->offset;
+          inlineWrite->dataSize = descriptorCount;
+
+          VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+          write.pNext = inlineWrite;
+          write.dstSet = descSets[i];
+          write.descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK;
+          write.dstBinding = uint32_t(bind + newBindings.size());
+          write.descriptorCount = descriptorCount;
+
+          descWrites.push_back(write);
+          continue;
+        }
+
+        // skip single descriptors that are not valid
+        if(!m_pDriver->NULLDescriptorsAllowed() && descriptorCount == 1 &&
+           slots->resource == ResourceId() && slots->sampler == ResourceId())
+        {
+          // do nothing - don't increment bind so that the same write descriptor is used next time.
+          continue;
+        }
+
+        VkDescriptorBufferInfo *writeScratch = new VkDescriptorBufferInfo[descriptorCount];
+        allocBufWrites.push_back(writeScratch);
+
+        CreateDescriptorWritesForSlotData(m_pDriver, descWrites, writeScratch, slots,
+                                          descriptorCount, descSets[i],
+                                          uint32_t(bind + newBindings.size()), layoutBind);
+      }
+    }
+  }
+
+  m_pDriver->vkUpdateDescriptorSets(dev, (uint32_t)descWrites.size(), descWrites.data(), 0, NULL);
+}
+
 void VulkanReplay::PatchReservedDescriptors(const VulkanStatePipeline &pipe,
                                             VkDescriptorPool &descpool,
                                             rdcarray<VkDescriptorSetLayout> &setLayouts,
@@ -3264,6 +3904,26 @@ void VulkanReplay::PatchReservedDescriptors(const VulkanStatePipeline &pipe,
   }
 
   m_pDriver->vkUpdateDescriptorSets(dev, (uint32_t)descWrites.size(), descWrites.data(), 0, NULL);
+}
+
+void VulkanReplay::AddedDescriptorData::Free()
+{
+  VkDevice dev = m_pDriver->GetDev();
+
+  if(descpool != VK_NULL_HANDLE)
+  {
+    // delete descriptors. Technically we don't have to free the descriptor sets, but our tracking
+    // on replay doesn't handle destroying children of pooled objects so we do it explicitly anyway.
+    m_pDriver->vkFreeDescriptorSets(dev, descpool, (uint32_t)descSets.size(), descSets.data());
+
+    m_pDriver->vkDestroyDescriptorPool(dev, descpool, NULL);
+  }
+
+  for(VkDescriptorSetLayout layout : setLayouts)
+    m_pDriver->vkDestroyDescriptorSetLayout(dev, layout, NULL);
+
+  // delete pipeline layout
+  m_pDriver->vkDestroyPipelineLayout(dev, pipeLayout, NULL);
 }
 
 void VulkanDebugManager::CustomShaderRendering::Destroy(WrappedVulkan *driver)
