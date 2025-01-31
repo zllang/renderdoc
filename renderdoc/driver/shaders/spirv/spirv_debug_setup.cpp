@@ -838,7 +838,8 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
                                        const rdcstr &entryPoint,
                                        const rdcarray<SpecConstant> &specInfo,
                                        const std::map<size_t, uint32_t> &instructionLines,
-                                       const SPIRVPatchData &patchData, uint32_t activeIndex)
+                                       const SPIRVPatchData &patchData, uint32_t activeIndex,
+                                       uint32_t workgroupSize)
 {
   Id entryId = entryLookup[ShaderEntryPoint(entryPoint, shaderStage)];
 
@@ -895,9 +896,8 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
   stage = shaderStage;
   apiWrapper = api;
 
-  uint32_t workgroupSize = shaderStage == ShaderStage::Pixel ? 4 : 1;
   for(uint32_t i = 0; i < workgroupSize; i++)
-    workgroup.push_back(ThreadState(i, *this, global));
+    workgroup.push_back(ThreadState(*this, global));
 
   ThreadState &active = GetActiveLane();
 
@@ -1489,6 +1489,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
   for(uint32_t i = 0; i < workgroupSize; i++)
   {
     ThreadState &lane = workgroup[i];
+    lane.workgroupIndex = i;
     if(i != activeLaneIndex)
     {
       lane.nextInstruction = active.nextInstruction;
@@ -1499,14 +1500,66 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
     if(stage == ShaderStage::Pixel)
     {
-      ShaderVariable var(rdcstr(), 0U, 0U, 0U, 0U);
-      apiWrapper->FillInputValue(var, ShaderBuiltin::IsHelper, i, 0, 0);
-      lane.helperInvocation = var.value.u32v[0] != 0;
+      lane.helperInvocation = apiWrapper->GetThreadProperty(i, ThreadProperty::Helper) != 0;
+      lane.quadLaneIndex = apiWrapper->GetThreadProperty(i, ThreadProperty::QuadLane);
+      lane.quadId = apiWrapper->GetThreadProperty(i, ThreadProperty::QuadId);
     }
+
+    lane.dead = apiWrapper->GetThreadProperty(i, ThreadProperty::Active) == 0;
 
     // now that the globals are allocated and their storage won't move, we can take pointers to them
     for(const PointerId &p : pointerIDs)
       p.Set(*this, global, lane);
+  }
+
+  // find quad neighbours
+  {
+    rdcarray<uint32_t> processedQuads;
+    for(uint32_t i = 0; i < workgroupSize; i++)
+    {
+      uint32_t desiredQuad = workgroup[i].quadId;
+
+      // ignore threads not in any quad
+      if(desiredQuad == 0)
+        continue;
+
+      // quads are almost certainly sorted together, so shortcut by checking the last one
+      if((!processedQuads.empty() && processedQuads.back() == desiredQuad) ||
+         processedQuads.contains(desiredQuad))
+        continue;
+
+      processedQuads.push_back(desiredQuad);
+
+      // find the threads
+      uint32_t threads[4] = {
+          i,
+          ~0U,
+          ~0U,
+          ~0U,
+      };
+      for(uint32_t j = i + 1, t = 1; j < workgroupSize && t < 4; j++)
+      {
+        if(workgroup[j].quadId == desiredQuad)
+          threads[t++] = j;
+      }
+
+      // now swizzle the threads to know each other
+      for(uint32_t src = 0; src < 4; src++)
+      {
+        uint32_t lane = workgroup[threads[src]].quadLaneIndex;
+
+        if(lane >= 4)
+          continue;
+
+        for(uint32_t dst = 0; dst < 4; dst++)
+        {
+          if(threads[dst] == ~0U)
+            continue;
+
+          workgroup[threads[dst]].quadNeighbours[lane] = threads[src];
+        }
+      }
+    }
   }
 
   // this contains all the accumulated line number information. Add in our disassembly mapping

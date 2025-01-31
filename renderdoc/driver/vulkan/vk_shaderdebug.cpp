@@ -2968,8 +2968,8 @@ struct VertexLaneData
 
 struct PixelLaneData
 {
-  Vec4f fragCoord;    // per-lane coord
-  uint32_t helper;    // per-lane helper bit
+  Vec4f fragCoord;      // per-lane coord
+  uint32_t isHelper;    // per-lane helper bit
   uint32_t padding[3];
 };
 
@@ -3302,7 +3302,7 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       helper.base = helper.loadOps.add(rdcspv::OpSelect(uint32Type, editor.MakeId(), helper.base,
                                                         getUIntConst(1), getUIntConst(0)));
       fixedValues.push_back(helper);
-      structMembers.push_back({uint32Type, "__rd_helper", offsetof(PixelLaneData, helper)});
+      structMembers.push_back({uint32Type, "__rd_helper", offsetof(PixelLaneData, isHelper)});
 
       offset += sizeof(PixelLaneData);
     }
@@ -3881,6 +3881,9 @@ ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, u
 
   apiWrapper->location_inputs.resize(numThreads);
   apiWrapper->thread_builtins.resize(numThreads);
+  apiWrapper->thread_props.resize(numThreads);
+
+  apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::Active] = 1;
 
   std::unordered_map<ShaderBuiltin, ShaderVariable> &global_builtins = apiWrapper->global_builtins;
   global_builtins[ShaderBuiltin::BaseInstance] =
@@ -4056,7 +4059,7 @@ ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, u
   rdcspv::Debugger *debugger = new rdcspv::Debugger;
   debugger->Parse(shader.spirv.GetSPIRV());
   ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Vertex, entryPoint, spec,
-                                               shadRefl.instructionLines, shadRefl.patchData, 0);
+                                               shadRefl.instructionLines, shadRefl.patchData, 0, 1);
   apiWrapper->ResetReplay();
 
   return ret;
@@ -4589,27 +4592,40 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     {
       byte *value = LaneData + t * structStride;
 
+      apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Active] = 1;
+
       // read PixelLaneData
-      PixelLaneData *pixelData = (PixelLaneData *)value;
+      {
+        PixelLaneData *pixelData = (PixelLaneData *)value;
+
+        {
+          ShaderVariable &var = apiWrapper->thread_builtins[t][ShaderBuiltin::Position];
+
+          var.rows = 1;
+          var.columns = 4;
+          var.type = VarType::Float;
+
+          memcpy(var.value.u8v.data(), &pixelData->fragCoord, sizeof(Vec4f));
+        }
+
+        {
+          ShaderVariable &var = apiWrapper->thread_builtins[t][ShaderBuiltin::IsHelper];
+
+          var.rows = 1;
+          var.columns = 1;
+          var.type = VarType::Bool;
+
+          memcpy(var.value.u8v.data(), &pixelData->isHelper, sizeof(uint32_t));
+        }
+
+        if(numThreads == 4)
+          apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Active] = 1;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Helper] =
+            t != winner->laneIndex ? 1 : 0;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::QuadId] = 1000;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::QuadLane] = t;
+      }
       value += sizeof(PixelLaneData);
-      {
-        ShaderVariable &var = apiWrapper->thread_builtins[t][ShaderBuiltin::Position];
-
-        var.rows = 1;
-        var.columns = 4;
-        var.type = VarType::Float;
-
-        memcpy(var.value.u8v.data(), &pixelData->fragCoord, sizeof(Vec4f));
-      }
-      {
-        ShaderVariable &var = apiWrapper->thread_builtins[t][ShaderBuiltin::IsHelper];
-
-        var.rows = 1;
-        var.columns = 1;
-        var.type = VarType::Bool;
-
-        memcpy(var.value.u8v.data(), &pixelData->helper, sizeof(uint32_t));
-      }
 
       for(size_t i = 0; i < shadRefl.refl->inputSignature.size(); i++)
       {
@@ -4640,7 +4656,8 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     }
 
     ret = debugger->BeginDebug(apiWrapper, ShaderStage::Pixel, entryPoint, spec,
-                               shadRefl.instructionLines, shadRefl.patchData, winner->laneIndex);
+                               shadRefl.instructionLines, shadRefl.patchData, winner->laneIndex,
+                               numThreads);
     apiWrapper->ResetReplay();
   }
   else
@@ -4712,6 +4729,9 @@ ShaderDebugTrace *VulkanReplay::DebugThread(uint32_t eventId,
   static const uint32_t numThreads = 1;
 
   apiWrapper->thread_builtins.resize(numThreads);
+  apiWrapper->thread_props.resize(numThreads);
+
+  apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::Active] = 1;
 
   std::unordered_map<ShaderBuiltin, ShaderVariable> &global_builtins = apiWrapper->global_builtins;
   global_builtins[ShaderBuiltin::DispatchSize] =
@@ -4736,7 +4756,7 @@ ShaderDebugTrace *VulkanReplay::DebugThread(uint32_t eventId,
   rdcspv::Debugger *debugger = new rdcspv::Debugger;
   debugger->Parse(shader.spirv.GetSPIRV());
   ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Compute, entryPoint, spec,
-                                               shadRefl.instructionLines, shadRefl.patchData, 0);
+                                               shadRefl.instructionLines, shadRefl.patchData, 0, 1);
   apiWrapper->ResetReplay();
 
   return ret;
@@ -4800,6 +4820,9 @@ ShaderDebugTrace *VulkanReplay::DebugMeshThread(uint32_t eventId,
   static const uint32_t numThreads = 1;
 
   apiWrapper->thread_builtins.resize(numThreads);
+  apiWrapper->thread_props.resize(numThreads);
+
+  apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::Active] = 1;
 
   std::unordered_map<ShaderBuiltin, ShaderVariable> &global_builtins = apiWrapper->global_builtins;
   global_builtins[ShaderBuiltin::DispatchSize] =
@@ -4824,7 +4847,7 @@ ShaderDebugTrace *VulkanReplay::DebugMeshThread(uint32_t eventId,
   rdcspv::Debugger *debugger = new rdcspv::Debugger;
   debugger->Parse(shader.spirv.GetSPIRV());
   ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Mesh, entryPoint, spec,
-                                               shadRefl.instructionLines, shadRefl.patchData, 0);
+                                               shadRefl.instructionLines, shadRefl.patchData, 0, 1);
   apiWrapper->ResetReplay();
 
   return ret;

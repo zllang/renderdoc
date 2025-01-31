@@ -77,13 +77,9 @@ inline uint64_t CountOnes(uint64_t value)
 
 namespace rdcspv
 {
-ThreadState::ThreadState(uint32_t workgroupIdx, Debugger &debug, const GlobalState &globalState)
+ThreadState::ThreadState(Debugger &debug, const GlobalState &globalState)
     : debugger(debug), global(globalState)
 {
-  workgroupIndex = workgroupIdx;
-  nextInstruction = 0;
-  helperInvocation = false;
-  killed = false;
 }
 
 ThreadState::~ThreadState()
@@ -95,7 +91,7 @@ ThreadState::~ThreadState()
 
 bool ThreadState::Finished() const
 {
-  return killed || callstack.empty();
+  return dead || callstack.empty();
 }
 
 void ThreadState::FillCallstack(rdcarray<Id> &funcs)
@@ -415,18 +411,33 @@ ShaderVariable ThreadState::CalcDeriv(ThreadState::DerivDir dir, ThreadState::De
 {
   const ThreadState *a = NULL, *b = NULL;
 
+  if(quadNeighbours[0] == ~0U || quadNeighbours[1] == ~0U || quadNeighbours[2] == ~0U ||
+     quadNeighbours[3] == ~0U)
+  {
+    debugger.GetAPIWrapper()->AddDebugMessage(
+        MessageCategory::Execution, MessageSeverity::High, MessageSource::RuntimeWarning,
+        StringFormat::Fmt("Derivative calculation within non-quad on input %s",
+                          debugger.GetHumanName(val).c_str()));
+    return ShaderVariable("", 0.0f, 0.0f, 0.0f, 0.0f);
+  }
+
+  RDCASSERT(quadNeighbours[0] < workgroup.size(), quadNeighbours[0], workgroup.size());
+  RDCASSERT(quadNeighbours[1] < workgroup.size(), quadNeighbours[1], workgroup.size());
+  RDCASSERT(quadNeighbours[2] < workgroup.size(), quadNeighbours[2], workgroup.size());
+  RDCASSERT(quadNeighbours[3] < workgroup.size(), quadNeighbours[3], workgroup.size());
+
   const bool xdirection = (dir == DDX);
   if(type == Coarse)
   {
     // coarse derivatives are identical across the quad, based on the top-left.
-    a = &workgroup[0];
-    b = &workgroup[xdirection ? 1 : 2];
+    a = &workgroup[quadNeighbours[0]];
+    b = &workgroup[quadNeighbours[xdirection ? 1 : 2]];
   }
   else
   {
     // we need to figure out the exact pair to use
-    int x = workgroupIndex & 1;
-    int y = workgroupIndex / 2;
+    int x = quadLaneIndex & 1;
+    int y = quadLaneIndex / 2;
 
     if(x == 0)
     {
@@ -435,13 +446,13 @@ ShaderVariable ThreadState::CalcDeriv(ThreadState::DerivDir dir, ThreadState::De
         // top-left
         if(xdirection)
         {
-          a = &workgroup[0];
-          b = &workgroup[1];
+          a = &workgroup[quadNeighbours[0]];
+          b = &workgroup[quadNeighbours[1]];
         }
         else
         {
-          a = &workgroup[0];
-          b = &workgroup[2];
+          a = &workgroup[quadNeighbours[0]];
+          b = &workgroup[quadNeighbours[2]];
         }
       }
       else
@@ -449,13 +460,13 @@ ShaderVariable ThreadState::CalcDeriv(ThreadState::DerivDir dir, ThreadState::De
         // bottom-left
         if(xdirection)
         {
-          a = &workgroup[2];
-          b = &workgroup[3];
+          a = &workgroup[quadNeighbours[2]];
+          b = &workgroup[quadNeighbours[3]];
         }
         else
         {
-          a = &workgroup[0];
-          b = &workgroup[2];
+          a = &workgroup[quadNeighbours[0]];
+          b = &workgroup[quadNeighbours[2]];
         }
       }
     }
@@ -466,13 +477,13 @@ ShaderVariable ThreadState::CalcDeriv(ThreadState::DerivDir dir, ThreadState::De
         // top-right
         if(xdirection)
         {
-          a = &workgroup[0];
-          b = &workgroup[1];
+          a = &workgroup[quadNeighbours[0]];
+          b = &workgroup[quadNeighbours[1]];
         }
         else
         {
-          a = &workgroup[1];
-          b = &workgroup[3];
+          a = &workgroup[quadNeighbours[1]];
+          b = &workgroup[quadNeighbours[3]];
         }
       }
       else
@@ -480,13 +491,13 @@ ShaderVariable ThreadState::CalcDeriv(ThreadState::DerivDir dir, ThreadState::De
         // bottom-right
         if(xdirection)
         {
-          a = &workgroup[2];
-          b = &workgroup[3];
+          a = &workgroup[quadNeighbours[2]];
+          b = &workgroup[quadNeighbours[3]];
         }
         else
         {
-          a = &workgroup[1];
-          b = &workgroup[3];
+          a = &workgroup[quadNeighbours[1]];
+          b = &workgroup[quadNeighbours[3]];
         }
       }
     }
@@ -3068,7 +3079,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::TerminateInvocation:
     case Op::Kill:
     {
-      killed = true;
+      dead = true;
 
       // destroy all stack frames
       for(StackFrame *exitingFrame : callstack)

@@ -175,7 +175,7 @@ class Debugger;
 
 struct ThreadState
 {
-  ThreadState(uint32_t workgroupIdx, Debugger &debug, const GlobalState &globalState);
+  ThreadState(Debugger &debug, const GlobalState &globalState);
   ~ThreadState();
 
   void EnterEntryPoint(ShaderDebugState *state);
@@ -231,10 +231,16 @@ struct ThreadState
 
   std::map<Id, uint32_t> lastWrite;
 
-  // index in the pixel quad
-  uint32_t workgroupIndex;
-  bool helperInvocation;
-  bool killed;
+  // quad ID (arbitrary, just used to find neighbours for derivatives)
+  uint32_t quadId = 0;
+  // index in the pixel quad (relative to the active lane)
+  uint32_t quadLaneIndex = ~0U;
+  // the lane indices of our quad neighbours
+  uint32_t quadNeighbours[4] = {~0U, ~0U, ~0U, ~0U};
+  // index in the workgroup
+  uint32_t workgroupIndex = 0;
+  bool helperInvocation = false;
+  bool dead = true;
 
   const ShaderVariable &GetSrc(Id id) const;
   void WritePointerValue(Id pointer, const ShaderVariable &val);
@@ -368,7 +374,8 @@ public:
   ShaderDebugTrace *BeginDebug(DebugAPIWrapper *apiWrapper, const ShaderStage stage,
                                const rdcstr &entryPoint, const rdcarray<SpecConstant> &specInfo,
                                const std::map<size_t, uint32_t> &instructionLines,
-                               const SPIRVPatchData &patchData, uint32_t activeIndex);
+                               const SPIRVPatchData &patchData, uint32_t activeIndex,
+                               uint32_t workgroupSize);
 
   rdcarray<ShaderDebugState> ContinueDebug();
 
