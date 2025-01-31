@@ -4922,6 +4922,25 @@ void VulkanReplay::PostVS::Destroy(WrappedVulkan *driver)
     driver->vkDestroyQueryPool(driver->GetDev(), XFBQueryPool, NULL);
 }
 
+void VulkanReplay::Feedback::ResizeFeedbackBuffer(WrappedVulkan *driver,
+                                                  VkDeviceSize feedbackStorageSize)
+{
+  if(feedbackStorageSize > FeedbackBuffer.TotalSize())
+  {
+    VkDevice dev = driver->GetDev();
+    uint32_t flags = GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO;
+
+    if(IsBDA(m_StorageMode))
+      flags |= GPUBuffer::eGPUBufferAddressable;
+
+    FeedbackBuffer.Destroy();
+    FeedbackBuffer.Create(driver, dev, feedbackStorageSize, 1, flags);
+
+    NameUnwrappedVulkanObject(FeedbackBuffer.UnwrappedBuffer(),
+                              "m_BindlessFeedback.FeedbackBuffer");
+  }
+}
+
 void VulkanReplay::Feedback::Destroy(WrappedVulkan *driver)
 {
   FeedbackBuffer.Destroy();

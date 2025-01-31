@@ -820,6 +820,8 @@ private:
 
   struct Feedback
   {
+    void ResizeFeedbackBuffer(WrappedVulkan *driver, VkDeviceSize feedbackStorageSize);
+
     void Destroy(WrappedVulkan *driver);
 
     BufferStorageMode m_StorageMode;
