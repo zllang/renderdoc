@@ -4562,7 +4562,7 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
 
   {
     rdcarray<VkWriteDescriptorSet> descWrites;
-    descWrites.resize(MeshOutputBufferArraySize);
+    descWrites.resize(MeshOutputBufferArraySize + 1);
     uint32_t numWrites = 0;
 
     RDCASSERT(state.vertexAttributes.size() <= MeshOutputBufferArraySize);
@@ -4921,6 +4921,8 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
       }
     }
 
+    bool hasVBDescriptor = numWrites > 0;
+
     // add a write of the index buffer
     if(uniqIdxBuf != VK_NULL_HANDLE && !patchedBufferdata.descSets.empty())
     {
@@ -4932,6 +4934,20 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
       descWrites[numWrites].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
       descWrites[numWrites].pBufferInfo = &uniqIdxBufDescriptor;
       numWrites++;
+    }
+
+    // write dummy values for unused vbuffer array indices
+    if(hasVBDescriptor)
+    {
+      for(uint32_t i = 0; i < vbuffers.size(); i++)
+      {
+        if(vbuffers[i].buf == VK_NULL_HANDLE)
+        {
+          descWrites[numWrites] = descWrites[0];
+          descWrites[numWrites].dstArrayElement = i;
+          numWrites++;
+        }
+      }
     }
 
     if(numWrites > 0)
