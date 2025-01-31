@@ -267,6 +267,20 @@ void GPUBuffer::Create(WrappedVulkan *driver, VkDevice dev, VkDeviceSize size, u
 
   vkr = ObjDisp(dev)->BindBufferMemory(Unwrap(dev), buf, mem, 0);
   CHECK_VKR(driver, vkr);
+
+  if(flags & eGPUBufferAddressable)
+  {
+    RDCCOMPILE_ASSERT(VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO ==
+                          VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT,
+                      "KHR and EXT buffer_device_address should be interchangeable here.");
+    VkBufferDeviceAddressInfo getAddressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, NULL,
+                                                buf};
+
+    if(useBufferAddressKHR)
+      addr = ObjDisp(dev)->GetBufferDeviceAddress(Unwrap(dev), &getAddressInfo);
+    else
+      addr = ObjDisp(dev)->GetBufferDeviceAddressEXT(Unwrap(dev), &getAddressInfo);
+  }
 }
 
 void GPUBuffer::FillDescriptor(VkDescriptorBufferInfo &desc)
@@ -283,6 +297,7 @@ void GPUBuffer::Destroy()
     ObjDisp(device)->DestroyBuffer(Unwrap(device), buf, NULL);
     ObjDisp(device)->FreeMemory(Unwrap(device), mem, NULL);
   }
+  addr = 0;
 }
 
 void *GPUBuffer::Map(uint32_t *bindoffset, VkDeviceSize usedsize)

@@ -221,6 +221,8 @@ struct GPUBuffer
 
   void FillDescriptor(VkDescriptorBufferInfo &desc);
 
+  VkDeviceAddress Address() const { return addr; }
+
   size_t GetRingCount() { return size_t(ringCount); }
   void *Map(VkDeviceSize &bindoffset, VkDeviceSize usedsize = 0);
   void *Map(uint32_t *bindoffset = NULL, VkDeviceSize usedsize = 0);
@@ -232,6 +234,8 @@ private:
   VkDeviceSize sz = 0;
   VkBuffer buf = VK_NULL_HANDLE;
   VkDeviceMemory mem = VK_NULL_HANDLE;
+
+  VkDeviceAddress addr = 0;
 
   // uniform buffer alignment requirement
   VkDeviceSize align = 0;
