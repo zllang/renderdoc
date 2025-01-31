@@ -3140,15 +3140,6 @@ struct VulkanPixelHistoryPerFragmentCallback : VulkanPixelHistoryCallback
       shads = CreatePerFragmentShaders(state, eid, colorOutputIndex);
     }
 
-    for(uint32_t i = 0; i < state.views.size(); i++)
-    {
-      ScissorToPixel(state.views[i], state.scissors[i]);
-
-      state.scissors[i].offset.x &= ~0x1;
-      state.scissors[i].offset.y &= ~0x1;
-      state.scissors[i].extent = {2, 2};
-    }
-
     VkPipeline pipesIter[2];
     pipesIter[0] = pipes.primitiveIdPipe;
     pipesIter[1] = pipes.shaderOutPipe;

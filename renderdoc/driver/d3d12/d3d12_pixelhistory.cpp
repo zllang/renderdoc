@@ -2083,17 +2083,6 @@ struct D3D12PixelHistoryPerFragmentCallback : D3D12PixelHistoryCallback
 
     PerFragmentPipelines pipes = CreatePerFragmentPipelines(state, eid, 0, renderTargetIndex);
 
-    for(uint32_t i = 0; i < state.views.size(); i++)
-    {
-      ScissorToPixel(state.views[i], state.scissors[i]);
-
-      // Set scissor to the whole pixel quad
-      state.scissors[i].left &= ~0x1;
-      state.scissors[i].top &= ~0x1;
-      state.scissors[i].right = state.scissors[i].left + 2;
-      state.scissors[i].bottom = state.scissors[i].top + 2;
-    }
-
     ID3D12PipelineState *psosIter[2];
     psosIter[0] = pipes.primitiveIdPipe;
     psosIter[1] = pipes.shaderOutPipe;
