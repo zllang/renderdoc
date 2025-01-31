@@ -241,6 +241,7 @@ struct ThreadState
   uint32_t workgroupIndex = 0;
   bool helperInvocation = false;
   bool dead = true;
+  bool elected = false;
 
   const ShaderVariable &GetSrc(Id id) const;
   void WritePointerValue(Id pointer, const ShaderVariable &val);

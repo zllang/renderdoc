@@ -1507,6 +1507,9 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
     lane.dead = apiWrapper->GetThreadProperty(i, ThreadProperty::Active) == 0;
 
+    if(patchData.threadScope & ThreadScope::Subgroup)
+      lane.elected = apiWrapper->GetThreadProperty(i, ThreadProperty::Elected) != 0;
+
     // now that the globals are allocated and their storage won't move, we can take pointers to them
     for(const PointerId &p : pointerIDs)
       p.Set(*this, global, lane);

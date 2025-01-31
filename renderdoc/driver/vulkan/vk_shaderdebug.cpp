@@ -2954,9 +2954,28 @@ struct ResultDataBase
   uint32_t valid;
 
   float ddxDerivCheck;
+  uint32_t quadLaneIndex;
   uint32_t laneIndex;
+  uint32_t subgroupSize;
+
+  uint32_t globalBallot[4];
+  uint32_t electBallot[4];
+  uint32_t helperBallot[4];
+
+  uint32_t numSubgroups;    // may be packed oddly so we don't assume we can calculate
+  uint32_t subIdxInGroup;
   uint32_t padding[2];
+
   // LaneData lanes[N]
+  // each LaneData is prefixed by the subgroup struct below if needed, and then the stage struct unconditionally
+};
+
+// things we need per-lane with subgroups active, before any per-stage data
+struct SubgroupLaneData
+{
+  uint32_t elect;       // for OpGroupNonUniformElect, if we don't have ballot
+  uint32_t isActive;    // per lane active mask
+  uint32_t padding[2];
 };
 
 struct VertexLaneData
@@ -2970,7 +2989,10 @@ struct PixelLaneData
 {
   Vec4f fragCoord;      // per-lane coord
   uint32_t isHelper;    // per-lane helper bit
-  uint32_t padding[3];
+  uint32_t quadId;    // the per-quad ID shared among all 4 threads, to differentiate between quads.
+                      // is the laneIndex of the top-left thread (with an offset, so we can see 0 as invalid)
+  uint32_t quadLaneIndex;    // the quadLaneIndex for quad-neighbours, in case we are fetching a subgroup
+  uint32_t padding;
 };
 
 struct ComputeLaneData
@@ -3031,30 +3053,41 @@ struct ComputeLaneData
 // To get the full quad worth of information we first use derivatives to move from our current lane
 // to the top-left, then walk from there as needed. This becomes somewhat redundant (we recalculate
 // our own lane) but that isn't a big deal
-static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
-                                                     rdcspv::OperationList &ops, rdcspv::Id type,
-                                                     rdcspv::Id base, rdcspv::Id laneIndex)
+static rdcspv::Id AddQuadSwizzleHelper(rdcspv::Editor &editor, uint32_t count)
 {
-  const rdcspv::DataType &dataType = editor.GetDataType(type);
-  uint32_t count = dataType.vector().count;
+  rdcspv::Id func = editor.MakeId();
 
-  // if the input is a uint (can happen for e.g. the IsHelper builtin we want to query)
-  // first we convert to float. We assume that the values are low enough that this will be lossless
-  bool converted = false;
-  if(dataType.vector().scalar.type != rdcspv::Op::TypeFloat)
-  {
-    converted = true;
-    // assume only uint32 scalars
-    RDCASSERT(count <= 1 && dataType.vector().scalar.signedness == false &&
-              dataType.vector().scalar.width == 32);
+  rdcspv::OperationList ops;
+
+  rdcspv::Id u32 = editor.DeclareType(rdcspv::scalar<uint32_t>());
+
+  rdcspv::Id type;
+  if(count == 1)
     type = editor.DeclareType(rdcspv::scalar<float>());
-    base = ops.add(rdcspv::OpConvertUToF(type, editor.MakeId(), base));
-  }
+  else
+    type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), count));
+
+  rdcspv::Id funcType = editor.DeclareType(rdcspv::FunctionType(type, {type, u32, u32}));
+
+  ops.add(rdcspv::OpFunction(type, func, rdcspv::FunctionControl::None, funcType));
+  rdcspv::Id base = ops.add(rdcspv::OpFunctionParameter(type, editor.MakeId()));
+  rdcspv::Id quadLaneIndex = ops.add(rdcspv::OpFunctionParameter(u32, editor.MakeId()));
+  rdcspv::Id readIndex = ops.add(rdcspv::OpFunctionParameter(u32, editor.MakeId()));
+  ops.add(rdcspv::OpLabel(editor.MakeId()));
+
+  editor.SetName(base, "base");
+  editor.SetName(quadLaneIndex, "quadLaneIndex");
+  editor.SetName(readIndex, "readIndex");
 
   rdcspv::Id ddxCoarse = ops.add(rdcspv::OpDPdxCoarse(type, editor.MakeId(), base));
   rdcspv::Id ddyCoarse = ops.add(rdcspv::OpDPdyCoarse(type, editor.MakeId(), base));
   rdcspv::Id ddxFine = ops.add(rdcspv::OpDPdxFine(type, editor.MakeId(), base));
   rdcspv::Id ddyFine = ops.add(rdcspv::OpDPdyFine(type, editor.MakeId(), base));
+
+  editor.SetName(ddxCoarse, "ddxCoarse");
+  editor.SetName(ddyCoarse, "ddyCoarse");
+  editor.SetName(ddxFine, "ddxFine");
+  editor.SetName(ddyFine, "ddyFine");
 
   rdcspv::Id zeroFloat = editor.AddConstant(rdcspv::OpConstantNull(type, editor.MakeId()));
 
@@ -3067,10 +3100,10 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
 
   // to avoid adding loads of control flow, we do ternaries for conditional things
   rdcspv::Id isLane[4] = {
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), laneIndex, lane0)),
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), laneIndex, lane1)),
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), laneIndex, lane2)),
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), laneIndex, lane3)),
+      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane0)),
+      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane1)),
+      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane2)),
+      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane3)),
   };
 
   // broadcast to number of components in the input type
@@ -3087,6 +3120,11 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
       isLane[i] = ops.add(rdcspv::OpCompositeConstruct(boolNtype, editor.MakeId(), bcast));
     }
   }
+
+  editor.SetName(isLane[0], "isLane0");
+  editor.SetName(isLane[1], "isLane1");
+  editor.SetName(isLane[2], "isLane2");
+  editor.SetName(isLane[3], "isLane3");
 
   rdcspv::Id baseTL = base;
   rdcspv::Id motion;
@@ -3118,6 +3156,8 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
   motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[3], ddxCoarse, zeroFloat));
   baseTL = ops.add(rdcspv::OpFSub(type, editor.MakeId(), baseTL, motion));
 
+  editor.SetName(baseTL, "baseTL");
+
   // baseTL is now the value for quad lane 0
   rdcspv::Id value0 = baseTL;
 
@@ -3147,17 +3187,46 @@ static rdcarray<rdcspv::Id> CalcQuadValuesFromDerivs(rdcspv::Editor &editor,
   motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[1], ddyFine, zeroFloat));
   value3 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), value3, motion));
 
-  // if we converted to float for the deriv ops, convert back now
-  if(converted)
-  {
-    rdcspv::Id uint32Type = editor.DeclareType(rdcspv::scalar<uint32_t>());
-    value0 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value0));
-    value1 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value1));
-    value2 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value2));
-    value3 = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), value3));
-  }
+  rdcspv::Id breakLabel = editor.MakeId(), defaultLabel = editor.MakeId();
 
-  return {value0, value1, value2, value3};
+  rdcspv::Id laneCases[] = {
+      editor.MakeId(),
+      editor.MakeId(),
+      editor.MakeId(),
+      editor.MakeId(),
+  };
+
+  ops.add(rdcspv::OpSelectionMerge(breakLabel, rdcspv::SelectionControl::None));
+  ops.add(rdcspv::OpSwitch32(readIndex, defaultLabel,
+                             {
+                                 {0U, laneCases[0]},
+                                 {1U, laneCases[1]},
+                                 {2U, laneCases[2]},
+                                 {3U, laneCases[3]},
+                             }));
+
+  ops.add(rdcspv::OpLabel(laneCases[0]));
+  ops.add(rdcspv::OpReturnValue(value0));
+  ops.add(rdcspv::OpLabel(laneCases[1]));
+  ops.add(rdcspv::OpReturnValue(value1));
+  ops.add(rdcspv::OpLabel(laneCases[2]));
+  ops.add(rdcspv::OpReturnValue(value2));
+  ops.add(rdcspv::OpLabel(laneCases[3]));
+  ops.add(rdcspv::OpReturnValue(value3));
+
+  ops.add(rdcspv::OpLabel(defaultLabel));
+  ops.add(rdcspv::OpBranch(breakLabel));
+
+  ops.add(rdcspv::OpLabel(breakLabel));
+
+  ops.add(rdcspv::OpReturnValue(base));
+
+  ops.add(rdcspv::OpFunctionEnd());
+
+  editor.AddFunction(ops);
+  editor.SetName(func, "quadSwizzleHelper");
+
+  return func;
 }
 
 static void CreateInputFetcher(rdcarray<uint32_t> &spv,
@@ -3169,6 +3238,7 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
   rdcspv::Editor editor(spv);
 
   ShaderStage stage = ShaderStage(shadRefl.stageIndex);
+  rdcspv::ThreadScope threadScope = shadRefl.patchData.threadScope;
 
   uint32_t paramAlign = 16;
 
@@ -3191,8 +3261,36 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
     default: break;
   }
 
+  if(threadScope & rdcspv::ThreadScope::Subgroup)
+  {
+    structStride += sizeof(SubgroupLaneData);
+  }
+
+  // simulating full subgroups with ballot ability to read other lanes, we read all lanes data
+  const bool fullSubgroups = (subgroupCapability == SubgroupCapability::EXTBallot ||
+                              subgroupCapability == SubgroupCapability::Vulkan1_1) &&
+                             (threadScope & rdcspv::ThreadScope::Subgroup);
+  // faking subgroups without reading a subgroup's worth of data but we still read lane index and elect value
+  const bool minimalSubgroups = subgroupCapability != SubgroupCapability::None &&
+                                (threadScope & rdcspv::ThreadScope::Subgroup);
+
   editor.Prepare();
   editor.SetBufferStorageMode(storageMode);
+
+  // remove any OpSource
+  {
+    // remove any OpName that refers to deleted IDs - functions or results
+    rdcspv::Iter it = editor.Begin(rdcspv::Section::DebugStringSource);
+    rdcspv::Iter end = editor.End(rdcspv::Section::DebugStringSource);
+    while(it < end)
+    {
+      if(it.opcode() == rdcspv::Op::Source || it.opcode() == rdcspv::Op::SourceContinued)
+      {
+        editor.Remove(it);
+      }
+      it++;
+    }
+  }
 
   editor.OffsetBindingsToMatchReservation(NumReservedBindings);
 
@@ -3211,21 +3309,15 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
   rdcspv::Id floatType = editor.DeclareType(rdcspv::scalar<float>());
   rdcspv::Id boolType = editor.DeclareType(rdcspv::scalar<bool>());
   rdcspv::Id uint3Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 3));
+  rdcspv::Id uint4Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<uint32_t>(), 4));
   rdcspv::Id float4Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), 4));
+  rdcspv::Id float3Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), 3));
   rdcspv::Id float2Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), 2));
-
-  rdcarray<rdcspv::Id> uintConsts;
-
-  auto getUIntConst = [&uintConsts, &editor](uint32_t c) {
-    for(uint32_t i = (uint32_t)uintConsts.size(); i <= c; i++)
-      uintConsts.push_back(editor.AddConstantImmediate<uint32_t>(uint32_t(i)));
-
-    return uintConsts[c];
-  };
+  rdcspv::Id bool4Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<bool>(), 4));
 
   rdcarray<rdcspv::Id> newGlobals;
 
-  rdcspv::Id LaneData;
+  rdcspv::Id LaneDataStruct;
 
   enum ResultBaseMember
   {
@@ -3235,28 +3327,44 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
     ResultBase_view,
     ResultBase_valid,
     ResultBase_ddxDerivCheck,
+    ResultBase_quadLaneIndex,
     ResultBase_laneIndex,
+    ResultBase_subgroupSize,
+    ResultBase_globalBallot,
+    ResultBase_electBallot,
+    ResultBase_helperBallot,
+    ResultBase_numSubgroups,
+    ResultBase_subIdxInGroup,
     ResultBase_firstUser,
   };
 
-  struct inputValue
+  struct laneValue
   {
+    rdcstr name;
+    // index in the LaneData struct
     size_t structIndex;
-    rdcarray<rdcspv::Id> data;
-    rdcspv::Id valueType;
-  };
-
-  struct fixedValue : public inputValue
-  {
-    rdcspv::OperationList loadOps;
+    // type ID of the value (float4, uint, etc)
+    rdcspv::Id type;
+    // direct loaded value per-lane
     rdcspv::Id base;
+
+    // for pixel shaders, the quad's worth of swizzled data to load helper info from, whether or not
+    // we have subgroups active
+    rdcarray<rdcspv::Id> quadSwizzledData;
+
+    // the loadOps to prepare the base value, done separately so we can push each fixed value into
+    // an array while creating the struct to all be processed agnostically, instead of separating adding
+    // them to the struct from loading them OR interleaving struct definition while preparing our function
+    rdcspv::OperationList loadOps;
+
+    bool flat = false;
   };
 
-  rdcarray<fixedValue> fixedValues;
+  rdcarray<laneValue> laneValues;
 
-  // input signature elements to read
-  rdcarray<inputValue> inputSigValues;
-  inputSigValues.resize(shadRefl.refl->inputSignature.size());
+  rdcspv::Id subgroupScope = editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::Scope::Subgroup);
+
+  rdcspv::Id isHelper, quadLaneIndex, quadId;
 
   {
     rdcarray<rdcspv::StructMember> structMembers;
@@ -3264,70 +3372,179 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
 
     // declare fixed lane data first
 
+    if(threadScope & rdcspv::ThreadScope::Subgroup)
+    {
+      laneValue elect;
+      elect.name = "__rd_globalElect";
+      elect.structIndex = structMembers.size();
+      elect.type = uint32Type;
+      // don't store elect value for legacy KHR path
+      if(subgroupCapability == SubgroupCapability::Vulkan1_1 ||
+         subgroupCapability == SubgroupCapability::Vulkan1_1_NoBallot)
+      {
+        elect.base = elect.loadOps.add(
+            rdcspv::OpGroupNonUniformElect(boolType, editor.MakeId(), subgroupScope));
+        elect.base = elect.loadOps.add(rdcspv::OpSelect(uint32Type, editor.MakeId(), elect.base,
+                                                        editor.AddConstantImmediate<uint32_t>(1),
+                                                        editor.AddConstantImmediate<uint32_t>(0)));
+        editor.SetName(elect.base, elect.name);
+      }
+      else
+      {
+        elect.base = editor.AddConstantImmediate<uint32_t>(0);
+        elect.flat = true;
+      }
+      laneValues.push_back(elect);
+      structMembers.push_back(
+          {uint32Type, elect.name, offset + (uint32_t)offsetof(SubgroupLaneData, elect)});
+
+      // we implicitly only write data for active lanes so we just set isActive to 1 always
+      laneValue isActive;
+      isActive.name = "__rd_active";
+      isActive.structIndex = structMembers.size();
+      isActive.type = uint32Type;
+      isActive.base = editor.AddConstantImmediate<uint32_t>(1);
+      isActive.flat = true;
+      laneValues.push_back(isActive);
+      structMembers.push_back(
+          {uint32Type, isActive.name, offset + (uint32_t)offsetof(SubgroupLaneData, isActive)});
+
+      structMembers.push_back(
+          {uint32Type, "__pad", offset + (uint32_t)offsetof(SubgroupLaneData, padding)});
+      structMembers.push_back(
+          {uint32Type, "__pad",
+           uint32_t(offset + offsetof(SubgroupLaneData, padding) + sizeof(uint32_t))});
+
+      offset += sizeof(SubgroupLaneData);
+      RDCCOMPILE_ASSERT(
+          (sizeof(SubgroupLaneData) / sizeof(Vec4f)) * sizeof(Vec4f) == sizeof(SubgroupLaneData),
+          "SubgroupLaneData is misaligned, ensure 16-byte aligned");
+    }
+
     if(stage == ShaderStage::Vertex)
     {
-      fixedValue inst;
+      laneValue inst;
+      inst.name = "__rd_inst";
       inst.structIndex = structMembers.size();
-      inst.valueType = uint32Type;
+      inst.type = uint32Type;
       inst.base = editor.AddBuiltinInputLoad(inst.loadOps, newGlobals, stage,
                                              rdcspv::BuiltIn::InstanceIndex, uint32Type);
-      fixedValues.push_back(inst);
-      structMembers.push_back({uint32Type, "__rd_inst", offsetof(VertexLaneData, inst)});
+      editor.SetName(inst.base, inst.name);
+      laneValues.push_back(inst);
+      structMembers.push_back(
+          {uint32Type, inst.name, offset + (uint32_t)offsetof(VertexLaneData, inst)});
 
-      fixedValue vert;
+      laneValue vert;
+      vert.name = "__rd_vert";
       vert.structIndex = structMembers.size();
-      vert.valueType = uint32Type;
+      vert.type = uint32Type;
       vert.base = editor.AddBuiltinInputLoad(vert.loadOps, newGlobals, stage,
                                              rdcspv::BuiltIn::VertexIndex, uint32Type);
-      fixedValues.push_back(vert);
-      structMembers.push_back({uint32Type, "__rd_vert", offsetof(VertexLaneData, vert)});
+      editor.SetName(vert.base, vert.name);
+      laneValues.push_back(vert);
+      structMembers.push_back(
+          {uint32Type, vert.name, offset + (uint32_t)offsetof(VertexLaneData, vert)});
+
+      structMembers.push_back({uint32Type, "__pad", offset + offsetof(VertexLaneData, padding)});
+      structMembers.push_back(
+          {uint32Type, "__pad", offset + offsetof(VertexLaneData, padding) + sizeof(uint32_t)});
 
       offset += sizeof(VertexLaneData);
+      RDCCOMPILE_ASSERT(
+          (sizeof(VertexLaneData) / sizeof(Vec4f)) * sizeof(Vec4f) == sizeof(VertexLaneData),
+          "VertexLaneData is misaligned, ensure 16-byte aligned");
     }
     else if(stage == ShaderStage::Pixel)
     {
-      fixedValue fragCoord;
+      laneValue fragCoord;
+      fragCoord.name = "__rd_pixelPos";
       fragCoord.structIndex = structMembers.size();
-      fragCoord.valueType = float4Type;
+      fragCoord.type = float4Type;
       fragCoord.base = editor.AddBuiltinInputLoad(fragCoord.loadOps, newGlobals, stage,
                                                   rdcspv::BuiltIn::FragCoord, float4Type);
-      fixedValues.push_back(fragCoord);
-      structMembers.push_back({float4Type, "__rd_pos", offsetof(PixelLaneData, fragCoord)});
+      editor.SetName(fragCoord.base, fragCoord.name);
+      laneValues.push_back(fragCoord);
+      structMembers.push_back(
+          {float4Type, fragCoord.name, offset + (uint32_t)offsetof(PixelLaneData, fragCoord)});
 
-      fixedValue helper;
+      laneValue helper;
+      helper.name = "__rd_isHelper";
       helper.structIndex = structMembers.size();
-      helper.valueType = uint32Type;
+      helper.type = uint32Type;
       helper.base = editor.AddBuiltinInputLoad(helper.loadOps, newGlobals, stage,
                                                rdcspv::BuiltIn::HelperInvocation, boolType);
       helper.base = helper.loadOps.add(rdcspv::OpSelect(uint32Type, editor.MakeId(), helper.base,
-                                                        getUIntConst(1), getUIntConst(0)));
-      fixedValues.push_back(helper);
-      structMembers.push_back({uint32Type, "__rd_helper", offsetof(PixelLaneData, isHelper)});
+                                                        editor.AddConstantImmediate<uint32_t>(1),
+                                                        editor.AddConstantImmediate<uint32_t>(0)));
+      editor.SetName(helper.base, helper.name);
+      laneValues.push_back(helper);
+      structMembers.push_back(
+          {uint32Type, helper.name, offset + (uint32_t)offsetof(PixelLaneData, isHelper)});
+
+      laneValue quad;
+      quad.name = "__rd_quadId";
+      quad.structIndex = structMembers.size();
+      quad.type = uint32Type;
+      quad.flat = true;
+      // this will be handled specially similarly to helper
+      quad.base = editor.MakeId();
+      editor.SetName(quad.base, quad.name);
+      laneValues.push_back(quad);
+      structMembers.push_back(
+          {uint32Type, quad.name, offset + (uint32_t)offsetof(PixelLaneData, quadId)});
+
+      laneValue quadLane;
+      quadLane.name = "__rd_quadLane";
+      quadLane.structIndex = structMembers.size();
+      quadLane.type = uint32Type;
+      quadLane.base = editor.MakeId();
+      editor.SetName(quadLane.base, quadLane.name);
+      laneValues.push_back(quadLane);
+      structMembers.push_back(
+          {uint32Type, quadLane.name, offset + (uint32_t)offsetof(PixelLaneData, quadLaneIndex)});
+
+      // quad properties will be handled specially
+      isHelper = helper.base;
+      quadId = quad.base;
+      quadLaneIndex = quadLane.base;
+
+      structMembers.push_back(
+          {uint32Type, "__pad", offset + (uint32_t)offsetof(PixelLaneData, padding)});
 
       offset += sizeof(PixelLaneData);
+      RDCCOMPILE_ASSERT(
+          (sizeof(PixelLaneData) / sizeof(Vec4f)) * sizeof(Vec4f) == sizeof(PixelLaneData),
+          "PixelLaneData is misaligned, ensure 16-byte aligned");
     }
     else if(stage == ShaderStage::Compute || stage == ShaderStage::Task || stage == ShaderStage::Mesh)
     {
-      fixedValue threadid;
+      laneValue threadid;
+      threadid.name = "__rd_threadid";
       threadid.structIndex = structMembers.size();
-      threadid.valueType = uint3Type;
+      threadid.type = uint3Type;
       threadid.base = editor.AddBuiltinInputLoad(threadid.loadOps, newGlobals, stage,
                                                  rdcspv::BuiltIn::LocalInvocationId, uint3Type);
-      fixedValues.push_back(threadid);
-      structMembers.push_back({uint3Type, "__rd_threadid", offsetof(ComputeLaneData, threadid)});
+      editor.SetName(threadid.base, threadid.name);
+      laneValues.push_back(threadid);
+      structMembers.push_back(
+          {uint3Type, threadid.name, offset + (uint32_t)offsetof(ComputeLaneData, threadid)});
+
+      structMembers.push_back({uint32Type, "__pad", offset + offsetof(ComputeLaneData, padding)});
 
       offset += sizeof(ComputeLaneData);
+      RDCCOMPILE_ASSERT(
+          (sizeof(ComputeLaneData) / sizeof(Vec4f)) * sizeof(Vec4f) == sizeof(ComputeLaneData),
+          "ComputeLaneData is misaligned, ensure 16-byte aligned");
     }
 
     // now add input signature values
 
     for(size_t i = 0; i < shadRefl.refl->inputSignature.size(); i++)
     {
+      const SPIRVInterfaceAccess &access = shadRefl.patchData.inputs[i];
       const SigParameter &param = shadRefl.refl->inputSignature[i];
 
       rdcspv::Scalar base = rdcspv::scalar(param.varType);
-
-      inputSigValues[i].structIndex = structMembers.size();
 
       uint32_t width = (base.width / 8);
 
@@ -3342,12 +3559,48 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       else
         valueType = editor.DeclareType(rdcspv::Vector(base, param.compCount));
 
-      inputSigValues[i].valueType = valueType;
+      rdcarray<rdcspv::Id> accessIndices;
+      for(uint32_t idx : access.accessChain)
+        accessIndices.push_back(editor.AddConstantImmediate<uint32_t>(idx));
+
+      rdcspv::Id ptrType =
+          editor.DeclareType(rdcspv::Pointer(valueType, rdcspv::StorageClass::Input));
+
+      laneValue value;
+      value.name = param.varName;
+      value.structIndex = structMembers.size();
+      value.type = valueType;
+
+      if(value.name.beginsWith("gl_"))
+        value.name = "__rd_" + value.name.substr(3);
+
+      // if we have no access chain it's a global pointer of the type we want, so just load
+      // straight out of it
+      rdcspv::Id ptr;
+      if(accessIndices.empty())
+        ptr = access.ID;
+      else
+        ptr = value.loadOps.add(
+            rdcspv::OpAccessChain(ptrType, editor.MakeId(), access.ID, accessIndices));
+
+      value.base = value.loadOps.add(rdcspv::OpLoad(valueType, editor.MakeId(), ptr));
+      if(valueType == boolType)
+      {
+        valueType = uint32Type;
+        // can't store bools directly, need to convert to uint
+        value.base = value.loadOps.add(rdcspv::OpSelect(valueType, editor.MakeId(), value.base,
+                                                        editor.AddConstantImmediate<uint32_t>(1),
+                                                        editor.AddConstantImmediate<uint32_t>(0)));
+      }
+      editor.SetName(value.base, StringFormat::Fmt("__rd_base_%zu_%s", i, param.varName.c_str()));
+      // non-float inputs are considered flat
+      value.flat = VarTypeCompType(param.varType) != CompType::Float;
+      laneValues.push_back(value);
 
       if(valueType == boolType)
-        structMembers.push_back({uint32Type, param.varName, offset});
+        structMembers.push_back({uint32Type, value.name, offset});
       else
-        structMembers.push_back({valueType, param.varName, offset});
+        structMembers.push_back({valueType, value.name, offset});
       offset += param.compCount * width;
 
       // align offset conservatively, to 16-byte aligned. We do this with explicit uints so we can
@@ -3362,7 +3615,7 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
 
     RDCASSERT(offset <= structStride);
 
-    LaneData = editor.DeclareStructType("__rd_LaneData", structMembers);
+    LaneDataStruct = editor.DeclareStructType("__rd_LaneData", structMembers);
   }
 
   rdcspv::Id arrayLength =
@@ -3383,7 +3636,21 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
 
   rdcspv::Id ResultDataBaseType;
 
-  const uint32_t numLanes = 4;
+  uint32_t numLanes = 1;
+
+  if(stage == ShaderStage::Pixel)
+    numLanes = 4;
+
+  if(threadScope & rdcspv::ThreadScope::Quad)
+    numLanes = 4;
+
+  // if we need full subgroup scope (and we have ballots to read the lanes) declare a subgroup's worth of data
+  if(fullSubgroups)
+    numLanes = RDCMAX(numLanes, maxSubgroupSize);
+
+  // note we don't need to care about workgroup access - that is only possible on compute and we fill
+  // in the rest of the workgroup without reading its inputs, since on compute the only subgroup data
+  // we need is size + layout and we assume we can figure out the layout with one subgroup's worth of data
 
   {
     rdcarray<rdcspv::StructMember> members;
@@ -3394,16 +3661,23 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
     members.push_back({uint32Type, "view", offsetof(ResultDataBase, view)});
     members.push_back({uint32Type, "valid", offsetof(ResultDataBase, valid)});
     members.push_back({floatType, "ddxDerivCheck", offsetof(ResultDataBase, ddxDerivCheck)});
+    members.push_back({uint32Type, "quadLaneIndex", offsetof(ResultDataBase, quadLaneIndex)});
     members.push_back({uint32Type, "laneIndex", offsetof(ResultDataBase, laneIndex)});
+    members.push_back({uint32Type, "subgroupSize", offsetof(ResultDataBase, subgroupSize)});
+    members.push_back({uint4Type, "globalBallot", offsetof(ResultDataBase, globalBallot)});
+    members.push_back({uint4Type, "electBallot", offsetof(ResultDataBase, electBallot)});
+    members.push_back({uint4Type, "helperBallot", offsetof(ResultDataBase, helperBallot)});
+    members.push_back({uint32Type, "numSubgroups", offsetof(ResultDataBase, numSubgroups)});
+    members.push_back({uint32Type, "subIdxInGroup", offsetof(ResultDataBase, subIdxInGroup)});
 
-    // padding
+    // uint3 padding
 
     const uint32_t dataStart = (uint32_t)AlignUp(sizeof(ResultDataBase), sizeof(Vec4f));
 
     RDCASSERT((structStride % sizeof(Vec4f)) == 0);
 
     rdcspv::Id LaneDataArray = editor.AddType(rdcspv::OpTypeArray(
-        editor.MakeId(), LaneData, editor.AddConstantImmediate<uint32_t>(numLanes)));
+        editor.MakeId(), LaneDataStruct, editor.AddConstantImmediate<uint32_t>(numLanes)));
     editor.AddDecoration(rdcspv::OpDecorate(
         LaneDataArray, rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(structStride)));
 
@@ -3417,7 +3691,7 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
 
   editor.AddDecoration(rdcspv::OpDecorate(ResultDataRTArray,
                                           rdcspv::DecorationParam<rdcspv::Decoration::ArrayStride>(
-                                              structStride * 4 + sizeof(ResultDataBase))));
+                                              structStride * numLanes + sizeof(ResultDataBase))));
 
   rdcspv::Id bufBase =
       editor.DeclareStructType("__rd_HitStorage", {
@@ -3445,6 +3719,7 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
   rdcspv::Id uint32InPtr =
       editor.DeclareType(rdcspv::Pointer(uint32Type, rdcspv::StorageClass::Input));
   rdcspv::Id uint32BufPtr = editor.DeclareType(rdcspv::Pointer(uint32Type, bufferClass));
+  rdcspv::Id uint4BufPtr = editor.DeclareType(rdcspv::Pointer(uint4Type, bufferClass));
   rdcspv::Id floatBufPtr = editor.DeclareType(rdcspv::Pointer(floatType, bufferClass));
 
   rdcspv::Id glsl450 = editor.ImportExtInst("GLSL.std.450");
@@ -3452,6 +3727,45 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
   // allow pixel shaders to use fine derivatives
   if(stage == ShaderStage::Pixel)
     editor.AddCapability(rdcspv::Capability::DerivativeControl);
+
+  // declare capabilities we might need
+  if(threadScope & rdcspv::ThreadScope::Subgroup)
+  {
+    if(subgroupCapability == SubgroupCapability::None)
+    {
+      // nothing, ignore, this could only happen if the shader uses only EXT_shader_subgroup_vote
+      // which we treat as degenerate
+    }
+    else if(subgroupCapability == SubgroupCapability::EXTBallot)
+    {
+      // this should already be present but let's be sure
+      editor.AddCapability(rdcspv::Capability::SubgroupBallotKHR);
+    }
+    else if(subgroupCapability == SubgroupCapability::Vulkan1_1_NoBallot)
+    {
+      // this should also already be present
+      editor.AddCapability(rdcspv::Capability::GroupNonUniform);
+    }
+    else if(subgroupCapability == SubgroupCapability::Vulkan1_1)
+    {
+      editor.AddCapability(rdcspv::Capability::GroupNonUniform);
+
+      // add this, the shader might not have used it but we need it to read other lanes
+      editor.AddCapability(rdcspv::Capability::GroupNonUniformBallot);
+      editor.AddCapability(rdcspv::Capability::GroupNonUniformVote);
+    }
+  }
+
+  rdcspv::Id vecNType[5] = {rdcspv::Id(), floatType, float2Type, float3Type, float4Type};
+  rdcspv::Id quadSwizzleHelper[5] = {};
+
+  if(stage == ShaderStage::Pixel)
+  {
+    for(uint32_t i = 1; i <= 4; i++)
+    {
+      quadSwizzleHelper[i] = AddQuadSwizzleHelper(editor, i);
+    }
+  }
 
   {
     rdcspv::OperationList ops;
@@ -3476,14 +3790,17 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       rdcspv::Id fragCoord, ddxDerivativeCheck = editor.AddConstantImmediate<float>(1.0f);
       rdcspv::Id laneIndex;
 
+      // fetch pixel condition
       if(stage == ShaderStage::Pixel)
       {
         fragCoord = editor.AddBuiltinInputLoad(ops, newGlobals, stage, rdcspv::BuiltIn::FragCoord,
                                                float4Type);
 
         ddxDerivativeCheck = ops.add(rdcspv::OpDPdx(float4Type, editor.MakeId(), fragCoord));
+        editor.SetName(ddxDerivativeCheck, "ddxDerivativeCheck");
         ddxDerivativeCheck =
             ops.add(rdcspv::OpCompositeExtract(floatType, editor.MakeId(), ddxDerivativeCheck, {0}));
+        editor.SetName(ddxDerivativeCheck, "ddxDerivativeCheck_x");
 
         // grab x and y
         rdcspv::Id fragXY = ops.add(
@@ -3497,7 +3814,7 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
         // get the index of our desired pixel
         */
 
-        rdcspv::Id mask = getUIntConst(1);
+        rdcspv::Id mask = editor.AddConstantImmediate<uint32_t>(1);
 
         // int x01 = x & 1;
         rdcspv::Id xInt =
@@ -3512,84 +3829,213 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
         rdcspv::Id y01 = ops.add(rdcspv::OpBitwiseAnd(uint32Type, editor.MakeId(), yInt, mask));
 
         // int destIdx = x01 + 2 * y01;
-        laneIndex = ops.add(rdcspv::OpIMul(uint32Type, editor.MakeId(), getUIntConst(2), y01));
-        laneIndex = ops.add(rdcspv::OpIAdd(uint32Type, editor.MakeId(), laneIndex, x01));
-        editor.SetName(laneIndex, "laneIndex");
+        rdcspv::Id sum = ops.add(rdcspv::OpIMul(uint32Type, editor.MakeId(),
+                                                editor.AddConstantImmediate<uint32_t>(2), y01));
+        ops.add(rdcspv::OpIAdd(uint32Type, quadLaneIndex, sum, x01));
+        laneIndex = quadLaneIndex;
+        editor.SetName(quadLaneIndex, "quadLaneIndex");
       }
 
-      for(fixedValue &val : fixedValues)
+      rdcspv::Id quadIdxConst[4] = {
+          editor.AddConstantImmediate<uint32_t>(0),
+          editor.AddConstantImmediate<uint32_t>(1),
+          editor.AddConstantImmediate<uint32_t>(2),
+          editor.AddConstantImmediate<uint32_t>(3),
+      };
+
+      // load all data per-thread and calculate quad swizzled neighbour data as needed
+      for(laneValue &val : laneValues)
       {
         ops.append(val.loadOps);
 
-        rdcspv::Id valueType = val.valueType;
+        // for pixel shaders we always need to grab quad swizzled data.
+        // we skip this for values we classify as flat as well as for the magic isHelper/quadLaneIndex
+        // which are handled specially and will be fixed up later when we go to store these
+        if(stage == ShaderStage::Pixel && val.base != isHelper && val.base != quadLaneIndex &&
+           !val.flat)
+        {
+          val.quadSwizzledData.resize(4);
 
-        // use derivatives where needed to fetch position in other lanes
-        val.data = CalcQuadValuesFromDerivs(editor, ops, valueType, val.base, laneIndex);
-        RDCASSERTEQUAL(numLanes, val.data.size());
+          const rdcspv::DataType &dataType = editor.GetDataType(val.type);
+
+          if(dataType.IsU32())
+          {
+            for(uint32_t q = 0; q < 4; q++)
+            {
+              rdcspv::Id valQ = val.base;
+              valQ = ops.add(rdcspv::OpConvertUToF(floatType, editor.MakeId(), valQ));
+              valQ = ops.add(rdcspv::OpFunctionCall(floatType, editor.MakeId(), quadSwizzleHelper[1],
+                                                    {valQ, quadLaneIndex, quadIdxConst[q]}));
+              // named as convenience because spirv-cross declares a variable here and then does the cast at the usage
+              editor.SetName(valQ, StringFormat::Fmt("%s_swiz%u", val.name.c_str(), q));
+
+              valQ = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), valQ));
+              editor.SetName(valQ, StringFormat::Fmt("%s_swiz%u_u", val.name.c_str(), q));
+
+              val.quadSwizzledData[q] = valQ;
+            }
+          }
+          else
+          {
+            // all other inputs that aren't uint32 should be floats, otherwise they should have been marked as flat
+            RDCASSERT(dataType.scalar().type == rdcspv::Op::TypeFloat);
+
+            uint32_t width = RDCMAX(1U, dataType.vector().count);
+
+            for(uint32_t q = 0; q < 4; q++)
+            {
+              val.quadSwizzledData[q] = ops.add(
+                  rdcspv::OpFunctionCall(vecNType[width], editor.MakeId(), quadSwizzleHelper[width],
+                                         {val.base, quadLaneIndex, quadIdxConst[q]}));
+              editor.SetName(val.quadSwizzledData[q],
+                             StringFormat::Fmt("%s_swiz%u", val.name.c_str(), q));
+            }
+          }
+        }
       }
 
-      // grab all the values here and get any derivatives we need now before we branch non-uniformly
-      for(size_t i = 0; i < inputSigValues.size(); i++)
+      rdcspv::Id subgroupSize, numSubgroups, subIdxInGroup, globalBallot, electBallot, helperBallot;
+
+      // if we are doing even minimal subgroups, read the subgroup-relative lane index and subgroup size
+      if(minimalSubgroups || fullSubgroups)
       {
-        const SPIRVInterfaceAccess &access = shadRefl.patchData.inputs[i];
-        const SigParameter &param = shadRefl.refl->inputSignature[i];
-
-        rdcarray<rdcspv::Id> accessIndices;
-        for(uint32_t idx : access.accessChain)
-          accessIndices.push_back(getUIntConst(idx));
-
-        rdcspv::Id valueType = inputSigValues[i].valueType;
-
-        rdcspv::Id ptrType =
-            editor.DeclareType(rdcspv::Pointer(valueType, rdcspv::StorageClass::Input));
-
-        // if we have no access chain it's a global pointer of the type we want, so just load
-        // straight out of it
-        rdcspv::Id ptr;
-        if(accessIndices.empty())
-          ptr = access.ID;
-        else
-          ptr = ops.add(rdcspv::OpAccessChain(ptrType, editor.MakeId(), access.ID, accessIndices));
-
-        rdcspv::Id base = ops.add(rdcspv::OpLoad(valueType, editor.MakeId(), ptr));
-
-        if(valueType == boolType)
+        if(subgroupCapability == SubgroupCapability::EXTBallot)
         {
-          valueType = uint32Type;
-          // can't store bools directly, need to convert to uint
-          base = ops.add(
-              rdcspv::OpSelect(valueType, editor.MakeId(), base, getUIntConst(1), getUIntConst(0)));
+          globalBallot = ops.add(rdcspv::OpSubgroupBallotKHR(
+              uint4Type, editor.MakeId(), editor.AddConstantImmediate<bool>(true)));
+          electBallot = editor.AddConstant(rdcspv::OpConstantNull(uint4Type, editor.MakeId()));
+          helperBallot = ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), isHelper,
+                                                     editor.AddConstantImmediate<uint32_t>(0)));
+          helperBallot =
+              ops.add(rdcspv::OpSubgroupBallotKHR(uint4Type, editor.MakeId(), helperBallot));
         }
-
-        editor.SetName(base, StringFormat::Fmt("__rd_base_%zu_%s", i, param.varName.c_str()));
-
-        // use derivatives where needed to fetch data in other lanes
-
-        // only float values have derivatives
-        if(VarTypeCompType(param.varType) == CompType::Float)
-        {
-          inputSigValues[i].data = CalcQuadValuesFromDerivs(editor, ops, valueType, base, laneIndex);
-          RDCASSERTEQUAL(numLanes, inputSigValues[i].data.size());
-        }
-        // other values are all flat so we can duplicate
         else
         {
-          inputSigValues[i].data.fill(numLanes, base);
+          globalBallot = ops.add(rdcspv::OpGroupNonUniformBallot(
+              uint4Type, editor.MakeId(), subgroupScope, editor.AddConstantImmediate<bool>(true)));
+          electBallot =
+              ops.add(rdcspv::OpGroupNonUniformElect(boolType, editor.MakeId(), subgroupScope));
+          electBallot = ops.add(rdcspv::OpGroupNonUniformBallot(uint4Type, editor.MakeId(),
+                                                                subgroupScope, electBallot));
+          helperBallot = ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), isHelper,
+                                                     editor.AddConstantImmediate<uint32_t>(0)));
+          helperBallot = ops.add(rdcspv::OpGroupNonUniformBallot(uint4Type, editor.MakeId(),
+                                                                 subgroupScope, helperBallot));
+        }
+
+        laneIndex = editor.AddBuiltinInputLoad(
+            ops, newGlobals, stage, rdcspv::BuiltIn::SubgroupLocalInvocationId, uint32Type);
+        subgroupSize = editor.AddBuiltinInputLoad(ops, newGlobals, stage,
+                                                  rdcspv::BuiltIn::SubgroupSize, uint32Type);
+        editor.SetName(laneIndex, "laneIndex");
+        editor.SetName(subgroupSize, "subgroupSize");
+
+        // subgroup ID & num subgroups is only available for compute
+        if(stage == ShaderStage::Compute || stage == ShaderStage::Task || stage == ShaderStage::Mesh)
+        {
+          numSubgroups = editor.AddBuiltinInputLoad(ops, newGlobals, stage,
+                                                    rdcspv::BuiltIn::NumSubgroups, uint32Type);
+          subIdxInGroup = editor.AddBuiltinInputLoad(ops, newGlobals, stage,
+                                                     rdcspv::BuiltIn::SubgroupId, uint32Type);
+          editor.SetName(numSubgroups, "numSubgroups");
+          editor.SetName(subIdxInGroup, "subIdxInGroup");
+        }
+        else
+        {
+          numSubgroups = editor.AddConstantImmediate<uint32_t>(0);
+          subIdxInGroup = editor.AddConstantImmediate<uint32_t>(0);
+        }
+      }
+      else
+      {
+        globalBallot = editor.AddConstant(rdcspv::OpConstantNull(uint4Type, editor.MakeId()));
+        electBallot = editor.AddConstant(rdcspv::OpConstantNull(uint4Type, editor.MakeId()));
+        helperBallot = editor.AddConstant(rdcspv::OpConstantNull(uint4Type, editor.MakeId()));
+        subgroupSize = editor.AddConstantImmediate<uint32_t>(0);
+        numSubgroups = editor.AddConstantImmediate<uint32_t>(0);
+        subIdxInGroup = editor.AddConstantImmediate<uint32_t>(0);
+      }
+      editor.SetName(globalBallot, "globalBallot");
+
+      // in a pixel shader we need to take extra steps to ensure we get helper data, and it depends
+      // on if we're fetching subgroups or not.
+      // if we're not fetching subgroups, we always fetch all 4 helpers and store them since that's
+      // all our data. if we ARE fetching subgroups, helper lanes will not write their own data so
+      // we do that from the candidate thread (only for the helper lanes, conditionally). We also
+      // store into the lane index of each quad with subgroups, as opposed to just 0-3 for a plain
+      // quad.
+      // if we're not in a pixel shader we don't do any of this
+      rdcspv::Id isHelperPerQuad[4] = {};
+      rdcspv::Id shouldStoreHelperPerQuad[4] = {};
+      rdcspv::Id quadLaneStoreIdx[4] = {};
+
+      if(stage == ShaderStage::Pixel)
+      {
+        // calculate the quadId that we need for pixels, the top-left thread's lane index
+        rdcspv::Id quadIdSwizzle =
+            ops.add(rdcspv::OpConvertUToF(floatType, editor.MakeId(), laneIndex));
+        quadIdSwizzle =
+            ops.add(rdcspv::OpFunctionCall(floatType, editor.MakeId(), quadSwizzleHelper[1],
+                                           {quadIdSwizzle, quadLaneIndex, quadIdxConst[0]}));
+
+        quadIdSwizzle = ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), quadIdSwizzle));
+        // add offset so that quad IDs are always non-zero
+        quadId = ops.add(rdcspv::OpIAdd(uint32Type, quadId, quadIdSwizzle,
+                                        editor.AddConstantImmediate<uint32_t>(10000)));
+
+        for(uint32_t q = 0; q < 4; q++)
+        {
+          isHelperPerQuad[q] = ops.add(rdcspv::OpConvertUToF(floatType, editor.MakeId(), isHelper));
+          isHelperPerQuad[q] =
+              ops.add(rdcspv::OpFunctionCall(floatType, editor.MakeId(), quadSwizzleHelper[1],
+                                             {isHelperPerQuad[q], quadLaneIndex, quadIdxConst[q]}));
+          isHelperPerQuad[q] =
+              ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), isHelperPerQuad[q]));
+        }
+
+        if(fullSubgroups)
+        {
+          for(uint32_t q = 0; q < 4; q++)
+          {
+            shouldStoreHelperPerQuad[q] =
+                ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), isHelperPerQuad[q],
+                                            editor.AddConstantImmediate<uint32_t>(0)));
+
+            quadLaneStoreIdx[q] =
+                ops.add(rdcspv::OpConvertUToF(floatType, editor.MakeId(), laneIndex));
+            quadLaneStoreIdx[q] = ops.add(
+                rdcspv::OpFunctionCall(floatType, editor.MakeId(), quadSwizzleHelper[1],
+                                       {quadLaneStoreIdx[q], quadLaneIndex, quadIdxConst[q]}));
+            quadLaneStoreIdx[q] =
+                ops.add(rdcspv::OpConvertFToU(uint32Type, editor.MakeId(), quadLaneStoreIdx[q]));
+
+            editor.SetName(isHelperPerQuad[q], StringFormat::Fmt("isHelper%u", q));
+            editor.SetName(shouldStoreHelperPerQuad[q], StringFormat::Fmt("shouldStore%u", q));
+            editor.SetName(quadLaneStoreIdx[q], StringFormat::Fmt("quadLaneStoreIdx%u", q));
+          }
+        }
+        else
+        {
+          for(uint32_t q = 0; q < 4; q++)
+          {
+            shouldStoreHelperPerQuad[q] = editor.AddConstantImmediate<bool>(true);
+            quadLaneStoreIdx[q] = quadIdxConst[q];
+          }
         }
       }
 
       // get a pointer to buffer.hit_count
-      rdcspv::Id hit_count =
-          ops.add(rdcspv::OpAccessChain(uintPtr, editor.MakeId(), structPtr, {getUIntConst(0)}));
+      rdcspv::Id hit_count = ops.add(rdcspv::OpAccessChain(
+          uintPtr, editor.MakeId(), structPtr, {editor.AddConstantImmediate<uint32_t>(0)}));
 
       // get a pointer to buffer.total_count
-      rdcspv::Id total_count =
-          ops.add(rdcspv::OpAccessChain(uintPtr, editor.MakeId(), structPtr, {getUIntConst(1)}));
+      rdcspv::Id total_count = ops.add(rdcspv::OpAccessChain(
+          uintPtr, editor.MakeId(), structPtr, {editor.AddConstantImmediate<uint32_t>(1)}));
 
-      // identify the desired thread
-      rdcspv::Id desiredThread;
+      // identify the candidate thread in a stage-specific way
+      rdcspv::Id candidateThread;
 
-      // bool desiredThread = all(abs(gl_FragCoord.xy - dest.xy) < 0.5f);
+      // bool candidateThread = all(abs(gl_FragCoord.xy - dest.xy) < 0.5f);
       if(stage == ShaderStage::Pixel)
       {
         rdcspv::Id bool2Type = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<bool>(), 2));
@@ -3613,43 +4059,190 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
             ops.add(rdcspv::OpFOrdLessThan(bool2Type, editor.MakeId(), fragXYAbs, threshold));
 
         // both less than 0.5
-        desiredThread = ops.add(rdcspv::OpAll(boolType, editor.MakeId(), inPixelXY));
+        candidateThread = ops.add(rdcspv::OpAll(boolType, editor.MakeId(), inPixelXY));
       }
 
-      rdcspv::Id killLabel = editor.MakeId();
-      rdcspv::Id continueLabel = editor.MakeId();
-      ops.add(rdcspv::OpSelectionMerge(killLabel, rdcspv::SelectionControl::None));
-      ops.add(rdcspv::OpBranchConditional(desiredThread, continueLabel, killLabel));
-      ops.add(rdcspv::OpLabel(continueLabel));
+      editor.SetName(candidateThread, "candidateThread");
+
+      // if we are fetching full subgroups in a pixel shader, we need to know which threads are quad
+      // neighbours of the candidate so we can write their quad lane index properly
+      rdcspv::Id candidateThreadInQuad;
+      if(fullSubgroups && stage == ShaderStage::Pixel)
+      {
+        rdcspv::Id zeroF = editor.AddConstantImmediate<float>(0.0f);
+
+        // we do a simple check here - if candidateThread is true, or any ddx/ddy is non-zero, we're
+        // in the candidate quad
+
+        rdcspv::Id candidateThreadF = ops.add(rdcspv::OpSelect(
+            uint32Type, editor.MakeId(), candidateThread, editor.AddConstantImmediate<uint32_t>(1),
+            editor.AddConstantImmediate<uint32_t>(0)));
+        candidateThreadF =
+            ops.add(rdcspv::OpConvertUToF(floatType, editor.MakeId(), candidateThreadF));
+
+        rdcspv::Id candidateThreadDDXFine =
+            ops.add(rdcspv::OpDPdxFine(floatType, editor.MakeId(), candidateThreadF));
+        candidateThreadDDXFine = ops.add(
+            rdcspv::OpFOrdGreaterThan(boolType, editor.MakeId(), candidateThreadDDXFine, zeroF));
+
+        rdcspv::Id candidateThreadDDYFine =
+            ops.add(rdcspv::OpDPdyFine(floatType, editor.MakeId(), candidateThreadF));
+        candidateThreadDDYFine = ops.add(
+            rdcspv::OpFOrdGreaterThan(boolType, editor.MakeId(), candidateThreadDDYFine, zeroF));
+
+        rdcspv::Id candidateThreadDDXCoarse =
+            ops.add(rdcspv::OpDPdxCoarse(floatType, editor.MakeId(), candidateThreadF));
+        candidateThreadDDXCoarse = ops.add(
+            rdcspv::OpFOrdGreaterThan(boolType, editor.MakeId(), candidateThreadDDXCoarse, zeroF));
+
+        rdcspv::Id candidateThreadDDYCoarse =
+            ops.add(rdcspv::OpDPdyCoarse(floatType, editor.MakeId(), candidateThreadF));
+        candidateThreadDDYCoarse = ops.add(
+            rdcspv::OpFOrdGreaterThan(boolType, editor.MakeId(), candidateThreadDDYCoarse, zeroF));
+
+        candidateThreadInQuad = ops.add(rdcspv::OpLogicalOr(
+            boolType, editor.MakeId(), candidateThread, candidateThreadDDXFine));
+        candidateThreadInQuad = ops.add(rdcspv::OpLogicalOr(
+            boolType, editor.MakeId(), candidateThreadInQuad, candidateThreadDDYFine));
+        candidateThreadInQuad = ops.add(rdcspv::OpLogicalOr(
+            boolType, editor.MakeId(), candidateThreadInQuad, candidateThreadDDXCoarse));
+        candidateThreadInQuad = ops.add(rdcspv::OpLogicalOr(
+            boolType, editor.MakeId(), candidateThreadInQuad, candidateThreadDDYCoarse));
+        editor.SetName(candidateThreadInQuad, "candidateThreadInQuad");
+      }
+
+      rdcarray<rdcspv::Id> killLabels;
+      killLabels.push_back(editor.MakeId());
+      rdcspv::Id writeLabel = editor.MakeId();
+
+      rdcspv::Id writeCondition = candidateThread;
+
+      // if we're doing proper subgroup readback, keep the whole subgroup, otherwise branch non-uniformly
+      if(fullSubgroups)
+      {
+        if(subgroupCapability == SubgroupCapability::Vulkan1_1)
+        {
+          writeCondition = ops.add(rdcspv::OpGroupNonUniformAny(boolType, editor.MakeId(),
+                                                                subgroupScope, candidateThread));
+        }
+        else
+        {
+          // KHR path, emulate a vote with any(ballot() != 0u) so we don't depend on the vote
+          // extension - we probably can, but don't have to
+          writeCondition =
+              ops.add(rdcspv::OpSubgroupBallotKHR(uint4Type, editor.MakeId(), candidateThread));
+          writeCondition = ops.add(rdcspv::OpINotEqual(
+              bool4Type, editor.MakeId(), writeCondition,
+              editor.AddConstant(rdcspv::OpConstantNull(uint4Type, editor.MakeId()))));
+          writeCondition = ops.add(rdcspv::OpAny(boolType, editor.MakeId(), writeCondition));
+        }
+      }
+
+      ops.add(rdcspv::OpSelectionMerge(killLabels.back(), rdcspv::SelectionControl::None));
+      ops.add(rdcspv::OpBranchConditional(writeCondition, writeLabel, killLabels.back()));
+
+      ops.add(rdcspv::OpLabel(writeLabel));
+
+      // for pixel shaders with subgroups, ensure we mask off helper lanes from the subgroup so they
+      // don't take part in the elect
+      if(fullSubgroups && stage == ShaderStage::Pixel)
+      {
+        killLabels.push_back(editor.MakeId());
+        writeLabel = editor.MakeId();
+        rdcspv::Id helperCondition = ops.add(rdcspv::OpIEqual(
+            boolType, editor.MakeId(), isHelper, editor.AddConstantImmediate<uint32_t>(0)));
+        ops.add(rdcspv::OpSelectionMerge(killLabels.back(), rdcspv::SelectionControl::None));
+        ops.add(rdcspv::OpBranchConditional(helperCondition, writeLabel, killLabels.back()));
+        ops.add(rdcspv::OpLabel(writeLabel));
+      }
+
+      rdcspv::Id slotAllocLabel = editor.MakeId(), slotMergeLabel = editor.MakeId();
+
+      // for subgroups the whole subgroup is in here, ensure we only alloc a slot with one lane
+      if(fullSubgroups)
+      {
+        rdcspv::Id nonHelperElected;
+
+        if(subgroupCapability == SubgroupCapability::Vulkan1_1)
+          nonHelperElected =
+              ops.add(rdcspv::OpGroupNonUniformElect(boolType, editor.MakeId(), subgroupScope));
+        else
+          nonHelperElected = ops.add(rdcspv::OpSubgroupFirstInvocationKHR(
+              boolType, editor.MakeId(), editor.AddConstantImmediate<bool>(true)));
+        ops.add(rdcspv::OpSelectionMerge(slotMergeLabel, rdcspv::SelectionControl::None));
+        ops.add(rdcspv::OpBranchConditional(nonHelperElected, slotAllocLabel, slotMergeLabel));
+      }
+      else
+      {
+        ops.add(rdcspv::OpBranch(slotAllocLabel));
+      }
+
+      ops.add(rdcspv::OpLabel(slotAllocLabel));
 
       // increment total_count
       ops.add(rdcspv::OpAtomicIAdd(uint32Type, editor.MakeId(), total_count, scope, semantics,
-                                   getUIntConst(1)));
+                                   editor.AddConstantImmediate<uint32_t>(1)));
 
       // allocate a slot with atomic add
-      rdcspv::Id slot = ops.add(rdcspv::OpAtomicIAdd(uint32Type, editor.MakeId(), hit_count, scope,
-                                                     semantics, getUIntConst(1)));
+      rdcspv::Id slot =
+          ops.add(rdcspv::OpAtomicIAdd(uint32Type, editor.MakeId(), hit_count, scope, semantics,
+                                       editor.AddConstantImmediate<uint32_t>(1)));
 
-      editor.SetName(slot, "slot");
+      editor.SetName(slot, "slotAlloc");
+
+      ops.add(rdcspv::OpBranch(slotMergeLabel));
+
+      ops.add(rdcspv::OpLabel(slotMergeLabel));
+
+      // now if we're in a subgroup we need to broadcast the slot to the whole group, and also OpPhi
+      // the previous slot depending on where we got it from
+      if(fullSubgroups)
+      {
+        slot = ops.add(rdcspv::OpPhi(
+            uint32Type, editor.MakeId(),
+            {{slot, slotAllocLabel}, {editor.AddConstantImmediate<uint32_t>(0U), writeLabel}}));
+        editor.SetName(slot, "slotToBroadcast");
+
+        if(subgroupCapability == SubgroupCapability::Vulkan1_1)
+          slot = ops.add(rdcspv::OpGroupNonUniformBroadcastFirst(uint32Type, editor.MakeId(),
+                                                                 subgroupScope, slot));
+        else
+          slot = ops.add(rdcspv::OpSubgroupFirstInvocationKHR(uint32Type, editor.MakeId(), slot));
+        editor.SetName(slot, "slot");
+      }
 
       rdcspv::Id inRange = ops.add(rdcspv::OpULessThan(boolType, editor.MakeId(), slot, arrayLength));
 
-      rdcspv::Id killLabel2 = editor.MakeId();
-      continueLabel = editor.MakeId();
-      ops.add(rdcspv::OpSelectionMerge(killLabel2, rdcspv::SelectionControl::None));
-      ops.add(rdcspv::OpBranchConditional(inRange, continueLabel, killLabel2));
-      ops.add(rdcspv::OpLabel(continueLabel));
+      killLabels.push_back(editor.MakeId());
+      writeLabel = editor.MakeId();
+      ops.add(rdcspv::OpSelectionMerge(killLabels.back(), rdcspv::SelectionControl::None));
+      ops.add(rdcspv::OpBranchConditional(inRange, writeLabel, killLabels.back()));
+      ops.add(rdcspv::OpLabel(writeLabel));
 
       rdcspv::Id hitptr = editor.DeclareType(rdcspv::Pointer(ResultDataBaseType, bufferClass));
 
       // get a pointer to the hit for our slot
-      rdcspv::Id hit =
-          ops.add(rdcspv::OpAccessChain(hitptr, editor.MakeId(), structPtr, {getUIntConst(3), slot}));
+      rdcspv::Id hit = ops.add(rdcspv::OpAccessChain(
+          hitptr, editor.MakeId(), structPtr, {editor.AddConstantImmediate<uint32_t>(3), slot}));
 
-      // store fixed properties
+      // store fixed properties. In the subgroup case this needs to be conditional for only the candidate thread
+      rdcspv::Id fixedDataLabel = editor.MakeId(), fixedDataMerge = editor.MakeId();
 
-      rdcspv::Id storePtr = ops.add(rdcspv::OpAccessChain(float4BufPtr, editor.MakeId(), hit,
-                                                          {getUIntConst(ResultBase_pos)}));
+      if(fullSubgroups)
+      {
+        ops.add(rdcspv::OpSelectionMerge(fixedDataMerge, rdcspv::SelectionControl::None));
+        ops.add(rdcspv::OpBranchConditional(candidateThread, fixedDataLabel, fixedDataMerge));
+      }
+      else
+      {
+        ops.add(rdcspv::OpBranch(fixedDataLabel));
+      }
+
+      ops.add(rdcspv::OpLabel(fixedDataLabel));
+
+      rdcspv::Id storePtr =
+          ops.add(rdcspv::OpAccessChain(float4BufPtr, editor.MakeId(), hit,
+                                        {editor.AddConstantImmediate<uint32_t>(ResultBase_pos)}));
       if(fragCoord != rdcspv::Id())
         ops.add(rdcspv::OpStore(storePtr, fragCoord, alignedAccess));
 
@@ -3662,11 +4255,12 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       }
       else
       {
-        primitiveID = getUIntConst(0);
+        primitiveID = editor.AddConstantImmediate<uint32_t>(0);
       }
 
-      storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(ResultBase_prim)}));
+      storePtr =
+          ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                        {editor.AddConstantImmediate<uint32_t>(ResultBase_prim)}));
       ops.add(rdcspv::OpStore(storePtr, primitiveID, alignedAccess));
 
       rdcspv::Id sampleIndex;
@@ -3678,11 +4272,12 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       }
       else
       {
-        sampleIndex = getUIntConst(0);
+        sampleIndex = editor.AddConstantImmediate<uint32_t>(0);
       }
 
-      storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(ResultBase_sample)}));
+      storePtr =
+          ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                        {editor.AddConstantImmediate<uint32_t>(ResultBase_sample)}));
       ops.add(rdcspv::OpStore(storePtr, sampleIndex, alignedAccess));
 
       rdcspv::Id viewIndex;
@@ -3695,78 +4290,159 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       }
       else
       {
-        viewIndex = getUIntConst(0);
+        viewIndex = editor.AddConstantImmediate<uint32_t>(0);
       }
 
-      storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(ResultBase_view)}));
+      storePtr =
+          ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                        {editor.AddConstantImmediate<uint32_t>(ResultBase_view)}));
       ops.add(rdcspv::OpStore(storePtr, viewIndex, alignedAccess));
 
-      storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(ResultBase_valid)}));
+      storePtr =
+          ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                        {editor.AddConstantImmediate<uint32_t>(ResultBase_valid)}));
       ops.add(rdcspv::OpStore(storePtr, editor.AddConstantImmediate(validMagicNumber), alignedAccess));
 
       // store derivative health check for pixel shaders
-      storePtr = ops.add(rdcspv::OpAccessChain(floatBufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(ResultBase_ddxDerivCheck)}));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(floatBufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_ddxDerivCheck)}));
       ops.add(rdcspv::OpStore(storePtr, ddxDerivativeCheck, alignedAccess));
 
+      // store the quadLaneIndex (in case it's different to laneIndex)
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_quadLaneIndex)}));
+      ops.add(rdcspv::OpStore(storePtr, quadLaneIndex, alignedAccess));
+
       // store the laneIndex
-      storePtr = ops.add(rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
-                                               {getUIntConst(ResultBase_laneIndex)}));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_laneIndex)}));
       ops.add(rdcspv::OpStore(storePtr, laneIndex, alignedAccess));
 
+      // if we have them, store subgroup properties, if they're not present they will be 0
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_subgroupSize)}));
+      ops.add(rdcspv::OpStore(storePtr, subgroupSize, alignedAccess));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint4BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_globalBallot)}));
+      ops.add(rdcspv::OpStore(storePtr, globalBallot, alignedAccess));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint4BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_electBallot)}));
+      ops.add(rdcspv::OpStore(storePtr, electBallot, alignedAccess));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint4BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_helperBallot)}));
+      ops.add(rdcspv::OpStore(storePtr, helperBallot, alignedAccess));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_numSubgroups)}));
+      ops.add(rdcspv::OpStore(storePtr, numSubgroups, alignedAccess));
+      storePtr = ops.add(
+          rdcspv::OpAccessChain(uint32BufPtr, editor.MakeId(), hit,
+                                {editor.AddConstantImmediate<uint32_t>(ResultBase_subIdxInGroup)}));
+      ops.add(rdcspv::OpStore(storePtr, subIdxInGroup, alignedAccess));
+
+      // merge after doing the fixed data section
+      ops.add(rdcspv::OpBranch(fixedDataMerge));
+      ops.add(rdcspv::OpLabel(fixedDataMerge));
+
+      rdcspv::Id LaneDataPtrType = editor.DeclareType(rdcspv::Pointer(LaneDataStruct, bufferClass));
+
+      // now we conditionally store each helper lane. Only relevant for pixel shaders but we need
+      // all helper lanes for all active lanes to ensure we can get derivatives for any of them
+      if(stage == ShaderStage::Pixel)
       {
-        rdcspv::Id LaneDataPtrType = editor.DeclareType(rdcspv::Pointer(LaneData, bufferClass));
-
-        rdcarray<rdcspv::Id> perLaneOutputStruct;
-
+        for(uint32_t q = 0; q < 4; q++)
         {
-          perLaneOutputStruct.resize(numLanes);
-          for(uint32_t j = 0; j < numLanes; j++)
-            perLaneOutputStruct[j] =
-                ops.add(rdcspv::OpAccessChain(LaneDataPtrType, editor.MakeId(), hit,
-                                              {getUIntConst(ResultBase_firstUser), getUIntConst(j)}));
-        }
+          rdcspv::Id doHelperLabel = editor.MakeId(), skipHelperLabel = editor.MakeId();
 
-        for(fixedValue &val : fixedValues)
-        {
-          rdcspv::Id valueType = val.valueType;
-          rdcspv::Id ptrType = editor.DeclareType(rdcspv::Pointer(valueType, bufferClass));
+          ops.add(rdcspv::OpSelectionMerge(skipHelperLabel, rdcspv::SelectionControl::None));
+          ops.add(rdcspv::OpBranchConditional(shouldStoreHelperPerQuad[q], doHelperLabel,
+                                              skipHelperLabel));
+          ops.add(rdcspv::OpLabel(doHelperLabel));
 
-          RDCASSERT(numLanes == val.data.size());
+          rdcspv::Id outputPtr = ops.add(rdcspv::OpAccessChain(
+              LaneDataPtrType, editor.MakeId(), hit,
+              {editor.AddConstantImmediate<uint32_t>(ResultBase_firstUser), quadLaneStoreIdx[q]}));
 
-          for(size_t j = 0; j < val.data.size(); j++)
+          for(laneValue &val : laneValues)
           {
-            rdcspv::Id ptr =
-                ops.add(rdcspv::OpAccessChain(ptrType, editor.MakeId(), perLaneOutputStruct[j],
-                                              {getUIntConst((uint32_t)val.structIndex)}));
-            ops.add(rdcspv::OpStore(ptr, val.data[j], alignedAccess));
-          }
-        }
+            rdcspv::Id valueType = val.type;
+            if(valueType == boolType)
+              valueType = uint32Type;
+            rdcspv::Id ptrType = editor.DeclareType(rdcspv::Pointer(valueType, bufferClass));
 
-        for(size_t i = 0; i < inputSigValues.size(); i++)
+            rdcspv::Id valPtr = ops.add(rdcspv::OpAccessChain(
+                ptrType, editor.MakeId(), outputPtr,
+                {editor.AddConstantImmediate<uint32_t>((uint32_t)val.structIndex)}));
+
+            if(val.base == isHelper)
+            {
+              ops.add(rdcspv::OpStore(valPtr, isHelperPerQuad[q], alignedAccess));
+            }
+            else if(val.base == quadLaneIndex)
+            {
+              ops.add(rdcspv::OpStore(valPtr, quadIdxConst[q], alignedAccess));
+            }
+            else if(val.flat)
+            {
+              ops.add(rdcspv::OpStore(valPtr, val.base, alignedAccess));
+            }
+            else
+            {
+              RDCASSERT(!val.quadSwizzledData.empty());
+              ops.add(rdcspv::OpStore(valPtr, val.quadSwizzledData[q], alignedAccess));
+            }
+          }
+
+          ops.add(rdcspv::OpBranch(skipHelperLabel));
+          ops.add(rdcspv::OpLabel(skipHelperLabel));
+        }
+      }
+
+      // if we have full subgroups, each subgroup now writes its own data here, if we are in a
+      // non-pixel shader without subgroups we store the single thread's data here.
+      // the non-subgroup pixel shader case is handled above in the helper lanes (which will all store)
+      if(fullSubgroups || stage != ShaderStage::Pixel)
+      {
+        rdcspv::Id idx;
+
+        if(fullSubgroups)
+          idx = laneIndex;
+        else
+          idx = editor.AddConstantImmediate<uint32_t>(0U);
+
+        rdcspv::Id outputPtr = ops.add(rdcspv::OpAccessChain(
+            LaneDataPtrType, editor.MakeId(), hit,
+            {editor.AddConstantImmediate<uint32_t>(ResultBase_firstUser), idx}));
+
+        for(laneValue &val : laneValues)
         {
-          rdcspv::Id valueType = inputSigValues[i].valueType;
+          rdcspv::Id valueType = val.type;
           if(valueType == boolType)
             valueType = uint32Type;
           rdcspv::Id ptrType = editor.DeclareType(rdcspv::Pointer(valueType, bufferClass));
 
-          for(size_t j = 0; j < inputSigValues[i].data.size(); j++)
-          {
-            rdcspv::Id ptr = ops.add(
-                rdcspv::OpAccessChain(ptrType, editor.MakeId(), perLaneOutputStruct[j],
-                                      {getUIntConst((uint32_t)inputSigValues[i].structIndex)}));
-            ops.add(rdcspv::OpStore(ptr, inputSigValues[i].data[j], alignedAccess));
-          }
+          rdcspv::Id valPtr = ops.add(rdcspv::OpAccessChain(
+              ptrType, editor.MakeId(), outputPtr,
+              {editor.AddConstantImmediate<uint32_t>((uint32_t)val.structIndex)}));
+
+          ops.add(rdcspv::OpStore(valPtr, val.base, alignedAccess));
         }
       }
 
-      // join up with the early-outs we did
-      ops.add(rdcspv::OpBranch(killLabel2));
-      ops.add(rdcspv::OpLabel(killLabel2));
-      ops.add(rdcspv::OpBranch(killLabel));
-      ops.add(rdcspv::OpLabel(killLabel));
+      // join up with the early-outs we did, in reverse order
+      for(size_t i = 0; i < killLabels.size(); i++)
+      {
+        rdcspv::Id label = killLabels[killLabels.size() - 1 - i];
+        ops.add(rdcspv::OpBranch(label));
+        ops.add(rdcspv::OpLabel(label));
+      }
     }
 
     // we want to "call" the original function to ensure the compiler does hopefully as close
@@ -3779,13 +4455,14 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
     rdcspv::Id falseLabel = editor.MakeId();
 
     // get a pointer to buffer.dummy
-    rdcspv::Id dummy =
-        ops.add(rdcspv::OpAccessChain(uintPtr, editor.MakeId(), structPtr, {getUIntConst(2)}));
+    rdcspv::Id dummy = ops.add(rdcspv::OpAccessChain(uintPtr, editor.MakeId(), structPtr,
+                                                     {editor.AddConstantImmediate<uint32_t>(2)}));
 
     dummy = ops.add(rdcspv::OpAtomicUMax(uint32Type, editor.MakeId(), dummy, scope, semantics,
-                                         getUIntConst(1)));
-    rdcspv::Id dummyCompare =
-        ops.add(rdcspv::OpULessThan(boolType, editor.MakeId(), dummy, getUIntConst(2)));
+                                         editor.AddConstantImmediate<uint32_t>(1)));
+    editor.SetName(dummy, "dummy");
+    rdcspv::Id dummyCompare = ops.add(rdcspv::OpULessThan(
+        boolType, editor.MakeId(), dummy, editor.AddConstantImmediate<uint32_t>(2)));
 
     ops.add(rdcspv::OpSelectionMerge(falseLabel, rdcspv::SelectionControl::None));
     ops.add(rdcspv::OpBranchConditional(dummyCompare, trueLabel, falseLabel));
@@ -4189,6 +4866,10 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   }
 
   uint32_t numThreads = 4;
+
+  if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
+    numThreads = RDCMAX(numThreads, maxSubgroupSize);
+
   std::unordered_map<ShaderBuiltin, ShaderVariable> &global_builtins = apiWrapper->global_builtins;
   global_builtins[ShaderBuiltin::DeviceIndex] = ShaderVariable(rdcstr(), 0U, 0U, 0U, 0U);
   global_builtins[ShaderBuiltin::DrawIndex] = ShaderVariable(rdcstr(), action->drawIndex, 0U, 0U, 0U);
@@ -4295,6 +4976,11 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   uint32_t structStride = (uint32_t)shadRefl.refl->inputSignature.size() * paramAlign;
 
   structStride += sizeof(PixelLaneData);
+
+  if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
+  {
+    structStride += sizeof(SubgroupLaneData);
+  }
 
   uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
 
@@ -4584,6 +5270,12 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
 
     numThreads = 4;
 
+    if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
+    {
+      RDCASSERTNOTEQUAL(winner->subgroupSize, 0);
+      numThreads = RDCMAX(numThreads, winner->subgroupSize);
+    }
+
     apiWrapper->location_inputs.resize(numThreads);
     apiWrapper->thread_builtins.resize(numThreads);
     apiWrapper->thread_props.resize(numThreads);
@@ -4591,6 +5283,15 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     for(uint32_t t = 0; t < numThreads; t++)
     {
       byte *value = LaneData + t * structStride;
+
+      if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
+      {
+        SubgroupLaneData *subgroupData = (SubgroupLaneData *)value;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Active] = subgroupData->isActive;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Elected] = subgroupData->elect;
+
+        value += sizeof(SubgroupLaneData);
+      }
 
       apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Active] = 1;
 
@@ -4620,10 +5321,10 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
 
         if(numThreads == 4)
           apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Active] = 1;
-        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Helper] =
-            t != winner->laneIndex ? 1 : 0;
-        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::QuadId] = 1000;
-        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::QuadLane] = t;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Helper] = pixelData->isHelper;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::QuadId] = pixelData->quadId;
+        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::QuadLane] =
+            pixelData->quadLaneIndex;
       }
       value += sizeof(PixelLaneData);
 
