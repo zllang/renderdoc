@@ -37,8 +37,7 @@
 
 RDOC_CONFIG(rdcstr, Vulkan_Debug_PSDebugDumpDirPath, "",
             "Path to dump pixel shader debugging generated SPIR-V files.");
-RDOC_CONFIG(bool, Vulkan_Debug_DisableBufferDeviceAddress, false,
-            "Disable use of buffer device address for PS Input fetch.");
+RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_DisableBufferDeviceAddress);
 RDOC_CONFIG(bool, Vulkan_Debug_ShaderDebugLogging, false,
             "Output verbose debug logging messages when debugging shaders.");
 

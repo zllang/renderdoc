@@ -31,6 +31,7 @@
 #include "driver/ihv/amd/amd_counters.h"
 #include "driver/ihv/amd/official/GPUPerfAPI/Include/gpu_perf_api_vk.h"
 #include "driver/ihv/nv/nv_vk_counters.h"
+#include "driver/shaders/spirv/spirv_common.h"
 #include "driver/shaders/spirv/spirv_compile.h"
 #include "maths/camera.h"
 #include "maths/formatpacking.h"
@@ -43,6 +44,8 @@
 #include "data/glsl/glsl_ubos_cpp.h"
 
 RDOC_EXTERN_CONFIG(bool, Vulkan_Debug_SingleSubmitFlushing);
+RDOC_CONFIG(bool, Vulkan_Debug_DisableBufferDeviceAddress, false,
+            "Disable use of buffer device address for PS Input fetch.");
 
 RDOC_CONFIG(bool, Vulkan_HardwareCounters, true,
             "Enable support for IHV-specific hardware counters on Vulkan.");
@@ -3315,6 +3318,40 @@ void VulkanReplay::CreateResources()
   m_ShaderDebugData.Init(m_pDriver, m_General.DescriptorPool);
 
   RenderDoc::Inst().SetProgress(LoadProgress::DebugManagerInit, 1.0f);
+
+  m_StorageMode = BufferStorageMode::Descriptor;
+
+  if(m_pDriver->GetExtensions(NULL).ext_KHR_buffer_device_address)
+  {
+    m_StorageMode = BufferStorageMode::KHR_bda32;
+
+    // we don't deliberately use bda64 for simplicity
+
+    RDCLOG("Using KHR_buffer_device_address");
+  }
+  else if(m_pDriver->GetExtensions(NULL).ext_EXT_buffer_device_address)
+  {
+    if(m_pDriver->GetDeviceEnabledFeatures().shaderInt64)
+    {
+      m_StorageMode = BufferStorageMode::EXT_bda;
+
+      RDCLOG("Using EXT_buffer_device_address");
+    }
+    else
+    {
+      RDCLOG(
+          "EXT_buffer_device_address is available but shaderInt64 isn't, falling back to binding "
+          "storage mode");
+    }
+  }
+
+  if(Vulkan_Debug_DisableBufferDeviceAddress() ||
+     m_pDriver->GetDriverInfo().BufferDeviceAddressBrokenDriver())
+  {
+    m_StorageMode = BufferStorageMode::Descriptor;
+  }
+
+  m_BindlessFeedback.m_StorageMode = m_StorageMode;
 
   GpaVkContextOpenInfo context = {Unwrap(m_pDriver->GetInstance()), Unwrap(m_pDriver->GetPhysDev()),
                                   Unwrap(m_pDriver->GetDev())};

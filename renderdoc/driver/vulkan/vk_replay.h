@@ -31,6 +31,11 @@
 #include "vk_info.h"
 #include "vk_state.h"
 
+namespace rdcspv
+{
+enum class BufferStorageMode : uint32_t;
+};
+
 #if ENABLED(RDOC_WIN32)
 
 #include <windows.h>
@@ -587,6 +592,8 @@ private:
   WrappedVulkan *m_pDriver = NULL;
   VkDevice m_Device = VK_NULL_HANDLE;
 
+  BufferStorageMode m_StorageMode;
+
   // General use/misc items that are used in many places
   struct GeneralMisc
   {
@@ -815,6 +822,7 @@ private:
   {
     void Destroy(WrappedVulkan *driver);
 
+    BufferStorageMode m_StorageMode;
     GPUBuffer FeedbackBuffer;
 
     std::map<uint32_t, VKDynamicShaderFeedback> Usage;
