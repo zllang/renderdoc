@@ -51,6 +51,7 @@ enum class ThreadProperty : uint32_t
   QuadLane,
   Active,
   Elected,
+  SubgroupId,
   Count,
 };
 

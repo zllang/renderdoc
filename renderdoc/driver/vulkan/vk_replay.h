@@ -535,6 +535,10 @@ private:
     bool empty() { return m_pDriver == NULL; }
   };
 
+  ShaderDebugTrace *DebugComputeCommon(ShaderStage stage, uint32_t eventId,
+                                       const rdcfixedarray<uint32_t, 3> &groupid,
+                                       const rdcfixedarray<uint32_t, 3> &threadid);
+
   void AllocAndAddReservedDescriptors(const VulkanStatePipeline &pipe,
                                       AddedDescriptorData &patchedBufferData,
                                       bool vertexPatchedToCompute,
