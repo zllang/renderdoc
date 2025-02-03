@@ -154,6 +154,9 @@ struct VulkanAMDActionCallback;
 
 class NVVulkanCounters;
 
+enum class SubgroupCapability : uint32_t;
+struct SpecData;
+
 struct VulkanPostVSData
 {
   struct InstData
@@ -548,6 +551,9 @@ private:
 
   bool RunFeedbackAction(VkDeviceSize bufferSize, const ActionDescription *action,
                          VulkanRenderState &modifiedstate);
+
+  void CalculateSubgroupProperties(uint32_t &maxSubgroupSize, SubgroupCapability &subgroupCapability);
+  VkSpecializationInfo MakeSpecInfo(SpecData &specData, VkSpecializationMapEntry *specMaps);
 
   VulkanDebugManager *GetDebugManager();
   VulkanResourceManager *GetResourceManager();

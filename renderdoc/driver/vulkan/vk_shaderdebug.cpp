@@ -2929,10 +2929,92 @@ enum class InputSpecConstant
   ArrayLength,
   DestX,
   DestY,
+  DestThreadIDX,
+  DestThreadIDY,
+  DestThreadIDZ,
+  DestInstance,
+  DestVertex,
+  DestView,
   Count,
 };
 
-enum class SubgroupCapability
+struct SpecData
+{
+  VkDeviceAddress bufferAddress;
+  uint32_t arrayLength;
+  uint32_t destVertex;
+  uint32_t destInstance;
+  uint32_t destView;
+  float destX;
+  float destY;
+  uint32_t globalThreadIdX;
+  uint32_t globalThreadIdY;
+  uint32_t globalThreadIdZ;
+};
+
+static const VkSpecializationMapEntry specMapsTemplate[] = {
+    {
+        (uint32_t)InputSpecConstant::Address,
+        offsetof(SpecData, bufferAddress),
+        // EXT_bda uses a 64-bit constant, as well as KHR_bda64
+        0,
+    },
+    {
+        (uint32_t)InputSpecConstant::ArrayLength,
+        offsetof(SpecData, arrayLength),
+        sizeof(SpecData::arrayLength),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestX,
+        offsetof(SpecData, destX),
+        sizeof(SpecData::destX),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestY,
+        offsetof(SpecData, destY),
+        sizeof(SpecData::destY),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestThreadIDX,
+        offsetof(SpecData, globalThreadIdX),
+        sizeof(SpecData::globalThreadIdX),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestThreadIDY,
+        offsetof(SpecData, globalThreadIdY),
+        sizeof(SpecData::globalThreadIdY),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestThreadIDZ,
+        offsetof(SpecData, globalThreadIdZ),
+        sizeof(SpecData::globalThreadIdZ),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestInstance,
+        offsetof(SpecData, destInstance),
+        sizeof(SpecData::destInstance),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestVertex,
+        offsetof(SpecData, destVertex),
+        sizeof(SpecData::destVertex),
+    },
+    {
+        (uint32_t)InputSpecConstant::DestView,
+        offsetof(SpecData, destView),
+        sizeof(SpecData::destView),
+    },
+    {
+        (uint32_t)InputSpecConstant::AddressMSB,
+        offsetof(SpecData, bufferAddress) + 4,
+        sizeof(uint32_t),
+    },
+};
+
+RDCCOMPILE_ASSERT((size_t)InputSpecConstant::Count == ARRAY_COUNT(specMapsTemplate),
+                  "Spec constants changed");
+
+enum class SubgroupCapability : uint32_t
 {
   None = 0,
   EXTBallot,
@@ -4489,6 +4571,120 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
   editor.AddEntryGlobals(entryID, newGlobals);
 }
 
+rdcpair<uint32_t, uint32_t> GetAlignAndOutputSize(VulkanCreationInfo::ShaderModuleReflection &shadRefl)
+{
+  uint32_t paramAlign = 16;
+
+  for(const SigParameter &sig : shadRefl.refl->inputSignature)
+  {
+    if(VarTypeByteSize(sig.varType) * sig.compCount > paramAlign)
+      paramAlign = 32;
+  }
+
+  // conservatively calculate structure stride with full amount for every input element
+  uint32_t structStride = (uint32_t)shadRefl.refl->inputSignature.size() * paramAlign;
+
+  if(shadRefl.refl->stage == ShaderStage::Vertex)
+    structStride += sizeof(VertexLaneData);
+  else if(shadRefl.refl->stage == ShaderStage::Pixel)
+    structStride += sizeof(PixelLaneData);
+  else if(shadRefl.refl->stage == ShaderStage::Compute ||
+          shadRefl.refl->stage == ShaderStage::Task || shadRefl.refl->stage == ShaderStage::Mesh)
+    structStride += sizeof(ComputeLaneData);
+
+  if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
+  {
+    structStride += sizeof(SubgroupLaneData);
+  }
+
+  return {paramAlign, structStride};
+}
+
+VkDescriptorSetLayoutBinding MakeNewBinding(VkShaderStageFlagBits stage)
+{
+  return {
+      0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, NULL,
+  };
+}
+
+void VulkanReplay::CalculateSubgroupProperties(uint32_t &maxSubgroupSize,
+                                               SubgroupCapability &subgroupCapability)
+{
+  maxSubgroupSize = 4;
+
+  // if we don't have subgroup ballots we assume we have no real meaningful subgroup capabilities at
+  // all except for 'basic'. The only thing basic lets you do is fetch the subgroup ID, and
+  // determine which lane is the first active (OpGroupNonUniformElect).
+  // in this case we effectively consider it non-subgroup and just read those values directly to
+  // fill in, but otherwise simulate as if there were no subgroup use.
+
+  // for our purposes vulkan 1.1 fully deprecated the old EXT_shader_subgroup_* pair of extensions
+  // as the only thing that wasn't deprecated was a non-constant broadcast ID which we don't need
+  if(m_pDriver->GetExtensions(NULL).vulkanVersion >= VK_API_VERSION_1_1)
+  {
+    VkPhysicalDeviceSubgroupProperties subProps = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES,
+    };
+
+    VkPhysicalDeviceProperties2 availBase = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    availBase.pNext = &subProps;
+    m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
+
+    maxSubgroupSize = subProps.subgroupSize;
+    subgroupCapability = SubgroupCapability::Vulkan1_1_NoBallot;
+    const VkSubgroupFeatureFlags requiredFlags =
+        (VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT);
+    if((subProps.supportedOperations & requiredFlags) == requiredFlags)
+      subgroupCapability = SubgroupCapability::Vulkan1_1;
+
+    if(m_pDriver->GetExtensions(NULL).ext_EXT_subgroup_size_control)
+    {
+      VkPhysicalDeviceSubgroupSizeControlProperties subSizeProps = {
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES,
+      };
+      availBase.pNext = &subSizeProps;
+      m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
+
+      // use new upper bound in case it's higher with variable sizes
+      maxSubgroupSize = RDCMAX(maxSubgroupSize, subSizeProps.maxSubgroupSize);
+    }
+  }
+  else if(m_pDriver->GetExtensions(NULL).ext_EXT_shader_subgroup_ballot)
+  {
+    // the ballot extension only proides the subgroup size on the GPU so we need to allocate worst case up front
+
+    RDCWARN("Subgroup ballot extension is best extension enabled - using worst case subgroup size");
+
+    maxSubgroupSize = 128;
+    subgroupCapability = SubgroupCapability::EXTBallot;
+  }
+  else if(m_pDriver->GetExtensions(NULL).ext_EXT_shader_subgroup_vote)
+  {
+    // if only the vote extension is enabled we have no way to determine the subgroup size or
+    // anything, so we just fall back to treating this as a degenerate case with a single thread
+
+    RDCWARN("Subgroup vote extension is only subgroup feature enabled - treating as degenerate");
+
+    maxSubgroupSize = 1;
+    subgroupCapability = SubgroupCapability::None;
+  }
+}
+
+VkSpecializationInfo VulkanReplay::MakeSpecInfo(SpecData &specData, VkSpecializationMapEntry *specMaps)
+{
+  memcpy(specMaps, specMapsTemplate, sizeof(specMapsTemplate));
+
+  specMaps[(uint32_t)InputSpecConstant::Address].size =
+      (m_StorageMode == BufferStorageMode::KHR_bda32 ? sizeof(uint32_t) : sizeof(uint64_t));
+
+  VkSpecializationInfo ret = {};
+  ret.dataSize = sizeof(specData);
+  ret.pData = &specData;
+  ret.mapEntryCount = (uint32_t)InputSpecConstant::Count;
+  ret.pMapEntries = specMaps;
+  return ret;
+}
+
 ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, uint32_t instid,
                                             uint32_t idx, uint32_t view)
 {
@@ -4806,64 +5002,9 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
   VulkanAPIWrapper *apiWrapper =
       new VulkanAPIWrapper(m_pDriver, c, ShaderStage::Pixel, eventId, shadRefl.refl->resourceId);
 
-  // if we don't have subgroup ballots we assume we have no real meaningful subgroup capabilities at
-  // all except for 'basic'. The only thing basic lets you do is fetch the subgroup ID, and
-  // determine which lane is the first active (OpGroupNonUniformElect).
-  // in this case we effectively consider it non-subgroup and just read those values directly to
-  // fill in, but otherwise simulate as if there were no subgroup use.
   SubgroupCapability subgroupCapability = SubgroupCapability::None;
-  uint32_t maxSubgroupSize = 4;
-
-  // for our purposes vulkan 1.1 fully deprecated the old EXT_shader_subgroup_* pair of extensions
-  // as the only thing that wasn't deprecated was a non-constant broadcast ID which we don't need
-  if(m_pDriver->GetExtensions(NULL).vulkanVersion >= VK_API_VERSION_1_1)
-  {
-    VkPhysicalDeviceSubgroupProperties subProps = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES,
-    };
-
-    VkPhysicalDeviceProperties2 availBase = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-    availBase.pNext = &subProps;
-    m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
-
-    maxSubgroupSize = subProps.subgroupSize;
-    subgroupCapability = SubgroupCapability::Vulkan1_1_NoBallot;
-    const VkSubgroupFeatureFlags requiredFlags =
-        (VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT);
-    if((subProps.supportedOperations & requiredFlags) == requiredFlags)
-      subgroupCapability = SubgroupCapability::Vulkan1_1;
-
-    if(m_pDriver->GetExtensions(NULL).ext_EXT_subgroup_size_control)
-    {
-      VkPhysicalDeviceSubgroupSizeControlProperties subSizeProps = {
-          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES,
-      };
-      availBase.pNext = &subSizeProps;
-      m_pDriver->vkGetPhysicalDeviceProperties2(m_pDriver->GetPhysDev(), &availBase);
-
-      // use new upper bound in case it's higher with variable sizes
-      maxSubgroupSize = RDCMAX(maxSubgroupSize, subSizeProps.maxSubgroupSize);
-    }
-  }
-  else if(m_pDriver->GetExtensions(NULL).ext_EXT_shader_subgroup_ballot)
-  {
-    // the ballot extension only proides the subgroup size on the GPU so we need to allocate worst case up front
-
-    RDCWARN("Subgroup ballot extension is best extension enabled - using worst case subgroup size");
-
-    maxSubgroupSize = 128;
-    subgroupCapability = SubgroupCapability::EXTBallot;
-  }
-  else if(m_pDriver->GetExtensions(NULL).ext_EXT_shader_subgroup_vote)
-  {
-    // if only the vote extension is enabled we have no way to determine the subgroup size or
-    // anything, so we just fall back to treating this as a degenerate case with a single thread
-
-    RDCWARN("Subgroup vote extension is only subgroup feature enabled - treating as degenerate");
-
-    maxSubgroupSize = 1;
-    subgroupCapability = SubgroupCapability::None;
-  }
+  uint32_t maxSubgroupSize = 1;
+  CalculateSubgroupProperties(maxSubgroupSize, subgroupCapability);
 
   uint32_t numThreads = 4;
 
@@ -4964,23 +5105,8 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     global_builtins[ShaderBuiltin::MultiViewIndex] = ShaderVariable(rdcstr(), view, 0U, 0U, 0U);
   }
 
-  uint32_t paramAlign = 16;
-
-  for(const SigParameter &sig : shadRefl.refl->inputSignature)
-  {
-    if(VarTypeByteSize(sig.varType) * sig.compCount > paramAlign)
-      paramAlign = 32;
-  }
-
-  // conservatively calculate structure stride with full amount for every input element
-  uint32_t structStride = (uint32_t)shadRefl.refl->inputSignature.size() * paramAlign;
-
-  structStride += sizeof(PixelLaneData);
-
-  if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
-  {
-    structStride += sizeof(SubgroupLaneData);
-  }
+  uint32_t paramAlign, structStride;
+  rdctie(paramAlign, structStride) = GetAlignAndOutputSize(shadRefl);
 
   uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
 
@@ -4997,35 +5123,17 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
 
   m_PatchedShaderFeedback.ResizeFeedbackBuffer(m_pDriver, feedbackStorageSize);
 
-  struct SpecData
-  {
-    VkDeviceAddress bufferAddress;
-    uint32_t arrayLength;
-    float destX;
-    float destY;
-  } specData = {};
+  SpecData specData = {};
 
   specData.arrayLength = overdrawLevels;
   specData.destX = float(x) + 0.5f;
   specData.destY = float(y) + 0.5f;
 
-  rdcarray<VkDescriptorSetLayoutBinding> newBindings = {
-      {
-          0,
-          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-          1,
-          VK_SHADER_STAGE_FRAGMENT_BIT,
-          NULL,
-      },
-  };
-  RDCASSERTMSG("NumReservedBindings is wrong", newBindings.size() == NumReservedBindings,
-               newBindings.size());
-
   // make copy of state to draw from
   VulkanRenderState modifiedstate = state;
 
-  AddedDescriptorData patchedBufferdata =
-      PrepareExtraBufferDescriptor(modifiedstate, false, newBindings, false);
+  AddedDescriptorData patchedBufferdata = PrepareExtraBufferDescriptor(
+      modifiedstate, false, {MakeNewBinding(VK_SHADER_STAGE_FRAGMENT_BIT)}, false);
 
   if(patchedBufferdata.empty())
   {
@@ -5047,55 +5155,16 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     RDCLOG("Got buffer address of %llu", specData.bufferAddress);
   }
 
-  // create fragment shader with modified code
+  // create  shader with modified code
 
-  VkShaderModuleCreateInfo moduleCreateInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-  VkSpecializationMapEntry specMaps[] = {
-      {
-          (uint32_t)InputSpecConstant::Address,
-          offsetof(SpecData, bufferAddress),
-          sizeof(uint32_t),
-      },
-      {
-          (uint32_t)InputSpecConstant::ArrayLength,
-          offsetof(SpecData, arrayLength),
-          sizeof(SpecData::arrayLength),
-      },
-      {
-          (uint32_t)InputSpecConstant::DestX,
-          offsetof(SpecData, destX),
-          sizeof(SpecData::destX),
-      },
-      {
-          (uint32_t)InputSpecConstant::DestY,
-          offsetof(SpecData, destY),
-          sizeof(SpecData::destY),
-      },
-      {
-          (uint32_t)InputSpecConstant::AddressMSB,
-          offsetof(SpecData, bufferAddress) + 4,
-          sizeof(uint32_t),
-      },
-  };
+  VkSpecializationMapEntry specMaps[(size_t)InputSpecConstant::Count];
+  RDCCOMPILE_ASSERT(sizeof(specMaps) == sizeof(specMapsTemplate),
+                    "Specialisation maps have changed");
 
-  VkSpecializationInfo fragSpecInfo = {};
-  fragSpecInfo.dataSize = sizeof(specData);
-  fragSpecInfo.pData = &specData;
-  fragSpecInfo.mapEntryCount = ARRAY_COUNT(specMaps);
-  fragSpecInfo.pMapEntries = specMaps;
+  VkSpecializationInfo patchedSpecInfo = MakeSpecInfo(specData, specMaps);
 
-  RDCCOMPILE_ASSERT((size_t)InputSpecConstant::Count == ARRAY_COUNT(specMaps),
-                    "Spec constants changed");
-
-  if(!IsKHRBDA(m_StorageMode))
-  {
-    // don't pass AddressMSB for EXT_buffer_device_address, we pass a uint64
-    fragSpecInfo.mapEntryCount--;
-    specMaps[0].size = sizeof(SpecData::bufferAddress);
-  }
-
-  auto patchCallback = [this, &shadRefl, &fragSpecInfo, usePrimitiveID, useSampleID, useViewIndex,
-                        subgroupCapability, maxSubgroupSize](
+  auto patchCallback = [this, &shadRefl, &patchedSpecInfo, usePrimitiveID, useSampleID,
+                        useViewIndex, subgroupCapability, maxSubgroupSize](
                            const AddedDescriptorData &patchedBufferdata, VkShaderStageFlagBits stage,
                            const char *entryName, const rdcarray<uint32_t> &origSpirv,
                            rdcarray<uint32_t> &modSpirv, const VkSpecializationInfo *&specInfo) {
@@ -5113,7 +5182,9 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
     if(!Vulkan_Debug_PSDebugDumpDirPath().empty())
       FileIO::WriteAll(Vulkan_Debug_PSDebugDumpDirPath() + "/debug_psinput_after.spv", modSpirv);
 
-    specInfo = &fragSpecInfo;
+    // overwrite user's specialisation info, assuming that the old specialisation info is not
+    // relevant for codegen (the only thing it would be used for)
+    specInfo = &patchedSpecInfo;
 
     return true;
   };
