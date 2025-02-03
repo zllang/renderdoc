@@ -829,6 +829,7 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
       pattern.append(GetDiscardPattern(DiscardType(i), fmt));
 
       m_DiscardCB[i].Create(m_pDriver, m_Device, pattern.size(), 1, 0);
+      m_DiscardCB[i].Name(StringFormat::Fmt("m_DiscardCB[%zu", i));
 
       void *ptr = m_DiscardCB[i].Map();
       if(!ptr)
@@ -862,6 +863,7 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
   if(RenderDoc::Inst().IsReplayApp())
   {
     m_ReadbackWindow.Create(driver, dev, STAGE_BUFFER_BYTE_SIZE, 1, GPUBuffer::eGPUBufferReadback);
+    m_ReadbackWindow.Name("m_ReadbackWindow");
   }
 }
 
@@ -1321,6 +1323,8 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
       m_VertexPick.IB.Create(m_pDriver, dev, m_VertexPick.IBSize, 1,
                              GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO);
       m_VertexPick.IBUpload.Create(m_pDriver, dev, m_VertexPick.IBSize, 1, 0);
+      m_VertexPick.IB.Name("m_VertexPick.IB");
+      m_VertexPick.IBUpload.Name("m_VertexPick.IBUpload");
     }
 
     uint32_t *outidxs = (uint32_t *)m_VertexPick.IBUpload.Map();
@@ -1425,6 +1429,7 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
 
       m_VertexPick.IB.Create(m_pDriver, dev, m_VertexPick.IBSize, 1,
                              GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO);
+      m_VertexPick.IB.Name("m_VertexPick.IB");
     }
   }
 
@@ -1449,6 +1454,8 @@ uint32_t VulkanReplay::PickVertex(uint32_t eventId, int32_t width, int32_t heigh
       m_VertexPick.VB.Create(m_pDriver, dev, m_VertexPick.VBSize, 1,
                              GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO);
       m_VertexPick.VBUpload.Create(m_pDriver, dev, m_VertexPick.VBSize, 1, 0);
+      m_VertexPick.VB.Name("m_VertexPick.VB");
+      m_VertexPick.VBUpload.Name("m_VertexPick.VBUpload");
     }
 
     byte *data = &oldData[0];
@@ -2410,6 +2417,7 @@ void VulkanDebugManager::FillWithDiscardPattern(VkCommandBuffer cmd, DiscardType
       shape = {1, 1, 4};
 
     stage.Create(m_pDriver, m_Device, pattern.size(), 1, 0);
+    stage.Name(StringFormat::Fmt("m_DiscardStage[%s,%u]", ToStr(key.first).c_str(), key.second));
 
     void *ptr = stage.Map();
     if(!ptr)
@@ -3866,11 +3874,14 @@ void VulkanReplay::DestroyResources()
   m_General.Destroy(m_pDriver);
   m_TexRender.Destroy(m_pDriver);
   m_Overlay.Destroy(m_pDriver);
+  m_ShaderDebugData.Destroy(m_pDriver);
+  m_MeshRender.Destroy(m_pDriver);
   m_VertexPick.Destroy(m_pDriver);
   m_PixelPick.Destroy(m_pDriver);
   m_PixelHistory.Destroy(m_pDriver);
   m_Histogram.Destroy(m_pDriver);
   m_PostVS.Destroy(m_pDriver);
+  m_PatchedShaderFeedback.Destroy(m_pDriver);
 
   SAFE_DELETE(m_pAMDCounters);
 
@@ -3960,9 +3971,12 @@ void VulkanReplay::TextureRendering::Init(WrappedVulkan *driver, VkDescriptorPoo
   }
 
   UBO.Create(driver, driver->GetDev(), 128, 10, 0);
+  UBO.Name("TexDisplayUBO");
+
   RDCCOMPILE_ASSERT(sizeof(TexDisplayUBOData) <= 128, "tex display size");
 
   HeatmapUBO.Create(driver, driver->GetDev(), 512, 10, 0);
+  HeatmapUBO.Name("HeatmapUBO");
   RDCCOMPILE_ASSERT(sizeof(HeatmapData) <= 512, "tex display size");
 
   {
@@ -4468,11 +4482,14 @@ void VulkanReplay::OverlayRendering::Init(WrappedVulkan *driver, VkDescriptorPoo
   CREATE_OBJECT(m_DepthCopyDescSet, descriptorPool, m_DepthCopyDescSetLayout);
 
   m_CheckerUBO.Create(driver, driver->GetDev(), 128, 10, 0);
+  m_CheckerUBO.Name("m_CheckerUBO");
   RDCCOMPILE_ASSERT(sizeof(CheckerboardUBOData) <= 128, "checkerboard UBO size");
 
   m_DummyMeshletSSBO.Create(driver, driver->GetDev(), sizeof(Vec4f) * 2, 1,
                             GPUBuffer::eGPUBufferSSBO);
   m_TriSizeUBO.Create(driver, driver->GetDev(), sizeof(Vec4f), 4096, 0);
+  m_DummyMeshletSSBO.Name("m_DummyMeshletSSBO");
+  m_TriSizeUBO.Name("m_TriSizeUBO");
 
   ConciseGraphicsPipeline pipeInfo = {
       SRGBA8RP,
@@ -4870,7 +4887,7 @@ VkPipeline VulkanReplay::OverlayRendering::CreateTempMultiviewQuadResolvePipe(Wr
 
 void VulkanReplay::OverlayRendering::Destroy(WrappedVulkan *driver)
 {
-  if(ImageMem == VK_NULL_HANDLE)
+  if(m_PointSampler == VK_NULL_HANDLE)
     return;
 
   driver->vkFreeMemory(driver->GetDev(), ImageMem, NULL);
@@ -4906,6 +4923,7 @@ void VulkanReplay::OverlayRendering::Destroy(WrappedVulkan *driver)
 
   m_CheckerUBO.Destroy();
 
+  m_DummyMeshletSSBO.Destroy();
   m_TriSizeUBO.Destroy();
   driver->vkDestroyDescriptorSetLayout(driver->GetDev(), m_TriSizeDescSetLayout, NULL);
   driver->vkDestroyPipelineLayout(driver->GetDev(), m_TriSizePipeLayout, NULL);
@@ -4929,6 +4947,9 @@ void VulkanReplay::MeshRendering::Init(WrappedVulkan *driver, VkDescriptorPool d
   MeshletSSBO.Create(driver, driver->GetDev(), sizeof(uint32_t) * (4 + MAX_NUM_MESHLETS), 16,
                      GPUBuffer::eGPUBufferSSBO);
   BBoxVB.Create(driver, driver->GetDev(), sizeof(Vec4f) * 128, 16, GPUBuffer::eGPUBufferVBuffer);
+  UBO.Name("MeshUBO");
+  MeshletSSBO.Name("MeshletSSBO");
+  BBoxVB.Name("BBoxVB");
 
   Vec4f TLN = Vec4f(-1.0f, 1.0f, 0.0f, 1.0f);    // TopLeftNear, etc...
   Vec4f TRN = Vec4f(1.0f, 1.0f, 0.0f, 1.0f);
@@ -4981,6 +5002,7 @@ void VulkanReplay::MeshRendering::Init(WrappedVulkan *driver, VkDescriptorPool d
   // doesn't need to be ring'd as it's immutable
   AxisFrustumVB.Create(driver, driver->GetDev(), sizeof(axisFrustum), 1,
                        GPUBuffer::eGPUBufferVBuffer);
+  AxisFrustumVB.Name("AxisFrustumVB");
 
   Vec4f *axisData = (Vec4f *)AxisFrustumVB.Map();
 
@@ -5041,6 +5063,7 @@ void VulkanReplay::VertexPicking::Init(WrappedVulkan *driver, VkDescriptorPool d
   VBSize = 0;
 
   UBO.Create(driver, driver->GetDev(), 128, 1, 0);
+  UBO.Name("MeshPickUBO");
   RDCCOMPILE_ASSERT(sizeof(MeshPickUBOData) <= 128, "mesh pick UBO size");
 
   const size_t meshPickResultSize = MaxMeshPicks * sizeof(FloatVector) + sizeof(uint32_t);
@@ -5049,6 +5072,8 @@ void VulkanReplay::VertexPicking::Init(WrappedVulkan *driver, VkDescriptorPool d
                 GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO);
   ResultReadback.Create(driver, driver->GetDev(), meshPickResultSize, 1,
                         GPUBuffer::eGPUBufferReadback);
+  Result.Name("VertexPickResult");
+  ResultReadback.Name("VertexPickResultReadback");
 
   CREATE_OBJECT(Pipeline, Layout, shaderCache->GetBuiltinModule(BuiltinShader::MeshCS));
 
@@ -5198,6 +5223,7 @@ void VulkanReplay::PixelPicking::Init(WrappedVulkan *driver, VkDescriptorPool de
   // since we always sync for readback, doesn't need to be ring'd
   ReadbackBuffer.Create(driver, driver->GetDev(), sizeof(float) * 4, 1,
                         GPUBuffer::eGPUBufferReadback);
+  ReadbackBuffer.Name("PixelPickResultReadback");
 }
 
 void VulkanReplay::PixelPicking::Destroy(WrappedVulkan *driver)
@@ -5343,9 +5369,15 @@ void VulkanReplay::HistogramMinMax::Init(WrappedVulkan *driver, VkDescriptorPool
                         GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO);
   m_HistogramReadback.Create(driver, driver->GetDev(), sizeof(uint32_t) * HGRAM_NUM_BUCKETS, 1,
                              GPUBuffer::eGPUBufferReadback);
+  m_MinMaxTileResult.Name("m_MinMaxTileResult");
+  m_MinMaxResult.Name("m_MinMaxResult");
+  m_MinMaxReadback.Name("m_MinMaxReadback");
+  m_HistogramBuf.Name("m_HistogramBuf");
+  m_HistogramReadback.Name("m_HistogramReadback");
 
   // don't need to ring this, as we hard-sync for readback anyway
   m_HistogramUBO.Create(driver, driver->GetDev(), sizeof(HistogramUBOData), 1, 0);
+  m_HistogramUBO.Name("m_HistogramUBO");
 }
 
 void VulkanReplay::HistogramMinMax::Destroy(WrappedVulkan *driver)
@@ -5394,14 +5426,15 @@ void VulkanReplay::Feedback::ResizeFeedbackBuffer(WrappedVulkan *driver,
 
     FeedbackBuffer.Destroy();
     FeedbackBuffer.Create(driver, dev, feedbackStorageSize, 1, flags);
-
-    NameUnwrappedVulkanObject(FeedbackBuffer.UnwrappedBuffer(),
-                              "m_BindlessFeedback.FeedbackBuffer");
+    FeedbackBuffer.Name("m_BindlessFeedback.FeedbackBuffer");
   }
 }
 
 void VulkanReplay::Feedback::Destroy(WrappedVulkan *driver)
 {
+  if(PipeCache == VK_NULL_HANDLE)
+    return;
+
   FeedbackBuffer.Destroy();
 
   driver->vkDestroyPipelineCache(driver->GetDev(), PipeCache, NULL);
@@ -5566,15 +5599,19 @@ void ShaderDebugData::Init(WrappedVulkan *driver, VkDescriptorPool descriptorPoo
   ReadbackBuffer.Create(driver, driver->GetDev(), sizeof(Vec4f) * 4, 1,
                         GPUBuffer::eGPUBufferReadback);
   ConstantsBuffer.Create(driver, driver->GetDev(), 1024, 1, 0);
+  MathResult.Name("MathResult");
+  ReadbackBuffer.Name("ShaderReadbackBuffer");
+  ConstantsBuffer.Name("ShaderConstantsBuffer");
 }
 
 void ShaderDebugData::Destroy(WrappedVulkan *driver)
 {
+  if(PipeLayout == VK_NULL_HANDLE)
+    return;
+
+  MathResult.Destroy();
   ConstantsBuffer.Destroy();
   ReadbackBuffer.Destroy();
-
-  for(size_t i = 0; i < ARRAY_COUNT(MathPipe); i++)
-    driver->vkDestroyPipeline(driver->GetDev(), MathPipe[i], NULL);
 
   driver->vkDestroyDescriptorSetLayout(driver->GetDev(), DescSetLayout, NULL);
   driver->vkDestroyPipelineLayout(driver->GetDev(), PipeLayout, NULL);

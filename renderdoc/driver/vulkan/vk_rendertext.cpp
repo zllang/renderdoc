@@ -258,11 +258,13 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
 
   // make the ring conservatively large to handle many lines of text * several frames
   m_TextGeneralUBO.Create(driver, dev, 128, 100, 0);
+  m_TextGeneralUBO.Name("m_TextGeneralUBO");
   RDCCOMPILE_ASSERT(sizeof(FontUBOData) <= 128, "font uniforms size");
 
   // we only use a subset of the [MAX_SINGLE_LINE_LENGTH] array needed for each line, so this ring
   // can be smaller
   m_TextStringUBO.Create(driver, dev, 4096, 20, 0);
+  m_TextGeneralUBO.Name("m_TextStringUBO");
   RDCCOMPILE_ASSERT(sizeof(StringUBOData) <= 4096, "font uniforms size");
 
   pipeInfo.layout = m_TextPipeLayout;
@@ -392,6 +394,7 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
       // create temporary memory and buffer to upload atlas
       // doesn't need to be ring'd, as it's static
       m_TextAtlasUpload.Create(driver, dev, 32768, 1, 0);
+      m_TextAtlasUpload.Name("m_TextAtlasUpload");
       RDCCOMPILE_ASSERT(width * height <= 32768, "font uniform size");
 
       byte *pData = (byte *)m_TextAtlasUpload.Map();
@@ -404,6 +407,7 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
 
     // doesn't need to be ring'd, as it's static
     m_TextGlyphUBO.Create(driver, dev, 4096, 1, 0);
+    m_TextGlyphUBO.Name("m_TextGlyphUBO");
     RDCCOMPILE_ASSERT(sizeof(Vec4f) * 2 * (numChars + 1) < 4096, "font uniform size");
 
     FontGlyphData *glyphData = (FontGlyphData *)m_TextGlyphUBO.Map();

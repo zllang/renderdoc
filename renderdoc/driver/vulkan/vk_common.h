@@ -214,6 +214,7 @@ struct GPUBuffer
   void Create(WrappedVulkan *driver, VkDevice dev, VkDeviceSize size, uint32_t ringSize,
               uint32_t flags);
   void Destroy();
+  void Name(const rdcstr &str);
 
   // return by const reference so we can pass in &UnwrappedBuffer() into bind calls
   const VkBuffer &UnwrappedBuffer() const { return buf; }

@@ -238,6 +238,8 @@ void GPUBuffer::Create(WrappedVulkan *driver, VkDevice dev, VkDeviceSize size, u
   VkResult vkr = ObjDisp(dev)->CreateBuffer(Unwrap(dev), &bufInfo, NULL, &buf);
   CHECK_VKR(driver, vkr);
 
+  NameUnwrappedVulkanObject(buf, "Unnamed GPUBuffer");
+
   VkMemoryRequirements mrq = {};
   ObjDisp(dev)->GetBufferMemoryRequirements(Unwrap(dev), buf, &mrq);
 
@@ -298,6 +300,11 @@ void GPUBuffer::Destroy()
     ObjDisp(device)->FreeMemory(Unwrap(device), mem, NULL);
   }
   addr = 0;
+}
+
+void GPUBuffer::Name(const rdcstr &str)
+{
+  NameUnwrappedVulkanObject(buf, str);
 }
 
 void *GPUBuffer::Map(uint32_t *bindoffset, VkDeviceSize usedsize)

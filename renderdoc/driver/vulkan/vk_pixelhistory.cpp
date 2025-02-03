@@ -249,6 +249,7 @@ struct PixelHistoryShaderCache
         dummybuf.Create(vk, vk->GetDev(), 1024, 1,
                         GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferSSBO |
                             GPUBuffer::eGPUBufferAddressable);
+        dummybuf.Name("PixelHistoryDummy");
       }
       else
       {

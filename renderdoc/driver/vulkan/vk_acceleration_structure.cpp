@@ -841,6 +841,7 @@ GPUBuffer VulkanAccelerationStructureManager::CreateTempReadBackBuffer(VkDevice 
   GPUBuffer result;
   result.Create(m_pDriver, device, size, 1,
                 GPUBuffer::eGPUBufferReadback | GPUBuffer::eGPUBufferAddressable);
+  result.Name(StringFormat::Fmt("TempReadbackBuffer%llu", size));
 
   return result;
 }

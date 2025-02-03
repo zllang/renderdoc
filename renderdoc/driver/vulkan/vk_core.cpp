@@ -3260,6 +3260,7 @@ RDResult WrappedVulkan::ReadLogInitialisation(RDCFile *rdc, bool storeStructured
 
     m_IndirectBuffer.Create(this, GetDev(), m_IndirectBufferSize * 2, 1,
                             GPUBuffer::eGPUBufferGPULocal | GPUBuffer::eGPUBufferIndirectBuffer);
+    m_IndirectBuffer.Name("m_IndirectBuffer");
 
     m_IndirectCommandBuffer = GetNextCmd();
 
