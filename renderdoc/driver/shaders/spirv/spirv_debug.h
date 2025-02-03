@@ -240,6 +240,8 @@ struct ThreadState
   uint32_t quadNeighbours[4] = {~0U, ~0U, ~0U, ~0U};
   // index in the workgroup
   uint32_t workgroupIndex = 0;
+  // index in the subgroup
+  uint32_t subgroupId = 0;
   bool helperInvocation = false;
   bool dead = true;
   bool elected = false;
@@ -377,7 +379,7 @@ public:
                                const rdcstr &entryPoint, const rdcarray<SpecConstant> &specInfo,
                                const std::map<size_t, uint32_t> &instructionLines,
                                const SPIRVPatchData &patchData, uint32_t activeIndex,
-                               uint32_t workgroupSize);
+                               uint32_t threadsInWorkgroup, uint32_t threadsInSubgroup);
 
   rdcarray<ShaderDebugState> ContinueDebug();
 
@@ -416,6 +418,7 @@ public:
   const rdcarray<Id> &GetLiveGlobals() { return liveGlobals; }
   ThreadState &GetActiveLane() { return workgroup[activeLaneIndex]; }
   const ThreadState &GetActiveLane() const { return workgroup[activeLaneIndex]; }
+  uint32_t GetSubgroupSize() const { return subgroupSize; }
 private:
   virtual void PreParse(uint32_t maxId);
   virtual void PostParse();
@@ -447,6 +450,7 @@ private:
   Id convergeBlock;
 
   uint32_t activeLaneIndex = 0;
+  uint32_t subgroupSize = 0;
   ShaderStage stage;
 
   int steps = 0;

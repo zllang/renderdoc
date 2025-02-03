@@ -5125,7 +5125,7 @@ ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, u
 
     ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Vertex, entryPoint, spec,
                                                  shadRefl.instructionLines, shadRefl.patchData,
-                                                 winner->laneIndex, numThreads);
+                                                 winner->laneIndex, numThreads, numThreads);
     apiWrapper->ResetReplay();
 
     return ret;
@@ -5298,9 +5298,9 @@ ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, u
 
     rdcspv::Debugger *debugger = new rdcspv::Debugger;
     debugger->Parse(shader.spirv.GetSPIRV());
-    ShaderDebugTrace *ret =
-        debugger->BeginDebug(apiWrapper, ShaderStage::Vertex, entryPoint, spec,
-                             shadRefl.instructionLines, shadRefl.patchData, laneIndex, numThreads);
+    ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Vertex, entryPoint, spec,
+                                                 shadRefl.instructionLines, shadRefl.patchData,
+                                                 laneIndex, numThreads, numThreads);
     apiWrapper->ResetReplay();
 
     return ret;
@@ -5797,7 +5797,7 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
 
     ret = debugger->BeginDebug(apiWrapper, ShaderStage::Pixel, entryPoint, spec,
                                shadRefl.instructionLines, shadRefl.patchData, winner->laneIndex,
-                               numThreads);
+                               numThreads, numThreads);
     apiWrapper->ResetReplay();
   }
   else
@@ -6189,9 +6189,9 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
       }
     }
 
-    ShaderDebugTrace *ret =
-        debugger->BeginDebug(apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines,
-                             shadRefl.patchData, winner->laneIndex, numThreads);
+    ShaderDebugTrace *ret = debugger->BeginDebug(
+        apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines, shadRefl.patchData,
+        winner->laneIndex, numThreads, winner->subgroupSize);
     apiWrapper->ResetReplay();
 
     return ret;
@@ -6246,7 +6246,7 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
     debugger->Parse(shader.spirv.GetSPIRV());
     ShaderDebugTrace *ret =
         debugger->BeginDebug(apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines,
-                             shadRefl.patchData, laneIndex, numThreads);
+                             shadRefl.patchData, laneIndex, numThreads, 1);
     apiWrapper->ResetReplay();
 
     return ret;

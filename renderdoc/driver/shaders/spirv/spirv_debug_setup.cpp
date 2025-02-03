@@ -839,7 +839,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
                                        const rdcarray<SpecConstant> &specInfo,
                                        const std::map<size_t, uint32_t> &instructionLines,
                                        const SPIRVPatchData &patchData, uint32_t activeIndex,
-                                       uint32_t workgroupSize)
+                                       uint32_t threadsInWorkgroup, uint32_t threadsInSubgroup)
 {
   Id entryId = entryLookup[ShaderEntryPoint(entryPoint, shaderStage)];
 
@@ -893,10 +893,11 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
   ret->debugger = this;
   ret->stage = shaderStage;
   activeLaneIndex = activeIndex;
+  subgroupSize = threadsInSubgroup;
   stage = shaderStage;
   apiWrapper = api;
 
-  for(uint32_t i = 0; i < workgroupSize; i++)
+  for(uint32_t i = 0; i < threadsInWorkgroup; i++)
     workgroup.push_back(ThreadState(*this, global));
 
   ThreadState &active = GetActiveLane();
@@ -1069,7 +1070,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
       if(isInput)
       {
-        for(laneIndex = 0; laneIndex < workgroupSize; laneIndex++)
+        for(laneIndex = 0; laneIndex < threadsInWorkgroup; laneIndex++)
         {
           // create the opaque storage
           workgroup[laneIndex].inputs.push_back(var);
@@ -1486,7 +1487,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
   std::sort(liveGlobals.begin(), liveGlobals.end());
 
-  for(uint32_t i = 0; i < workgroupSize; i++)
+  for(uint32_t i = 0; i < threadsInWorkgroup; i++)
   {
     ThreadState &lane = workgroup[i];
     lane.workgroupIndex = i;
@@ -1505,6 +1506,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
       lane.quadId = apiWrapper->GetThreadProperty(i, ThreadProperty::QuadId);
     }
 
+    lane.subgroupId = apiWrapper->GetThreadProperty(i, ThreadProperty::SubgroupId);
     lane.dead = apiWrapper->GetThreadProperty(i, ThreadProperty::Active) == 0;
 
     if(patchData.threadScope & ThreadScope::Subgroup)
@@ -1518,7 +1520,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
   // find quad neighbours
   {
     rdcarray<uint32_t> processedQuads;
-    for(uint32_t i = 0; i < workgroupSize; i++)
+    for(uint32_t i = 0; i < threadsInWorkgroup; i++)
     {
       uint32_t desiredQuad = workgroup[i].quadId;
 
@@ -1540,7 +1542,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
           ~0U,
           ~0U,
       };
-      for(uint32_t j = i + 1, t = 1; j < workgroupSize && t < 4; j++)
+      for(uint32_t j = i + 1, t = 1; j < threadsInWorkgroup && t < 4; j++)
       {
         if(workgroup[j].quadId == desiredQuad)
           threads[t++] = j;
