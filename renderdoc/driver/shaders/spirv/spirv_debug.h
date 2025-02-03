@@ -180,7 +180,8 @@ struct ThreadState
   ~ThreadState();
 
   void EnterEntryPoint(ShaderDebugState *state);
-  void StepNext(ShaderDebugState *state, const rdcarray<ThreadState> &workgroup);
+  void StepNext(ShaderDebugState *state, const rdcarray<ThreadState> &workgroup,
+                const rdcarray<bool> &activeMask);
 
   enum DerivDir
   {

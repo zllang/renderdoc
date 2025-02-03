@@ -643,7 +643,8 @@ void ThreadState::EnterEntryPoint(ShaderDebugState *state)
   m_State = NULL;
 }
 
-void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> &workgroup)
+void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> &workgroup,
+                           const rdcarray<bool> &activeMask)
 {
   m_State = state;
 

@@ -2479,7 +2479,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
             funcRet = thread.callstack.back()->funcCallInstruction;
 
           state.stepIndex = steps;
-          thread.StepNext(&state, workgroup);
+          thread.StepNext(&state, workgroup, activeMask);
 
           if(thread.callstack.size() > prevStackSize)
             instOffs =
@@ -2538,7 +2538,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
         }
         else
         {
-          thread.StepNext(NULL, workgroup);
+          thread.StepNext(NULL, workgroup, activeMask);
         }
       }
     }
