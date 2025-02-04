@@ -25,6 +25,7 @@
 #include "spirv_debug.h"
 #include <math.h>
 #include <time.h>
+#include <limits>
 #include "common/formatting.h"
 #include "core/settings.h"
 #include "maths/half_convert.h"
@@ -73,6 +74,89 @@ inline uint64_t CountOnes(uint64_t value)
   return Bits::CountOnes(words[0]) + Bits::CountOnes(words[1]);
 }
 #endif
+}
+
+static ShaderVariable MakeIdentity(const rdcspv::DataType &type, int64_t value)
+{
+  ShaderVariable var("", 0, 0, 0, 0);
+
+  var.rows = 1;
+  var.type = type.scalar().Type();
+  if(type.type == rdcspv::DataType::VectorType)
+    var.columns = type.vector().count & 0xf;
+  else if(type.type == rdcspv::DataType::ScalarType)
+    var.columns = 1;
+  else
+    RDCERR("Unexpected type needing identity value");
+
+  for(uint8_t c = 0; c < var.columns; c++)
+  {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<I>(var, c) = I(value);
+
+    IMPL_FOR_INT_TYPES(_IMPL);
+  }
+
+  return var;
+}
+
+static ShaderVariable MakeIdentity(const rdcspv::DataType &type, uint64_t value)
+{
+  ShaderVariable var("", 0, 0, 0, 0);
+
+  var.rows = 1;
+  var.type = type.scalar().Type();
+  if(type.type == rdcspv::DataType::VectorType)
+    var.columns = type.vector().count & 0xf;
+  else if(type.type == rdcspv::DataType::ScalarType)
+    var.columns = 1;
+  else
+    RDCERR("Unexpected type needing identity value");
+
+  for(uint8_t c = 0; c < var.columns; c++)
+  {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, c) = U(value);
+
+    IMPL_FOR_INT_TYPES(_IMPL);
+  }
+
+  return var;
+}
+
+static ShaderVariable MakeIdentity(const rdcspv::DataType &type, float val, bool inf, bool pos)
+{
+  ShaderVariable var("", 0, 0, 0, 0);
+
+  var.rows = 1;
+  var.type = type.scalar().Type();
+  if(type.type == rdcspv::DataType::VectorType)
+    var.columns = type.vector().count & 0xf;
+  else if(type.type == rdcspv::DataType::ScalarType)
+    var.columns = 1;
+  else
+    RDCERR("Unexpected type needing identity value");
+
+  for(uint8_t c = 0; c < var.columns; c++)
+  {
+    if(inf)
+    {
+#undef _IMPL
+#define _IMPL(T) \
+  comp<T>(var, c) = pos ? std::numeric_limits<T>::infinity() : -std::numeric_limits<T>::infinity();
+
+      IMPL_FOR_FLOAT_TYPES(_IMPL);
+    }
+    else
+    {
+#undef _IMPL
+#define _IMPL(T) comp<T>(var, c) = val;
+
+      IMPL_FOR_FLOAT_TYPES(_IMPL);
+    }
+  }
+
+  return var;
 }
 
 namespace rdcspv
@@ -1978,36 +2062,6 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       SetDst(bitwise.result, var);
       break;
     }
-    case Op::GroupNonUniformBitwiseOr:
-    {
-      OpGroupNonUniformBitwiseOr group(it);
-
-      ShaderVariable var;
-
-      for(size_t i = 0; i < workgroup.size(); i++)
-      {
-        if(i == 0)
-        {
-          var = workgroup[i].GetSrc(group.value);
-        }
-        else
-        {
-          ShaderVariable b = workgroup[i].GetSrc(group.value);
-
-          for(uint8_t c = 0; c < var.columns; c++)
-          {
-#undef _IMPL
-#define _IMPL(I, S, U) comp<U>(var, c) = comp<U>(var, c) | comp<U>(b, c)
-
-            IMPL_FOR_INT_TYPES(_IMPL);
-          }
-        }
-      }
-
-      SetDst(group.result, var);
-
-      break;
-    }
     case Op::Not:
     {
       OpNot bitwise(it);
@@ -2567,6 +2621,771 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       }
 
       SetDst(mul.result, var);
+      break;
+    }
+
+      //////////////////////////////////////////////////////////////////////////////
+      //
+      // Subgroup opcodes
+      //
+      //////////////////////////////////////////////////////////////////////////////
+
+    case Op::GroupNonUniformBallotFindLSB:
+    case Op::GroupNonUniformBallotFindMSB:
+    {
+      OpGroupNonUniformBallotFindMSB group(it);
+
+      RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+
+      // determine active lane indices in our subgroup
+      rdcarray<uint32_t> activeLanes;
+
+      const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
+      for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + debugger.GetSubgroupSize(); lane++)
+      {
+        if(activeMask[lane])
+        {
+          activeLanes.push_back(lane - firstLaneInSub);
+        }
+      }
+
+      ShaderVariable var = GetSrc(group.value);
+      RDCEraseEl(var.value);
+
+      // iterate activeLanes from bottom to top or top to bottom
+      for(uint32_t idx = 0; idx < activeLanes.size(); idx++)
+      {
+        uint32_t lane = activeLanes[idx];
+        if(opdata.op == Op::GroupNonUniformBallotFindMSB)
+          activeLanes[activeLanes.size() - 1 - idx];
+
+        uint32_t c = lane / 32;
+        uint32_t bit = 1U << (lane % 32U);
+
+        bool set = false;
+
+        // is the corresponding bit set?
+#undef _IMPL
+#define _IMPL(I, S, U) set = (comp<U>(var, c) & bit) != 0;
+
+        IMPL_FOR_INT_TYPES(_IMPL);
+
+        // if so, it's our return index
+        if(set)
+        {
+          var.value.u32v[0] = idx;
+          break;
+        }
+      }
+
+      // fix up result type
+      const DataType &resultType = debugger.GetType(opdata.resultType);
+
+      var.type = resultType.scalar().Type();
+      var.rows = 1;
+      var.columns = 1;
+
+      SetDst(group.result, var);
+      break;
+    }
+    case Op::GroupNonUniformInverseBallot:
+    {
+      OpGroupNonUniformInverseBallot group(it);
+
+      RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+
+      ShaderVariable var = GetSrc(group.value);
+
+      // look up our bit in the mask (which must be uniform)
+      uint32_t c = subgroupId / 32;
+      uint32_t bit = 1U << (subgroupId % 32U);
+
+      var.value.u32v[0] = (var.value.u32v[c] & bit) ? 1 : 0;
+      var.value.u32v[1] = var.value.u32v[2] = var.value.u32v[3] = 0;
+      var.type = VarType::Bool;
+      var.columns = 1;
+
+      SetDst(group.result, var);
+      break;
+    }
+    case Op::GroupNonUniformBallotBitExtract:
+    {
+      OpGroupNonUniformBallotBitExtract group(it);
+
+      RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+
+      // spec doesn't say where this value comes from, so use our own?
+      ShaderVariable var = GetSrc(group.value);
+
+      // look the desired lane up in the mask
+      uint32_t c = uintComp(GetSrc(group.index), 0) / 32;
+      uint32_t bit = 1U << (subgroupId % 32U);
+
+      var.value.u32v[0] = (var.value.u32v[c] & bit) ? 1 : 0;
+      var.value.u32v[1] = var.value.u32v[2] = var.value.u32v[3] = 0;
+      var.type = VarType::Bool;
+      var.columns = 1;
+
+      SetDst(group.result, var);
+      break;
+    }
+    // "read from first active lane"
+    case Op::GroupNonUniformBroadcastFirst:
+    case Op::SubgroupFirstInvocationKHR:
+    {
+      Id value;
+      if(opdata.op == Op::GroupNonUniformBroadcastFirst)
+      {
+        OpGroupNonUniformBroadcastFirst group(it);
+        value = group.value;
+        RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+      }
+      else
+      {
+        RDCASSERT(opdata.op == Op::SubgroupFirstInvocationKHR);
+        OpSubgroupFirstInvocationKHR group(it);
+        value = group.value;
+      }
+
+      // determine active lane indices in our subgroup
+      uint32_t firstActiveLane = debugger.GetSubgroupSize();
+
+      const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
+      for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + debugger.GetSubgroupSize(); lane++)
+      {
+        if(activeMask[lane])
+        {
+          firstActiveLane = lane;
+          break;
+        }
+      }
+
+      RDCASSERT(firstActiveLane < debugger.GetSubgroupSize(), firstActiveLane,
+                debugger.GetSubgroupSize());
+
+      SetDst(opdata.result, workgroup[firstActiveLane].GetSrc(value));
+      break;
+    }
+    // "read from a specific lane"
+    case Op::GroupNonUniformBroadcast:
+    case Op::GroupNonUniformShuffle:
+    case Op::GroupNonUniformShuffleXor:
+    case Op::GroupNonUniformShuffleUp:
+    case Op::GroupNonUniformShuffleDown:
+    case Op::SubgroupReadInvocationKHR:
+    case Op::GroupNonUniformRotateKHR:
+    case Op::GroupNonUniformQuadBroadcast:
+    case Op::GroupNonUniformQuadSwap:
+    {
+      Id value;
+      uint32_t lane;
+
+      const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
+
+      if(opdata.op == Op::GroupNonUniformBroadcast)
+      {
+        OpGroupNonUniformBroadcast group(it);
+        RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+        value = group.value;
+        lane = firstLaneInSub + uintComp(GetSrc(group.id), 0);
+      }
+      else if(opdata.op == Op::GroupNonUniformQuadBroadcast)
+      {
+        OpGroupNonUniformQuadBroadcast group(it);
+        RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+        value = group.value;
+        lane = uintComp(GetSrc(group.index), 0);
+        RDCASSERT(lane < 4, lane);
+        lane = RDCMIN(lane, 3U);
+        lane = quadNeighbours[lane];
+
+        if(lane == ~0U)
+        {
+          RDCERR("quad broadcast without proper quad neighbours");
+          lane = workgroupIndex;
+        }
+      }
+      else if(opdata.op == Op::GroupNonUniformQuadSwap)
+      {
+        OpGroupNonUniformQuadSwap group(it);
+        RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+        value = group.value;
+        uint32_t direction = uintComp(GetSrc(group.direction), 0);
+        RDCASSERT(direction < 3, direction);
+        direction = RDCMIN(direction, 2U);
+
+        if(quadLaneIndex == ~0U)
+        {
+          RDCERR("quad broadcast without proper quad neighbours");
+          lane = workgroupIndex;
+        }
+        else
+        {
+          // horizontal - 0/1 swap and 2/3 swap
+          if(direction == 0)
+          {
+            lane = quadLaneIndex ^ 1;
+          }
+          // vertical - 0/2 swap and 1/3 swap
+          else if(direction == 1)
+          {
+            lane = quadLaneIndex ^ 2;
+          }
+          // diagonal - 0/3 swap and 1/2 swap
+          else
+          {
+            lane = quadLaneIndex ^ 3;
+          }
+
+          lane = quadNeighbours[lane];
+
+          if(lane == ~0U)
+          {
+            RDCERR("quad broadcast without proper quad neighbours");
+            lane = workgroupIndex;
+          }
+        }
+      }
+      else if(opdata.op == Op::GroupNonUniformShuffle)
+      {
+        OpGroupNonUniformShuffle group(it);
+        RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+        value = group.value;
+        lane = firstLaneInSub + uintComp(GetSrc(group.id), 0);
+      }
+      else if(opdata.op == Op::GroupNonUniformShuffleXor ||
+              opdata.op == Op::GroupNonUniformShuffleUp ||
+              opdata.op == Op::GroupNonUniformShuffleDown)
+      {
+        OpGroupNonUniformShuffleUp group(it);
+        RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+        value = group.value;
+        uint32_t delta = uintComp(GetSrc(group.delta), 0);
+
+        if(opdata.op == Op::GroupNonUniformShuffleXor)
+        {
+          lane = subgroupId ^ delta;
+          RDCASSERT(lane < debugger.GetSubgroupSize(), lane, debugger.GetSubgroupSize());
+          lane = firstLaneInSub + RDCMIN(lane, debugger.GetSubgroupSize() - 1);
+        }
+        else if(opdata.op == Op::GroupNonUniformShuffleUp)
+        {
+          lane = subgroupId;
+          RDCASSERT(lane >= delta, delta, lane);
+          lane = firstLaneInSub + RDCMAX(delta, lane) - delta;
+        }
+        else if(opdata.op == Op::GroupNonUniformShuffleDown)
+        {
+          lane = subgroupId;
+          RDCASSERT(lane + delta < debugger.GetSubgroupSize(), lane, delta,
+                    debugger.GetSubgroupSize());
+          lane = firstLaneInSub + RDCMIN(lane + delta, debugger.GetSubgroupSize() - 1);
+        }
+        else
+        {
+          RDCERR("Invalid case!");
+          lane = 0;
+        }
+      }
+      else if(opdata.op == Op::GroupNonUniformRotateKHR)
+      {
+        OpGroupNonUniformRotateKHR group(it);
+        value = group.value;
+        uint32_t delta = uintComp(GetSrc(group.delta), 0);
+
+        uint32_t rotateGroupSize;
+        uint32_t localId;
+        Scope execution = (Scope)uintComp(GetSrc(group.execution), 0);
+
+        if(execution == Scope::Subgroup)
+        {
+          rotateGroupSize = debugger.GetSubgroupSize();
+          localId = subgroupId;
+        }
+        else if(execution == Scope::Workgroup)
+        {
+          rotateGroupSize = (uint32_t)workgroup.size();
+          localId = workgroupIndex;
+        }
+        else
+        {
+          RDCERR("Unexpected execution scope in rotate operation");
+          rotateGroupSize = debugger.GetSubgroupSize();
+          localId = subgroupId;
+        }
+
+        if(group.HasClusterSize())
+          rotateGroupSize = uintComp(GetSrc(group.clusterSize), 0);
+
+        // rotation group size must be a power of two
+        RDCASSERT((rotateGroupSize & (rotateGroupSize - 1)) == 0, rotateGroupSize);
+
+        lane = ((localId + delta) & (rotateGroupSize - 1)) + (localId & ~(rotateGroupSize - 1));
+
+        if(execution == Scope::Subgroup)
+          lane = firstLaneInSub + lane;
+      }
+      else
+      {
+        RDCASSERT(opdata.op == Op::SubgroupReadInvocationKHR);
+        OpSubgroupReadInvocationKHR group(it);
+        value = group.value;
+        lane = firstLaneInSub + uintComp(GetSrc(group.index), 0);
+      }
+
+      SetDst(opdata.result, workgroup[lane].GetSrc(value));
+      break;
+    }
+    case Op::GroupNonUniformQuadAllKHR:
+    case Op::GroupNonUniformQuadAnyKHR:
+    {
+      OpGroupNonUniformQuadAllKHR quad(it);
+
+      ShaderVariable var(rdcstr(), 0U, 0U, 0U, 0U);
+      var.type = VarType::Bool;
+      var.columns = 1;
+
+      bool result = false;
+      if(opdata.op == Op::GroupNonUniformQuadAllKHR)
+        result = true;
+      for(uint32_t i = 0; i < 4; i++)
+      {
+        if(quadNeighbours[i] == ~0U)
+        {
+          RDCERR("Missing quad neighbour with quad instruction");
+          result = false;
+          break;
+        }
+
+        if(opdata.op == Op::GroupNonUniformQuadAllKHR)
+          result = result && workgroup[quadNeighbours[i]].GetSrc(quad.predicate).value.u32v[0];
+        else if(opdata.op == Op::GroupNonUniformQuadAnyKHR)
+          result = result || workgroup[quadNeighbours[i]].GetSrc(quad.predicate).value.u32v[0];
+        else
+          RDCERR("Unexpected op");
+      }
+
+      var.value.u32v[0] = result ? 1 : 0;
+
+      SetDst(quad.result, var);
+      break;
+    }
+    // operations that co-operate to a value, generally by applying an operation over all subgroup versions of a value
+    case Op::SubgroupAllKHR:
+    case Op::SubgroupAnyKHR:
+    case Op::SubgroupAllEqualKHR:
+    case Op::GroupNonUniformAll:
+    case Op::GroupNonUniformAny:
+    case Op::GroupNonUniformAllEqual:
+    case Op::GroupNonUniformIAdd:
+    case Op::GroupNonUniformFAdd:
+    case Op::GroupNonUniformIMul:
+    case Op::GroupNonUniformFMul:
+    case Op::GroupNonUniformSMin:
+    case Op::GroupNonUniformUMin:
+    case Op::GroupNonUniformFMin:
+    case Op::GroupNonUniformSMax:
+    case Op::GroupNonUniformUMax:
+    case Op::GroupNonUniformFMax:
+    case Op::GroupNonUniformBitwiseAnd:
+    case Op::GroupNonUniformBitwiseOr:
+    case Op::GroupNonUniformBitwiseXor:
+    case Op::GroupNonUniformLogicalAnd:
+    case Op::GroupNonUniformLogicalOr:
+    case Op::GroupNonUniformLogicalXor:
+    case Op::GroupNonUniformElect:
+    case Op::GroupNonUniformBallot:
+    case Op::SubgroupBallotKHR:
+    case Op::GroupNonUniformBallotBitCount:
+    {
+      ShaderVariable var;
+
+      uint32_t clusterMask = 0;
+      GroupOperation groupOp = GroupOperation::Reduce;
+
+      Id valueId;
+
+      switch(opdata.op)
+      {
+        // arithmetic
+        case Op::GroupNonUniformIAdd:
+        case Op::GroupNonUniformFAdd:
+        case Op::GroupNonUniformIMul:
+        case Op::GroupNonUniformFMul:
+        case Op::GroupNonUniformSMin:
+        case Op::GroupNonUniformUMin:
+        case Op::GroupNonUniformFMin:
+        case Op::GroupNonUniformSMax:
+        case Op::GroupNonUniformUMax:
+        case Op::GroupNonUniformFMax:
+          // bit operations
+        case Op::GroupNonUniformBitwiseAnd:
+        case Op::GroupNonUniformBitwiseOr:
+        case Op::GroupNonUniformBitwiseXor:
+        case Op::GroupNonUniformLogicalAnd:
+        case Op::GroupNonUniformLogicalOr:
+        case Op::GroupNonUniformLogicalXor:
+          // this is slightly different as it can't be clustered, but that's fine as we can use the
+          // same decoder with 'optional' cluster size that's not present
+        case Op::GroupNonUniformBallotBitCount:
+        {
+          // these all have the same layout
+          OpGroupNonUniformIAdd group(it);
+          valueId = group.value;
+
+          groupOp = group.operation;
+          RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+
+          if(group.HasClusterSize())
+            clusterMask = (1U << uintComp(GetSrc(group.clusterSize), 0)) - 1;
+          break;
+        }
+        case Op::GroupNonUniformAny:
+        case Op::GroupNonUniformAll:
+        case Op::GroupNonUniformAllEqual:
+        case Op::GroupNonUniformBallot:
+        {
+          OpGroupNonUniformAny group(it);
+          RDCASSERT(uintComp(GetSrc(group.execution), 0) == (uint32_t)Scope::Subgroup);
+          valueId = group.predicate;
+          groupOp = GroupOperation::Reduce;
+          break;
+        }
+        case Op::SubgroupAnyKHR:
+        case Op::SubgroupAllKHR:
+        case Op::SubgroupAllEqualKHR:
+        {
+          OpSubgroupAnyKHR group(it);
+          valueId = group.predicate;
+          groupOp = GroupOperation::Reduce;
+          break;
+        }
+        case Op::SubgroupBallotKHR:
+        {
+          OpSubgroupBallotKHR group(it);
+          valueId = group.predicate;
+          groupOp = GroupOperation::Reduce;
+          break;
+        }
+        case Op::GroupNonUniformElect:
+        {
+          // nothing to do
+          break;
+        }
+        default:
+        {
+          RDCERR("Unexpected opcode %s", ToStr(opdata.op).c_str());
+          break;
+        }
+      }
+
+      // get starting var and define operation
+      bool identityPlusFunction = true;
+      switch(opdata.op)
+      {
+        case Op::GroupNonUniformIAdd:
+        case Op::GroupNonUniformUMax:
+        case Op::GroupNonUniformBitwiseOr:
+        case Op::GroupNonUniformLogicalOr:
+        case Op::GroupNonUniformBitwiseXor:
+        case Op::GroupNonUniformLogicalXor:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), (uint64_t)0);
+          break;
+        case Op::GroupNonUniformFAdd:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), 0.0f, false, false);
+          break;
+        case Op::GroupNonUniformIMul:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), (uint64_t)1);
+          break;
+        case Op::GroupNonUniformFMul:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), 1.0f, false, false);
+          break;
+        case Op::GroupNonUniformSMin:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), int64_t(INT64_MAX));
+          break;
+        case Op::GroupNonUniformUMin:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), UINT64_MAX);
+          break;
+        case Op::GroupNonUniformSMax:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), int64_t(INT64_MIN));
+          break;
+        case Op::GroupNonUniformFMin:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), 0.0f, true, true);
+        case Op::GroupNonUniformFMax:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), 0.0f, true, false);
+        case Op::GroupNonUniformBitwiseAnd:
+        case Op::GroupNonUniformLogicalAnd:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), uint64_t(~0ULL));
+          break;
+
+          // simplified versions that we 'promote' to be plain versions of the above more complicated transforms
+        case Op::GroupNonUniformAny:
+        case Op::SubgroupAnyKHR:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), (uint64_t)0U);
+          break;
+        case Op::GroupNonUniformAll:
+        case Op::SubgroupAllKHR:
+        case Op::GroupNonUniformAllEqual:
+        case Op::SubgroupAllEqualKHR:
+          var = MakeIdentity(debugger.GetDataType(opdata.resultType), (uint64_t)1);
+          break;
+
+        default: identityPlusFunction = false; break;
+      }
+
+      // determine active lane indices in our subgroup or cluster
+      rdcarray<uint32_t> activeLanes;
+
+      const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
+      for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + debugger.GetSubgroupSize(); lane++)
+      {
+        if(activeMask[lane])
+        {
+          // if this is in our cluster (or we're not clustering)
+          if(groupOp != GroupOperation::ClusteredReduce ||
+             ((lane & clusterMask) == (subgroupId & clusterMask)))
+            activeLanes.push_back(lane);
+        }
+      }
+
+      RDCASSERT(!activeLanes.empty());
+
+      ShaderVariable ownVal;
+
+      if(valueId != Id())
+        ownVal = GetSrc(valueId);
+
+      // set of operations that start with accum=identity and then for each lane do
+      // op(accum, X) where X is that lane's var
+      if(identityPlusFunction)
+      {
+        for(uint32_t lane : activeLanes)
+        {
+          // stop before processing our lane if we're exclusive scan
+          if(groupOp == GroupOperation::ExclusiveScan && lane == workgroupIndex)
+          {
+            SetDst(opdata.result, var);
+            break;
+          }
+
+          ShaderVariable x = workgroup[lane].GetSrc(valueId);
+
+          switch(opdata.op)
+          {
+            case Op::GroupNonUniformIAdd:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<I>(var, c) = comp<I>(var, c) + comp<I>(x, c)
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformFAdd:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(T) comp<T>(var, c) = comp<T>(var, c) + comp<T>(x, c)
+
+                IMPL_FOR_FLOAT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformIMul:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<I>(var, c) = comp<I>(var, c) * comp<I>(x, c)
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformFMul:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(T) comp<T>(var, c) = comp<T>(var, c) * comp<T>(x, c)
+
+                IMPL_FOR_FLOAT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformSMin:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(var, c) = RDCMIN(comp<S>(var, c), comp<S>(x, c));
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformUMin:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, c) = RDCMIN(comp<U>(var, c), comp<U>(x, c));
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformSMax:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(var, c) = RDCMAX(comp<S>(var, c), comp<S>(x, c));
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformUMax:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, c) = RDCMAX(comp<U>(var, c), comp<U>(x, c));
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformFMin:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(T) comp<T>(var, c) = RDCMIN(comp<T>(var, c), comp<T>(x, c))
+
+                IMPL_FOR_FLOAT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformFMax:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(T) comp<T>(var, c) = RDCMAX(comp<T>(var, c), comp<T>(x, c))
+
+                IMPL_FOR_FLOAT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformBitwiseOr:
+            case Op::GroupNonUniformLogicalOr:
+            case Op::GroupNonUniformAny:
+            case Op::SubgroupAnyKHR:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, c) = comp<U>(var, c) | comp<U>(x, c);
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformBitwiseXor:
+            case Op::GroupNonUniformLogicalXor:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, c) = comp<U>(var, c) ^ comp<U>(x, c);
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformBitwiseAnd:
+            case Op::GroupNonUniformLogicalAnd:
+            case Op::GroupNonUniformAll:
+            case Op::SubgroupAllKHR:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, c) = comp<U>(var, c) & comp<U>(x, c);
+                IMPL_FOR_INT_TYPES(_IMPL);
+              }
+              break;
+            case Op::GroupNonUniformAllEqual:
+            case Op::SubgroupAllEqualKHR:
+              for(uint8_t c = 0; c < var.columns; c++)
+              {
+                // safe to do both. SubgroupAllEqualKHR only expects bools but
+                // GroupNonUniformAllEqual handles all types
+#undef _IMPL
+#define _IMPL(I, S, U) comp<uint32_t>(var, c) &= (comp<U>(x, c) == comp<U>(ownVal, c)) ? 1 : 0;
+                IMPL_FOR_INT_TYPES(_IMPL);
+
+#undef _IMPL
+#define _IMPL(T) comp<uint32_t>(var, c) &= (comp<T>(x, c) == comp<T>(ownVal, c)) ? 1 : 0;
+
+                IMPL_FOR_FLOAT_TYPES(_IMPL);
+              }
+              break;
+            default: break;
+          }
+
+          // stop after processing our lane if we're inclusive scane
+          if(groupOp == GroupOperation::InclusiveScan && lane == workgroupIndex)
+          {
+            SetDst(opdata.result, var);
+            break;
+          }
+        }
+
+        // for reduce operations, set the final result now
+        if(groupOp != GroupOperation::InclusiveScan && groupOp != GroupOperation::ExclusiveScan)
+        {
+          SetDst(opdata.result, var);
+          break;
+        }
+      }
+      // special case of different operation that can use group operations so needs scan/reduce handling
+      else if(opdata.op == Op::GroupNonUniformBallotBitCount)
+      {
+        ShaderVariable mask = GetSrc(valueId);
+        uint32_t count = 0;
+
+        for(uint32_t lane : activeLanes)
+        {
+          // stop before processing our lane if we're exclusive scan
+          if(groupOp == GroupOperation::ExclusiveScan && lane == workgroupIndex)
+            break;
+
+          uint32_t c = (lane - firstLaneInSub) / 32;
+          uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
+
+          count += (comp<uint32_t>(mask, c) & bit) ? 1 : 0;
+
+          // stop after processing our lane if we're inclusive scane
+          if(groupOp == GroupOperation::InclusiveScan && lane == workgroupIndex)
+            break;
+        }
+
+        const DataType &resultType = debugger.GetType(opdata.resultType);
+
+        var.type = resultType.scalar().Type();
+        var.rows = var.columns = 1;
+
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(var, 0) = U(count);
+        IMPL_FOR_INT_TYPES(_IMPL);
+
+        SetDst(opdata.result, var);
+      }
+      else if(opdata.op == Op::GroupNonUniformBallot || opdata.op == Op::SubgroupBallotKHR)
+      {
+        var = ShaderVariable(rdcstr(), 0U, 0U, 0U, 0U);
+
+        for(uint32_t lane : activeLanes)
+        {
+          uint32_t c = (lane - firstLaneInSub) / 32;
+          uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
+
+          ShaderVariable x = workgroup[lane].GetSrc(valueId);
+
+          if(x.value.u32v[0])
+            var.value.u32v[c] |= bit;
+        }
+
+        SetDst(opdata.result, var);
+      }
+      else if(opdata.op == Op::GroupNonUniformElect)
+      {
+        // unclear if this will match GPUs in the presence of helper invocations
+        var = ShaderVariable(rdcstr(), workgroupIndex == activeLanes[0] ? 1U : 0U, 0U, 0U, 0U);
+        var.type = VarType::Bool;
+        var.columns = 1;
+
+        SetDst(opdata.result, var);
+      }
+      else
+      {
+        RDCERR("Unexpected operation case");
+        SetDst(opdata.result, var);
+      }
+
       break;
     }
 
@@ -3565,7 +4384,15 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       break;
     }
 
-    // TODO group ops
+      // KHR_integer_dotproduct
+    case Op::SDotKHR:
+    case Op::UDotKHR:
+    case Op::SUDotKHR:
+    case Op::SDotAccSatKHR:
+    case Op::UDotAccSatKHR:
+    case Op::SUDotAccSatKHR:
+
+      // legacy/OpenCL/AMD group operations
     case Op::GroupAll:
     case Op::GroupAny:
     case Op::GroupBroadcast:
@@ -3577,53 +4404,6 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::GroupFMax:
     case Op::GroupUMax:
     case Op::GroupSMax:
-    case Op::GroupNonUniformElect:
-    case Op::GroupNonUniformAll:
-    case Op::GroupNonUniformAny:
-    case Op::GroupNonUniformAllEqual:
-    case Op::GroupNonUniformBroadcast:
-    case Op::GroupNonUniformBroadcastFirst:
-    case Op::GroupNonUniformBallot:
-    case Op::GroupNonUniformInverseBallot:
-    case Op::GroupNonUniformBallotBitExtract:
-    case Op::GroupNonUniformBallotBitCount:
-    case Op::GroupNonUniformBallotFindLSB:
-    case Op::GroupNonUniformBallotFindMSB:
-    case Op::GroupNonUniformShuffle:
-    case Op::GroupNonUniformShuffleXor:
-    case Op::GroupNonUniformShuffleUp:
-    case Op::GroupNonUniformShuffleDown:
-    case Op::GroupNonUniformIAdd:
-    case Op::GroupNonUniformFAdd:
-    case Op::GroupNonUniformIMul:
-    case Op::GroupNonUniformFMul:
-    case Op::GroupNonUniformSMin:
-    case Op::GroupNonUniformUMin:
-    case Op::GroupNonUniformFMin:
-    case Op::GroupNonUniformSMax:
-    case Op::GroupNonUniformUMax:
-    case Op::GroupNonUniformFMax:
-    case Op::GroupNonUniformBitwiseAnd:
-    case Op::GroupNonUniformBitwiseXor:
-    case Op::GroupNonUniformLogicalAnd:
-    case Op::GroupNonUniformLogicalOr:
-    case Op::GroupNonUniformLogicalXor:
-    case Op::GroupNonUniformQuadBroadcast:
-    case Op::GroupNonUniformQuadSwap:
-
-    case Op::SubgroupBallotKHR:
-    case Op::SubgroupFirstInvocationKHR:
-    case Op::SubgroupAllKHR:
-    case Op::SubgroupAnyKHR:
-    case Op::SubgroupAllEqualKHR:
-    case Op::SubgroupReadInvocationKHR:
-    case Op::SDotKHR:
-    case Op::UDotKHR:
-    case Op::SUDotKHR:
-    case Op::SDotAccSatKHR:
-    case Op::UDotAccSatKHR:
-    case Op::SUDotAccSatKHR:
-
     case Op::GroupIMulKHR:
     case Op::GroupFMulKHR:
     case Op::GroupBitwiseAndKHR:
@@ -3633,7 +4413,6 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::GroupLogicalOrKHR:
     case Op::GroupLogicalXorKHR:
 
-    case Op::GroupNonUniformRotateKHR:
     {
       RDCERR("Group opcodes not supported. SPIR-V should have been rejected by capability!");
 
@@ -3824,8 +4603,6 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::FinalizeNodePayloadsAMDX:
     case Op::FinishWritingNodePayloadAMDX:
     case Op::InitializeNodePayloadsAMDX:
-    case Op::GroupNonUniformQuadAllKHR:
-    case Op::GroupNonUniformQuadAnyKHR:
     case Op::FetchMicroTriangleVertexBarycentricNV:
     case Op::FetchMicroTriangleVertexPositionNV:
     case Op::CompositeConstructContinuedINTEL:

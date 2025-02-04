@@ -3353,10 +3353,6 @@ void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
   for(size_t i = 0; i < workgroup.size(); i++)
     activeMask[i] = !workgroup[i].Finished();
 
-  // only pixel shaders automatically converge workgroups, compute shaders need explicit sync
-  if(stage != ShaderStage::Pixel)
-    return;
-
   // otherwise we need to make sure that control flow which converges stays in lockstep so that
   // derivatives etc are still valid. While diverged, we don't have to keep threads in lockstep
   // since using derivatives is invalid.
