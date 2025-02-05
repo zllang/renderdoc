@@ -3081,19 +3081,19 @@ struct PSInitialData
 
           if(initialValues[i].sysattribute == ShaderBuiltin::PrimitiveIndex)
           {
-            invar.value.u32v[0] = pHit->primitive;
+            invar.value.u32v[initialValues[i].elem] = pHit->primitive;
           }
           else if(initialValues[i].sysattribute == ShaderBuiltin::MSAASampleIndex)
           {
-            invar.value.u32v[0] = pHit->sample;
+            invar.value.u32v[initialValues[i].elem] = pHit->sample;
           }
           else if(initialValues[i].sysattribute == ShaderBuiltin::MSAACoverage)
           {
-            invar.value.u32v[0] = pHit->coverage;
+            invar.value.u32v[initialValues[i].elem] = pHit->coverage;
           }
           else if(initialValues[i].sysattribute == ShaderBuiltin::IsFrontFace)
           {
-            invar.value.u32v[0] = pHit->isFrontFace ? ~0U : 0;
+            invar.value.u32v[initialValues[i].elem] = pHit->isFrontFace ? ~0U : 0;
           }
           else
           {

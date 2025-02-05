@@ -2508,19 +2508,19 @@ void ExtractInputsPS(PSInput IN, float4 debug_pixelPos : SV_Position,
 
         if(initialValues[i].sysattribute == ShaderBuiltin::PrimitiveIndex)
         {
-          invar.value.u32v[0] = hit->primitive;
+          invar.value.u32v[initialValues[i].elem] = hit->primitive;
         }
         else if(initialValues[i].sysattribute == ShaderBuiltin::MSAASampleIndex)
         {
-          invar.value.u32v[0] = hit->sample;
+          invar.value.u32v[initialValues[i].elem] = hit->sample;
         }
         else if(initialValues[i].sysattribute == ShaderBuiltin::MSAACoverage)
         {
-          invar.value.u32v[0] = hit->coverage;
+          invar.value.u32v[initialValues[i].elem] = hit->coverage;
         }
         else if(initialValues[i].sysattribute == ShaderBuiltin::IsFrontFace)
         {
-          invar.value.u32v[0] = hit->isFrontFace ? ~0U : 0;
+          invar.value.u32v[initialValues[i].elem] = hit->isFrontFace ? ~0U : 0;
         }
         else
         {
