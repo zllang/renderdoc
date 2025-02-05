@@ -1605,7 +1605,7 @@ void D3D11PipelineStateViewer::setState()
     rdcarray<Descriptor> outputs = m_Ctx.CurPipelineState().GetOutputTargets();
     for(uint32_t i = 0; i < outputs.size(); i++)
     {
-      addResourceRow(D3D11ViewTag(D3D11ViewTag::OMTarget, i, outputs[i]), NULL, true,
+      addResourceRow(D3D11ViewTag(D3D11ViewTag::OMTarget, i, outputs[i]), NULL, false,
                      ui->targetOutputs);
 
       if(outputs[i].resource != ResourceId())
