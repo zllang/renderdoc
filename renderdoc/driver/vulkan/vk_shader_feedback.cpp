@@ -2245,7 +2245,7 @@ bool VulkanReplay::FetchShaderFeedback(uint32_t eventId)
               mod.GetReflection(stage, sh.entryPoint, pipe.pipeline);
           modrefl.PopulateDisassembly(mod.spirv);
 
-          const std::map<size_t, uint32_t> instructionLines = modrefl.instructionLines;
+          const std::map<size_t, uint32_t> &instructionLines = modrefl.instructionLines;
 
           auto instit = instructionLines.find(printfID);
           if(instit != instructionLines.end())
