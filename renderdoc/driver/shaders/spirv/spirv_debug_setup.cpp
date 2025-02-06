@@ -32,9 +32,9 @@
 RDOC_CONFIG(bool, Vulkan_Debug_UseDebugColumnInformation, false,
             "Control whether column information should be read from vulkan debug info.");
 
-RDOC_CONFIG(bool, Vulkan_Hack_AllowNonUniformSubgroups, false,
-            "Allow shaders to be debugged with subgroup ops. Most subgroup ops will break, this "
-            "will only work for a limited set and not with the 'real' subgroup.");
+RDOC_DEBUG_CONFIG(
+    bool, Vulkan_Hack_EnableGroupCaps, false,
+    "Work in progress allow shaders to be debugged with subgroup/workgroup requirements.");
 
 // this could be cleaner if ShaderVariable wasn't a very public struct, but it's not worth it so
 // we just reserve value slots that we know won't be used in opaque variables.
@@ -416,37 +416,75 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
     }
   }
 
-  // this list is sorted in order of the SPIR-V registry.
   const rdcstr whitelist[] = {
-      "SPV_KHR_shader_draw_parameters",
+      // KHR extensions
       "SPV_KHR_16bit_storage",
+      "SPV_KHR_8bit_storage",
+      "SPV_KHR_bit_instructions",
+      // SPV_KHR_compute_shader_derivatives
+      // SPV_KHR_cooperative_matrix
       "SPV_KHR_device_group",
+      "SPV_KHR_expect_assume",
+      "SPV_KHR_float_controls",
+      // SPV_KHR_float_controls2
+      // SPV_KHR_fragment_shader_barycentric
+      // SPV_KHR_fragment_shading_rate
+      // SPV_KHR_integer_dot_product
+      // SPV_KHR_linkonce_odr  - kernel only
+      // SPV_KHR_maximal_reconvergence
       "SPV_KHR_multiview",
-      "SPV_KHR_storage_buffer_storage_class",
+      "SPV_KHR_no_integer_wrap_decoration",
+      "SPV_KHR_non_semantic_info",
+      "SPV_KHR_physical_storage_buffer",
       "SPV_KHR_post_depth_coverage",
+      // SPV_KHR_quad_control
+      // SPV_KHR_ray_cull_mask
+      // SPV_KHR_ray_query
+      // SPV_KHR_ray_tracing
+      // SPV_KHR_ray_tracing_position_fetch
+      "SPV_KHR_relaxed_extended_instruction",
       "SPV_KHR_shader_atomic_counter_ops",
-      "SPV_EXT_shader_stencil_export",
-      "SPV_EXT_shader_viewport_index_layer",
+      "SPV_KHR_shader_ballot",
+      "SPV_KHR_shader_clock",
+      "SPV_KHR_shader_draw_parameters",
+      "SPV_KHR_storage_buffer_storage_class",
+      "SPV_KHR_subgroup_rotate",
+      // SPV_KHR_subgroup_uniform_control_flow
+      "SPV_KHR_subgroup_vote",
+      "SPV_KHR_terminate_invocation",
+      // SPV_KHR_uniform_group_instructions - kernel?
+      // SPV_KHR_untyped_pointers - kernel
+      // SPV_KHR_variable_pointers
+      "SPV_KHR_vulkan_memory_model",
+      // SPV_KHR_workgroup_memory_explicit_layout
+
+      // EXT extensions
+      // SPV_EXT_arithmetic_fence - kernel?
+      "SPV_EXT_demote_to_helper_invocation",
+      "SPV_EXT_descriptor_indexing",
       "SPV_EXT_fragment_fully_covered",
+      "SPV_EXT_fragment_invocation_density",
+      // SPV_EXT_fragment_shader_interlock
+      // SPV_EXT_image_raw10_raw12 - kernel?
+      "SPV_EXT_mesh_shader",
+      // SPV_EXT_opacity_micromap
+      // SPV_EXT_optnone - kernel?
+      "SPV_EXT_physical_storage_buffer",
+      // SPV_EXT_relaxed_printf_string_address_space - kernel
+      // SPV_EXT_replicated_composites
+      "SPV_EXT_shader_atomic_float_add",
+      // SPV_EXT_shader_atomic_float_min_max
+      // SPV_EXT_shader_atomic_float16_add
+      "SPV_EXT_shader_image_int64",
+      "SPV_EXT_shader_stencil_export",
+      // SPV_EXT_shader_tile_image
+      "SPV_EXT_shader_viewport_index_layer",
+      // SPV_EXT_ycbcr_attachments
+
+      // vendor extensions
       "SPV_GOOGLE_decorate_string",
       "SPV_GOOGLE_hlsl_functionality1",
-      "SPV_EXT_descriptor_indexing",
-      "SPV_KHR_8bit_storage",
-      "SPV_KHR_vulkan_memory_model",
-      "SPV_EXT_fragment_invocation_density",
-      "SPV_KHR_no_integer_wrap_decoration",
-      "SPV_KHR_float_controls",
-      "SPV_EXT_physical_storage_buffer",
-      "SPV_KHR_shader_clock",
-      "SPV_EXT_demote_to_helper_invocation",
-      "SPV_KHR_non_semantic_info",
-      "SPV_EXT_shader_atomic_float_add",
-      "SPV_KHR_terminate_invocation",
-      "SPV_EXT_shader_image_int64",
       "SPV_GOOGLE_user_type",
-      "SPV_KHR_physical_storage_buffer",
-      "SPV_KHR_relaxed_extended_instruction",
-      "SPV_EXT_mesh_shader",
   };
 
   // whitelist supported extensions
@@ -569,10 +607,19 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
         supported = true;
         break;
       }
-
+      case Capability::GroupNonUniform:
+      case Capability::GroupNonUniformVote:
+      case Capability::GroupNonUniformBallot:
+      case Capability::GroupNonUniformShuffle:
+      case Capability::GroupNonUniformShuffleRelative:
+      case Capability::GroupNonUniformClustered:
+      case Capability::GroupNonUniformQuad:
+      case Capability::SubgroupBallotKHR:
+      case Capability::SubgroupVoteKHR:
+      case Capability::GroupNonUniformRotateKHR:
       case Capability::GroupNonUniformArithmetic:
       {
-        if(Vulkan_Hack_AllowNonUniformSubgroups())
+        if(Vulkan_Hack_EnableGroupCaps())
         {
           supported = true;
         }
@@ -599,17 +646,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::RoundingModeRTZ:
 
       // group instructions
-      case Capability::Groups:
-      case Capability::GroupNonUniform:
-      case Capability::GroupNonUniformVote:
-      case Capability::GroupNonUniformBallot:
-      case Capability::GroupNonUniformShuffle:
-      case Capability::GroupNonUniformShuffleRelative:
-      case Capability::GroupNonUniformClustered:
-      case Capability::GroupNonUniformQuad:
-      case Capability::SubgroupBallotKHR:
-      case Capability::SubgroupVoteKHR:
-      case Capability::GroupNonUniformRotateKHR:
 
       // workgroup layout:
       case Capability::WorkgroupMemoryExplicitLayout16BitAccessKHR:
@@ -651,7 +687,10 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::RayTracingKHR:
       case Capability::RayCullMaskKHR:
       case Capability::RayTracingOpacityMicromapEXT:
+      case Capability::RayTracingNV:
       case Capability::ShaderInvocationReorderNV:
+      case Capability::RayQueryPositionFetchKHR:
+      case Capability::RayTracingPositionFetchKHR:
       {
         supported = false;
         break;
@@ -661,6 +700,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::Addresses:
       case Capability::Linkage:
       case Capability::Kernel:
+      case Capability::Groups:
       case Capability::Vector16:
       case Capability::ImageBasic:
       case Capability::ImageReadWrite:
@@ -686,7 +726,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::ImageFootprintNV:
       case Capability::ComputeDerivativeGroupQuadsNV:
       case Capability::GroupNonUniformPartitionedNV:
-      case Capability::RayTracingNV:
       case Capability::ComputeDerivativeGroupLinearNV:
       case Capability::CooperativeMatrixNV:
       case Capability::ShaderSMBuiltinsNV:
@@ -742,8 +781,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::TextureSampleWeightedQCOM:
       case Capability::TextureBoxFilterQCOM:
       case Capability::TextureBlockMatchQCOM:
-      case Capability::RayQueryPositionFetchKHR:
-      case Capability::RayTracingPositionFetchKHR:
       case Capability::BFloat16ConversionINTEL:
       case Capability::FPGAKernelAttributesv2INTEL:
       case Capability::FPGALatencyControlINTEL:
