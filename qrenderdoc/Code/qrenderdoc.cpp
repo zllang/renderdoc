@@ -560,8 +560,11 @@ int main(int argc, char *argv[])
       // documentation is unclear, mentions both these files so check both just in case
       QFileInfo vkconfigcheck1(fn + lit("VkLayerOverride.json"));
       QFileInfo vkconfigcheck2(fn + lit("VkLayer_Override.json"));
+      // lower case might be used on linux
+      QFileInfo vkconfigcheck3(fn + lit("VkLayer_override.json"));
       if((vkconfigcheck1.exists() && vkconfigcheck1.isFile()) ||
-         (vkconfigcheck2.exists() && vkconfigcheck2.isFile()))
+         (vkconfigcheck2.exists() && vkconfigcheck2.isFile()) ||
+         (vkconfigcheck3.exists() && vkconfigcheck3.isFile()))
       {
         RDDialog::warning(
             NULL, tr("vkconfig detected - possible incompatibility"),
