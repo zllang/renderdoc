@@ -926,13 +926,13 @@ void VulkanReplay::BindOutputWindow(uint64_t id, bool depth)
 
   OutputWindow &outw = it->second;
 
+  m_DebugWidth = outw.width;
+  m_DebugHeight = outw.height;
+
   // if the swapchain failed to create, do nothing. We will try to recreate it
   // again in CheckResizeOutputWindow (once per render 'frame')
   if(outw.m_WindowSystem != WindowingSystem::Headless && outw.swap == VK_NULL_HANDLE)
     return;
-
-  m_DebugWidth = (int32_t)outw.width;
-  m_DebugHeight = (int32_t)outw.height;
 
   VkDevice dev = m_pDriver->GetDev();
   const VkDevDispatchTable *vt = ObjDisp(dev);
@@ -961,9 +961,18 @@ void VulkanReplay::BindOutputWindow(uint64_t id, bool depth)
 
       CheckResizeOutputWindow(id);
 
+      m_DebugWidth = outw.width;
+      m_DebugHeight = outw.height;
+
       // then try again to acquire.
       vkr = vt->AcquireNextImageKHR(Unwrap(dev), Unwrap(outw.swap), 2000000000ULL, sem,
                                     VK_NULL_HANDLE, &outw.curidx);
+
+      if(vkr == VK_ERROR_OUT_OF_DATE_KHR)
+      {
+        RDCWARN("Swapchain still reported as out of date even after recreation");
+        outw.outofdate = true;
+      }
     }
 
     if(vkr == VK_SUBOPTIMAL_KHR)
@@ -971,22 +980,25 @@ void VulkanReplay::BindOutputWindow(uint64_t id, bool depth)
 
     CHECK_VKR(m_pDriver, vkr);
 
-    VkSubmitInfo submitInfo = {
-        VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        NULL,
-        1,
-        &sem,
-        &stage,
-        0,
-        NULL,    // cmd buffers
-        0,
-        NULL,    // signal semaphores
-    };
+    if(vkr == VK_SUCCESS)
+    {
+      VkSubmitInfo submitInfo = {
+          VK_STRUCTURE_TYPE_SUBMIT_INFO,
+          NULL,
+          1,
+          &sem,
+          &stage,
+          0,
+          NULL,    // cmd buffers
+          0,
+          NULL,    // signal semaphores
+      };
 
-    vkr = vt->QueueSubmit(Unwrap(m_pDriver->GetQ()), 1, &submitInfo, VK_NULL_HANDLE);
-    CHECK_VKR(m_pDriver, vkr);
+      vkr = vt->QueueSubmit(Unwrap(m_pDriver->GetQ()), 1, &submitInfo, VK_NULL_HANDLE);
+      CHECK_VKR(m_pDriver, vkr);
 
-    vt->QueueWaitIdle(Unwrap(m_pDriver->GetQ()));
+      vt->QueueWaitIdle(Unwrap(m_pDriver->GetQ()));
+    }
 
     vt->DestroySemaphore(Unwrap(dev), sem, NULL);
   }
@@ -1284,7 +1296,15 @@ void VulkanReplay::FlipOutputWindow(uint64_t id)
                                   &outw.curidx,
                                   &vkr};
 
-  VkResult retvkr = vt->QueuePresentKHR(Unwrap(m_pDriver->GetQ()), &presentInfo);
+  VkResult retvkr;
+
+  // if we were not able to acquire an image successfully in Bind even after resizing due to an
+  // OUT_OF_DATE, then don't present here as we never got a valid image.
+  // This will also force another recreate below
+  if(outw.outofdate)
+    retvkr = VK_ERROR_OUT_OF_DATE_KHR;
+  else
+    retvkr = vt->QueuePresentKHR(Unwrap(m_pDriver->GetQ()), &presentInfo);
 
   if(retvkr != VK_ERROR_OUT_OF_DATE_KHR && retvkr != VK_SUBOPTIMAL_KHR &&
      retvkr != VK_ERROR_SURFACE_LOST_KHR)
