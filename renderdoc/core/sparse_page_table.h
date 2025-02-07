@@ -156,6 +156,7 @@ public:
   inline uint32_t getPageByteSize() const { return m_PageByteSize; }
   inline Coord getPageTexelSize() const { return m_PageTexelSize; }
   inline Coord getResourceSize() const { return m_TextureDim; }
+  const Coord getSubresourceDim(uint32_t subresource) const;
   // useful for D3D where the mip tail is indexed by subresource/array slice even if we treat it all
   // as one
   inline uint64_t getMipTailByteOffsetForSubresource(uint32_t subresource) const

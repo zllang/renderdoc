@@ -321,6 +321,7 @@ void PageTable::setImageBoxRange(uint32_t subresource, const Sparse::Coord &coor
                                  uint64_t memoryByteOffset, bool useSinglePage)
 {
   const Coord subresourcePageDim = calcSubresourcePageDim(subresource);
+  const Coord subresourceImgDim = getSubresourceDim(subresource);
 
   RDCASSERT((coord.x % m_PageTexelSize.x) == 0);
   RDCASSERT((coord.y % m_PageTexelSize.y) == 0);
@@ -328,12 +329,12 @@ void PageTable::setImageBoxRange(uint32_t subresource, const Sparse::Coord &coor
 
   // dimension may be misaligned if it's referring to part of a page on a non-page-aligned texture
   // dimension
-  RDCASSERT((dim.x % m_PageTexelSize.x) == 0 || (coord.x + dim.x == m_TextureDim.x), dim.x, coord.x,
-            m_PageTexelSize.x, m_TextureDim.x);
-  RDCASSERT((dim.y % m_PageTexelSize.y) == 0 || (coord.y + dim.y == m_TextureDim.y), dim.y, coord.y,
-            m_PageTexelSize.y, m_TextureDim.y);
-  RDCASSERT((dim.z % m_PageTexelSize.z) == 0 || (coord.z + dim.z == m_TextureDim.z), dim.z, coord.z,
-            m_PageTexelSize.z, m_TextureDim.z);
+  RDCASSERT((dim.x % m_PageTexelSize.x) == 0 || (coord.x + dim.x == subresourceImgDim.x),
+            subresource, dim.x, coord.x, m_PageTexelSize.x, m_TextureDim.x, subresourceImgDim.x);
+  RDCASSERT((dim.y % m_PageTexelSize.y) == 0 || (coord.y + dim.y == subresourceImgDim.y),
+            subresource, dim.y, coord.y, m_PageTexelSize.y, m_TextureDim.y, subresourceImgDim.y);
+  RDCASSERT((dim.z % m_PageTexelSize.z) == 0 || (coord.z + dim.z == subresourceImgDim.z),
+            subresource, dim.z, coord.z, m_PageTexelSize.z, m_TextureDim.z, subresourceImgDim.z);
 
   // convert coords and dim to pages for ease of calculation
   Sparse::Coord curCoord = coord;
@@ -855,15 +856,22 @@ void PageTable::copyImageWrappedRange(uint32_t dstSubresource, const Coord &coor
     dstMapping->simplifyUnmapped();
 }
 
-Coord PageTable::calcSubresourcePageDim(uint32_t subresource) const
+const Sparse::Coord PageTable::getSubresourceDim(uint32_t subresource) const
 {
   const uint32_t mipLevel = subresource % m_MipCount;
 
-  const Sparse::Coord mipDim = {
+  return {
       RDCMAX(1U, m_TextureDim.x >> mipLevel),
       RDCMAX(1U, m_TextureDim.y >> mipLevel),
       RDCMAX(1U, m_TextureDim.z >> mipLevel),
   };
+}
+
+Coord PageTable::calcSubresourcePageDim(uint32_t subresource) const
+{
+  const uint32_t mipLevel = subresource % m_MipCount;
+
+  const Sparse::Coord mipDim = getSubresourceDim(subresource);
 
   // for each page that is fully or partially used
   return {RDCMAX(1U, (mipDim.x + m_PageTexelSize.x - 1) / m_PageTexelSize.x),
@@ -1597,6 +1605,7 @@ TEST_CASE("Test sparse page table mapping", "[sparse]")
     ResourceId mem0 = ResourceIDGen::GetNewUniqueID();
     ResourceId mem1 = ResourceIDGen::GetNewUniqueID();
     ResourceId mem2 = ResourceIDGen::GetNewUniqueID();
+    ResourceId mem3 = ResourceIDGen::GetNewUniqueID();
 
 #undef _idx
 #define _idx(x, y) y * 16 + x
@@ -1623,6 +1632,10 @@ TEST_CASE("Test sparse page table mapping", "[sparse]")
     CHECK(pageTable.getSubresource(0).pages[_idx(11, 3)] == Sparse::Page({mem2, 0}));
     CHECK(pageTable.getSubresource(0).pages[_idx(12, 3)] == Sparse::Page({mem1, 0}));
     CHECK(pageTable.getSubresource(0).pages[_idx(13, 3)] == Sparse::Page({mem1, 0}));
+
+    pageTable.setImageBoxRange(1, {224, 0, 0}, {26, 32, 1}, mem3, 0, true);
+
+    CHECK(pageTable.getSubresource(1).pages[_idx(7, 0)] == Sparse::Page({mem3, 0}));
   };
 
   SECTION("2D texture that's all mip tail")
