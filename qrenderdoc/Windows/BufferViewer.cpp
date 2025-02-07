@@ -2362,6 +2362,16 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
   m_ModelOut1 = new BufferItemModel(ui->out1Table, false, meshview, this);
   m_ModelOut2 = new BufferItemModel(ui->out2Table, false, meshview, this);
 
+  if(meshview)
+  {
+    ui->inTable->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui->inTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui->out1Table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui->out1Table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui->out2Table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    ui->out2Table->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+  }
+
   m_MeshDebugSelector = new ComputeDebugSelector(this);
 
   // we keep the old UI names for serialised layouts compatibility
