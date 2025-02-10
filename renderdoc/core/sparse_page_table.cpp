@@ -869,8 +869,6 @@ const Sparse::Coord PageTable::getSubresourceDim(uint32_t subresource) const
 
 Coord PageTable::calcSubresourcePageDim(uint32_t subresource) const
 {
-  const uint32_t mipLevel = subresource % m_MipCount;
-
   const Sparse::Coord mipDim = getSubresourceDim(subresource);
 
   // for each page that is fully or partially used
