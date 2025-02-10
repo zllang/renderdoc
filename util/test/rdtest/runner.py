@@ -313,7 +313,7 @@ def run_tests(test_include: str, test_exclude: str, in_process: bool, slow_tests
 
         instance = testclass()
 
-        supported, unsupported_reason = instance.check_support()
+        supported, unsupported_reason = instance.check_support(test_include=test_include)
 
         if not supported:
             log.print("Skipping {} as {}".format(name, unsupported_reason))

@@ -167,7 +167,7 @@ class TestCase:
     def set_test_list(tests):
         TestCase._test_list = tests
 
-    def check_support(self):
+    def check_support(self, **kwargs):
         if self.demos_test_name != '':
             if self.demos_test_name not in TestCase._test_list:
                 return False,'Test {} not in compiled tests'.format(self.demos_test_name)
@@ -680,7 +680,7 @@ class TestCase:
         raise KeyError("Couldn't parse path {}".format(path))
 
 
-    def evaluate_source_var(self, sourceVar: rd.SourceVariableMapping, debugVars):
+    def evaluate_source_var(self, sourceVar: rd.SourceVariableMapping, debugVars) -> rd.ShaderVariable:
         debugged = rd.ShaderVariable()
         debugged.name = sourceVar.name
         debugged.type = sourceVar.type

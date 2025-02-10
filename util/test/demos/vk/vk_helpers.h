@@ -179,6 +179,19 @@ void cmdPushDescriptorSets(VkCommandBuffer cmd, VkPipelineBindPoint pipelineBind
                            VkPipelineLayout layout, uint32_t set,
                            std::vector<VkWriteDescriptorSet> writes);
 
+template <typename T>
+void cmdPushConstants(VkCommandBuffer cmd, VkPipelineLayout layout, VkShaderStageFlags stages,
+                      const T &val)
+{
+  vkCmdPushConstants(cmd, layout, stages, 0, sizeof(T), &val);
+}
+
+template <typename T>
+void cmdPushConstants(VkCommandBuffer cmd, VkPipelineLayout layout, const T &val)
+{
+  cmdPushConstants(cmd, layout, VK_SHADER_STAGE_ALL, val);
+}
+
 struct ApplicationInfo : public VkApplicationInfo
 {
   ApplicationInfo() : VkApplicationInfo() { sType = VK_STRUCTURE_TYPE_APPLICATION_INFO; }
@@ -471,6 +484,19 @@ struct BufferMemoryBarrier : public VkBufferMemoryBarrier
     this->buffer = buffer;
     this->offset = offset;
     this->size = size;
+  }
+};
+
+#undef MemoryBarrier
+
+struct MemoryBarrier : public VkMemoryBarrier
+{
+  MemoryBarrier(VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask)
+  {
+    sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    pNext = NULL;
+    this->srcAccessMask = srcAccessMask;
+    this->dstAccessMask = dstAccessMask;
   }
 };
 

@@ -155,6 +155,7 @@ set(VULKAN_SRC
         vk/vk_simple_triangle.cpp
         vk/vk_spec_constants.cpp
         vk/vk_spirv_13_shaders.cpp
+        vk/vk_subgroup_zoo.cpp
         vk/vk_structured_buffer_nested.cpp
         vk/vk_sync2.cpp
         vk/vk_texture_zoo.cpp
