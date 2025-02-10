@@ -3705,6 +3705,11 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
       editor.SetName(value.base, StringFormat::Fmt("__rd_base_%zu_%s", i, param.varName.c_str()));
       // non-float inputs are considered flat
       value.flat = VarTypeCompType(param.varType) != CompType::Float;
+
+      // mark this as non-flat so we still derive it for helper lanes as it will vary
+      if(param.systemValue == ShaderBuiltin::IndexInSubgroup)
+        value.flat = false;
+
       laneValues.push_back(value);
 
       if(valueType == boolType)
