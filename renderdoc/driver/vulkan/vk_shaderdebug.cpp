@@ -40,6 +40,16 @@ RDOC_CONFIG(rdcstr, Vulkan_Debug_PSDebugDumpDirPath, "",
 RDOC_CONFIG(bool, Vulkan_Debug_ShaderDebugLogging, false,
             "Output verbose debug logging messages when debugging shaders.");
 
+// needed for old linux compilers
+namespace std
+{
+template <>
+struct hash<ShaderBuiltin>
+{
+  std::size_t operator()(const ShaderBuiltin &e) const { return size_t(e); }
+};
+}
+
 // should match the descriptor set layout created in ShaderDebugData::Init()
 enum class ShaderDebugBind
 {
