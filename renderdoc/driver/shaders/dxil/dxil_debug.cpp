@@ -31,9 +31,7 @@
 RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
 
-// TODO: Remove asserts using ^
 // TODO: Extend support for Compound Constants: arithmetic, logical ops
-// TODO: re-implement callstacks using scopes and inlined at metadata
 // TODO: Assert m_Block in ThreadState is correct per instruction
 // TODO: Automatically execute phi instructions after a branch
 // TODO: Support MSAA
