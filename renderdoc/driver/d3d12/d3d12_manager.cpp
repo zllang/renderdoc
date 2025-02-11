@@ -2453,7 +2453,9 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
 
           RDCASSERT(vbSize >= desc.Triangles.VertexBuffer.StrideInBytes * untrustedVertexCount);
 
-          vbSize = RDCMIN(vbSize, desc.Triangles.VertexBuffer.StrideInBytes * estimatedVertexCount);
+          vbSize = RDCMIN(vbSize, (desc.Triangles.VertexBuffer.StrideInBytes *
+                                   (RDCMAX(1U, estimatedVertexCount) - 1)) +
+                                      GetByteSize(1, 1, 1, desc.Triangles.VertexFormat, 0));
 
           byteSize += vbSize;
           byteSize = AlignUp16(byteSize);
@@ -2501,6 +2503,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
       return ret;
     }
 
+    const uint64_t allocedByteSize = byteSize;
+
     ID3D12Resource *dstRes = ret->buffer->Resource();
     uint64_t dstOffset = ret->buffer->Offset();
     uint64_t baseOffset = dstOffset;
@@ -2517,6 +2521,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.AABBs.AABBs.RVA, byteSize);
 
           desc.AABBs.AABBs.RVA = dstOffset - baseOffset;
+          RDCASSERT(desc.AABBs.AABBs.RVA + byteSize <= allocedByteSize, desc.AABBs.AABBs.RVA,
+                    byteSize, allocedByteSize);
 
           dstOffset = AlignUp16(dstOffset + byteSize);
         }
@@ -2535,6 +2541,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.Transform3x4, byteSize);
 
           desc.Triangles.Transform3x4 = dstOffset - baseOffset;
+          RDCASSERT(desc.Triangles.Transform3x4 + byteSize <= allocedByteSize,
+                    desc.Triangles.Transform3x4, byteSize, allocedByteSize);
 
           dstOffset = AlignUp16(dstOffset + byteSize);
         }
@@ -2553,6 +2561,8 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
           CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.IndexBuffer, byteSize);
 
           desc.Triangles.IndexBuffer = dstOffset - baseOffset;
+          RDCASSERT(desc.Triangles.IndexBuffer + byteSize <= allocedByteSize,
+                    desc.Triangles.IndexBuffer, byteSize, allocedByteSize);
 
           dstOffset = AlignUp16(dstOffset + byteSize);
 
@@ -2570,11 +2580,15 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
               (untrustedVertexCount / 100) * D3D12_Debug_RT_MaxVertexPercentIncrease() +
               D3D12_Debug_RT_MaxVertexIncrement();
 
-          vbSize = RDCMIN(vbSize, desc.Triangles.VertexBuffer.StrideInBytes * estimatedVertexCount);
+          vbSize = RDCMIN(vbSize, (desc.Triangles.VertexBuffer.StrideInBytes *
+                                   (RDCMAX(1U, estimatedVertexCount) - 1)) +
+                                      GetByteSize(1, 1, 1, desc.Triangles.VertexFormat, 0));
 
           unwrappedCmd->CopyBufferRegion(dstRes, dstOffset, Unwrap(sourceBuffer), srcOffs, vbSize);
 
           desc.Triangles.VertexBuffer.RVA = dstOffset - baseOffset;
+          RDCASSERT(desc.Triangles.VertexBuffer.RVA + byteSize <= allocedByteSize,
+                    desc.Triangles.VertexBuffer.RVA, byteSize, allocedByteSize);
 
           dstOffset = AlignUp16(dstOffset + vbSize);
         }
@@ -2590,6 +2604,7 @@ ASBuildData *D3D12RTManager::CopyBuildInputs(
             CopyFromVA(unwrappedCmd, dstRes, dstOffset, desc.Triangles.VertexBuffer.RVA, byteSize);
 
             desc.Triangles.VertexBuffer.RVA = dstOffset - baseOffset;
+            RDCASSERT(desc.Triangles.VertexBuffer.RVA + byteSize <= allocedByteSize);
 
             dstOffset = AlignUp16(dstOffset + byteSize);
           }
