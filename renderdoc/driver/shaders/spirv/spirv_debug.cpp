@@ -3111,8 +3111,10 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
           break;
         case Op::GroupNonUniformFMin:
           var = MakeIdentity(debugger.GetDataType(opdata.resultType), 0.0f, true, true);
+          break;
         case Op::GroupNonUniformFMax:
           var = MakeIdentity(debugger.GetDataType(opdata.resultType), 0.0f, true, false);
+          break;
         case Op::GroupNonUniformBitwiseAnd:
         case Op::GroupNonUniformLogicalAnd:
           var = MakeIdentity(debugger.GetDataType(opdata.resultType), uint64_t(~0ULL));
