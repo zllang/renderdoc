@@ -792,6 +792,7 @@ bool WrappedID3D12GraphicsCommandList::PatchAccStructBlasAddress(
     // Here, we are uploading the old BLAS addresses, and comparing the BLAS
     // addresses in the TLAS and patching it with the corresponding new address.
 
+    BakedCmdListInfo &bakedCmdInfo = m_Cmd->m_BakedCmdListInfo[m_Cmd->m_LastCmdListID];
     D3D12RTManager *rtManager = GetResourceManager()->GetRTManager();
 
     // Create a resource for patched instance desc; we don't
@@ -825,6 +826,9 @@ bool WrappedID3D12GraphicsCommandList::PatchAccStructBlasAddress(
       {
         needInitialTransition = true;
       }
+
+      if(bakedCmdInfo.type == D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        instanceResState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     }
 
     {
