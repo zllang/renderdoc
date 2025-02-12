@@ -149,7 +149,7 @@ class VK_Subgroup_Zoo(rdtest.TestCase):
             rdtest.log.success(f"Test {idx} successful")
 
         rdtest.log.end_section("Graphics tests")
-
+        overallFailed = False
         for comp_dim in compute_dims:
             rdtest.log.begin_section(
                 f"Compute tests with {comp_dim.customName} workgroup")
@@ -175,6 +175,7 @@ class VK_Subgroup_Zoo(rdtest.TestCase):
                 bufdata = self.controller.GetBufferData(
                     rw[0].descriptor.resource, test*16*1024, 16*1024)
 
+                failed = False
                 for t in thread_checks:
                     xrange = 1
                     yrange = dim[1]
@@ -195,39 +196,51 @@ class VK_Subgroup_Zoo(rdtest.TestCase):
                             if x >= dim[0] or y >= dim[1]:
                                 continue
 
-                            real = struct.unpack_from(
-                                "4f", bufdata, 16*y*dim[0] + 16*x)
+                            try:
+                                real = struct.unpack_from(
+                                    "4f", bufdata, 16*y*dim[0] + 16*x)
 
-                            trace = self.controller.DebugThread(
-                                (0, 0, 0), (x, y, z))
+                                trace = self.controller.DebugThread(
+                                    (0, 0, 0), (x, y, z))
 
-                            _, variables = self.process_trace(trace)
+                                _, variables = self.process_trace(trace)
 
-                            if trace.debugger is None:
+                                if trace.debugger is None:
+                                    raise rdtest.TestFailureException(f"Test {test} at {action.eventId} got no debug result at {x},{y},{z}")
+
+                                # Find the source variable 'data' at the highest instruction index
+                                maxInstInfo = None
+                                for instInfo in trace.instInfo:
+                                    for v in instInfo.sourceVars:
+                                        if v.name == 'data':
+                                            maxInstInfo = instInfo 
+                                            break
+
+                                sourceVars = [v for v in maxInstInfo.sourceVars if v.name == 'data']
+                                if len(sourceVars) != 1:
+                                    raise rdtest.TestFailureException(f"Couldn't find compute source variable 'data' {x}, {y}, {z}")
+
+                                debugged = self.evaluate_source_var(
+                                    sourceVars[0], variables)
+
+                                debuggedValue = list(debugged.value.f32v[0:4])
+
+                                if not rdtest.value_compare(real, debuggedValue, eps=5.0E-06):
+                                    raise rdtest.TestFailureException(f"EID:{action.eventId} TID:{x},{y},{z} debugged thread value {debuggedValue} does not match output {real}")
+
+                            except rdtest.TestFailureException as ex:
+                                rdtest.log.error(f"Test {test} failed {ex}")
+                                failed = True
+                                continue
+                            finally:
                                 self.controller.FreeTrace(trace)
 
-                                rdtest.log.error(
-                                    f"Test {test} at {action.eventId} got no debug result at {x},{y},{z}")
-                                continue
-
-                            sourceVars = [
-                                v for v in trace.instInfo[-1].sourceVars if v.name == 'data']
-
-                            if len(sourceVars) != 1:
-                                rdtest.log.error(
-                                    "Couldn't find compute data variable")
-                                continue
-
-                            debugged = self.evaluate_source_var(
-                                sourceVars[0], variables)
-
-                            debuggedValue = list(debugged.value.f32v[0:4])
-
-                            if not rdtest.value_compare(real, debuggedValue, eps=5.0E-06):
-                                rdtest.log.error(
-                                    f"Test {test} at {action.eventId} debugged thread value {debuggedValue} at {x},{y},{z} does not match output {real}")
-
-                rdtest.log.success(f"Test {test} successful")
+                overallFailed |= failed
+                if not failed:
+                    rdtest.log.success(f"Test {test} successful")
 
             rdtest.log.end_section(
                 f"Compute tests with {comp_dim.customName} workgroup")
+
+        if overallFailed:
+            raise rdtest.TestFailureException("Some tests were not as expected")

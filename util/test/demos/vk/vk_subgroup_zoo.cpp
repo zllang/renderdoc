@@ -129,16 +129,136 @@ layout(binding = 0, std430) buffer outbuftype {
 
 layout(local_size_x = GROUP_SIZE_X, local_size_y = GROUP_SIZE_Y, local_size_z = 1) in;
 
+vec4 funcD(uint id)
+{
+  return vec4(subgroupAdd(id/2));
+}
+
+vec4 nestedFunc(uint id)
+{
+  vec4 ret = funcD(id/3);
+  ret.w = subgroupAdd(id);
+  return ret;
+}
+
+vec4 funcA(uint id)
+{
+   return nestedFunc(id*2);
+}
+
+vec4 funcB(uint id)
+{
+   return nestedFunc(id*4);
+}
+
+vec4 funcTest(uint id)
+{
+  if ((id % 2) == 0)
+  {
+    return vec4(0);
+  }
+  else
+  {
+    float value = subgroupAdd(id);
+    if (id < 10)
+    {
+      return vec4(value);
+    }
+    value += subgroupAdd(id/2);
+    return vec4(value);
+  }
+}
+
+void SetOuput(vec4 data)
+{
+  outbuf.data[push.test].vals[gl_LocalInvocationID.y * GROUP_SIZE_X + gl_LocalInvocationID.x] = data;
+}
 void main()
 {
   vec4 data = vec4(0);
+  uint id = gl_SubgroupInvocationID;
+  SetOuput(data);
 
   if(IsTest(0))
-    data = vec4(gl_SubgroupInvocationID, 0, 0, 0);
+  {
+    data.x = id;
+  }
   else if(IsTest(1))
-    data = vec4(subgroupAdd(gl_SubgroupInvocationID), 0, 0, 0);
+  {
+    data.x = subgroupAdd(id);
+  }
+  else if(IsTest(2))
+  {
+    // Diverged threads which reconverge 
+    if (id < 10)
+    {
+        // active threads 0-9
+        data.x = subgroupAdd(id);
 
-  outbuf.data[push.test].vals[gl_LocalInvocationID.y * GROUP_SIZE_X + gl_LocalInvocationID.x] = data;
+        if ((id % 2) == 0)
+          data.y = subgroupAdd(id);
+        else
+          data.y = subgroupAdd(id);
+
+        data.x += subgroupAdd(id);
+    }
+    else
+    {
+        // active threads 10...
+        data.x = subgroupAdd(id);
+    }
+    data.y = subgroupAdd(id);
+  }
+  else if(IsTest(3))
+  {
+    // Converged threads calling a function 
+    data = funcTest(id);
+    data.y = subgroupAdd(id);
+  }
+  else if(IsTest(4))
+  {
+    // Converged threads calling a function which has a nested function call in it
+    data = nestedFunc(id);
+    data.y = subgroupAdd(id);
+  }
+  else if(IsTest(5))
+  {
+    // Diverged threads calling the same function
+    if (id < 10)
+    {
+      data = funcD(id);
+    }
+    else
+    {
+      data = funcD(id);
+    }
+    data.y = subgroupAdd(id);
+  }
+  else if(IsTest(6))
+  {
+    // Diverged threads calling the same function which has a nested function call in it
+    if (id < 10)
+    {
+      data = funcA(id);
+    }
+    else
+    {
+      data = funcB(id);
+    }
+    data.y = subgroupAdd(id);
+  }
+  else if(IsTest(7))
+  {
+    // Diverged threads which early exit
+    if (id < 10)
+    {
+      data.x = subgroupAdd(id+10);
+      SetOuput(data);
+      return;
+    }
+    data.x = subgroupAdd(id);
+  }
+  SetOuput(data);
 }
 
 )EOSHADER";
