@@ -575,7 +575,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::StorageTexelBufferArrayNonUniformIndexing:
       case Capability::VulkanMemoryModel:
       case Capability::VulkanMemoryModelDeviceScope:
-      case Capability::DemoteToHelperInvocationEXT:
+      case Capability::DemoteToHelperInvocation:
       case Capability::AtomicFloat32AddEXT:
       case Capability::AtomicFloat32MinMaxEXT:
       case Capability::AtomicFloat16AddEXT:
@@ -672,10 +672,10 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       }
 
       // integer dot product
-      case Capability::DotProductKHR:
-      case Capability::DotProductInput4x8BitKHR:
-      case Capability::DotProductInput4x8BitPackedKHR:
-      case Capability::DotProductInputAllKHR:
+      case Capability::DotProduct:
+      case Capability::DotProductInput4x8Bit:
+      case Capability::DotProductInput4x8BitPacked:
+      case Capability::DotProductInputAll:
       {
         supported = false;
         break;
@@ -691,6 +691,28 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::ShaderInvocationReorderNV:
       case Capability::RayQueryPositionFetchKHR:
       case Capability::RayTracingPositionFetchKHR:
+      {
+        supported = false;
+        break;
+      }
+
+      // barycentric
+      case Capability::FragmentBarycentricKHR:
+      {
+        supported = false;
+        break;
+      }
+
+      // compute shader derivatives
+      case Capability::ComputeDerivativeGroupQuadsKHR:
+      case Capability::ComputeDerivativeGroupLinearKHR:
+      {
+        supported = false;
+        break;
+      }
+
+      // untyped pointers
+      case Capability::UntypedPointersKHR:
       {
         supported = false;
         break;
@@ -722,11 +744,8 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::ShaderStereoViewNV:
       case Capability::PerViewAttributesNV:
       case Capability::MeshShadingNV:
-      case Capability::FragmentBarycentricNV:
       case Capability::ImageFootprintNV:
-      case Capability::ComputeDerivativeGroupQuadsNV:
       case Capability::GroupNonUniformPartitionedNV:
-      case Capability::ComputeDerivativeGroupLinearNV:
       case Capability::CooperativeMatrixNV:
       case Capability::ShaderSMBuiltinsNV:
       case Capability::SubgroupShuffleINTEL:
@@ -746,7 +765,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::UnstructuredLoopControlsINTEL:
       case Capability::KernelAttributesINTEL:
       case Capability::BlockingPipesINTEL:
-      case Capability::OptNoneINTEL:
       case Capability::RayTracingMotionBlurNV:
       case Capability::RoundToInfinityINTEL:
       case Capability::FloatingPointModeINTEL:
@@ -792,6 +810,13 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::AtomicFloat16VectorNV:
       case Capability::RayTracingDisplacementMicromapNV:
       case Capability::CooperativeMatrixKHR:
+      case Capability::CooperativeVectorNV:
+      case Capability::CooperativeVectorTrainingNV:
+      case Capability::CooperativeMatrixReductionsNV:
+      case Capability::CooperativeMatrixConversionsNV:
+      case Capability::CooperativeMatrixPerElementOperationsNV:
+      case Capability::CooperativeMatrixTensorAddressingNV:
+      case Capability::CooperativeMatrixBlockLoadsNV:
       case Capability::FloatControls2:
       case Capability::FPGAClusterAttributesV2INTEL:
       case Capability::FPMaxErrorINTEL:
@@ -800,9 +825,20 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::CacheControlsINTEL:
       case Capability::RegisterLimitsINTEL:
       case Capability::GlobalVariableHostAccessINTEL:
+      case Capability::SubgroupBufferPrefetchINTEL:
+      case Capability::Subgroup2DBlockIOINTEL:
+      case Capability::Subgroup2DBlockTransformINTEL:
+      case Capability::Subgroup2DBlockTransposeINTEL:
+      case Capability::SubgroupMatrixMultiplyAccumulateINTEL:
       case Capability::CooperativeMatrixLayoutsARM:
       case Capability::RawAccessChainsNV:
       case Capability::ReplicatedCompositesEXT:
+      case Capability::RayTracingSpheresGeometryNV:
+      case Capability::RayTracingLinearSweptSpheresGeometryNV:
+      case Capability::RayTracingClusterAccelerationStructureNV:
+      case Capability::TensorAddressingNV:
+      case Capability::OptNoneEXT:
+      case Capability::ArithmeticFenceEXT:
       case Capability::Max:
       case Capability::Invalid:
       {
@@ -3598,8 +3634,7 @@ uint32_t Debugger::WalkVariable(
     }
     case DataType::PointerType:
     {
-      RDCASSERT((dataTypes[type.id].pointerType.storage == StorageClass::PhysicalStorageBuffer) ||
-                (dataTypes[type.id].pointerType.storage == StorageClass::PhysicalStorageBufferEXT));
+      RDCASSERT(dataTypes[type.id].pointerType.storage == StorageClass::PhysicalStorageBuffer);
       if(outVar)
       {
         outVar->type = VarType::GPUPointer;

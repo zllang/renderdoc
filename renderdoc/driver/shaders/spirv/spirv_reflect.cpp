@@ -1000,6 +1000,7 @@ void Reflector::MakeReflection(const GraphicsAPI sourceAPI, const ShaderStage st
     case SourceLanguage::NZSL:
     case SourceLanguage::WGSL:
     case SourceLanguage::Zig:
+    case SourceLanguage::Rust:
     case SourceLanguage::Max: break;
   }
 

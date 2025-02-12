@@ -355,7 +355,10 @@ for operand_kind in spirv['operand_kinds']:
 
 '''.format(name = name, values = decl.rstrip()))
 
-        cpp.write('''template <>
+        if stringise.strip() == '':
+            cpp.write(f"template <>\nrdcstr DoStringise(const rdcspv::{name} &el) {{ return \"?\"; }}\n\n")
+        else:
+            cpp.write('''template <>
 rdcstr DoStringise(const rdcspv::{name} &el)
 {{
   BEGIN_ENUM_STRINGISE(rdcspv::{name});
@@ -385,7 +388,10 @@ rdcstr DoStringise(const rdcspv::{name} &el)
         decl = ''
         stringise = ''
         for value in operand_kind['enumerants']:
-            decl += '  {} = {},\n'.format(value['enumerant'], value['value'])
+            value_name = value['enumerant']
+            if value_name[0].isdigit():
+                value_name = '_' + value_name
+            decl += '  {} = {},\n'.format(value_name, value['value'])
 
             if value['value'] in used:
                 continue
@@ -395,7 +401,7 @@ rdcstr DoStringise(const rdcspv::{name} &el)
             if value['enumerant'] == none:
                 stringise += '    STRINGISE_BITFIELD_CLASS_VALUE({});\n\n'.format(none)
             else:
-                stringise += '    STRINGISE_BITFIELD_CLASS_BIT({});\n'.format(value['enumerant'])
+                stringise += '    STRINGISE_BITFIELD_CLASS_BIT({});\n'.format(value_name)
 
         header.write('''enum class {name} : uint32_t
 {{
@@ -408,7 +414,10 @@ BITMASK_OPERATORS({name});
 
 '''.format(name = name, values = decl.rstrip()))
 
-        cpp.write('''template <>
+        if stringise.strip() == '':
+            cpp.write(f"template <>\nrdcstr DoStringise(const rdcspv::{name} &el) {{ return \"?\"; }}\n\n")
+        else:
+            cpp.write('''template <>
 rdcstr DoStringise(const rdcspv::{name} &el)
 {{
   BEGIN_BITFIELD_STRINGISE(rdcspv::{name});

@@ -3859,7 +3859,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       SetDst(opdata.result, result);
       break;
     }
-    case Op::DemoteToHelperInvocationEXT:
+    case Op::DemoteToHelperInvocation:
     {
       helperInvocation = true;
       break;
@@ -4387,12 +4387,12 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     }
 
       // KHR_integer_dotproduct
-    case Op::SDotKHR:
-    case Op::UDotKHR:
-    case Op::SUDotKHR:
-    case Op::SDotAccSatKHR:
-    case Op::UDotAccSatKHR:
-    case Op::SUDotAccSatKHR:
+    case Op::SDot:
+    case Op::UDot:
+    case Op::SUDot:
+    case Op::SDotAccSat:
+    case Op::UDotAccSat:
+    case Op::SUDotAccSat:
 
       // legacy/OpenCL/AMD group operations
     case Op::GroupAll:
@@ -4602,9 +4602,9 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::ImageBlockMatchWindowSADQCOM:
     case Op::ImageBlockMatchGatherSSDQCOM:
     case Op::ImageBlockMatchGatherSADQCOM:
-    case Op::FinalizeNodePayloadsAMDX:
+    case Op::AllocateNodePayloadsAMDX:
     case Op::FinishWritingNodePayloadAMDX:
-    case Op::InitializeNodePayloadsAMDX:
+    case Op::NodePayloadArrayLengthAMDX:
     case Op::FetchMicroTriangleVertexBarycentricNV:
     case Op::FetchMicroTriangleVertexPositionNV:
     case Op::CompositeConstructContinuedINTEL:
@@ -4679,6 +4679,20 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::DecorateId:
     case Op::ModuleProcessed:
     case Op::ExecutionModeId:
+    case Op::TypeUntypedPointerKHR:
+    case Op::UntypedVariableKHR:
+    case Op::UntypedAccessChainKHR:
+    case Op::UntypedInBoundsAccessChainKHR:
+    case Op::UntypedInBoundsPtrAccessChainKHR:
+    case Op::UntypedPtrAccessChainKHR:
+    case Op::UntypedArrayLengthKHR:
+    case Op::UntypedPrefetchKHR:
+    case Op::TypeNodePayloadArrayAMDX:
+    case Op::ConstantStringAMDX:
+    case Op::SpecConstantStringAMDX:
+    case Op::TypeCooperativeVectorNV:
+    case Op::TypeTensorLayoutNV:
+    case Op::TypeTensorViewNV:
     {
       RDCERR("Encountered unexpected global SPIR-V operation %s", ToStr(opdata.op).c_str());
       break;
@@ -4749,6 +4763,53 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
     case Op::WritePipeBlockingINTEL:
     case Op::ControlBarrierArriveINTEL:
     case Op::ControlBarrierWaitINTEL:
+    case Op::ArithmeticFenceEXT:
+    case Op::SubgroupMatrixMultiplyAccumulateINTEL:
+    case Op::EnqueueNodePayloadsAMDX:
+    case Op::IsNodePayloadValidAMDX:
+    case Op::SubgroupBlockPrefetchINTEL:
+    case Op::Subgroup2DBlockLoadINTEL:
+    case Op::Subgroup2DBlockLoadTransformINTEL:
+    case Op::Subgroup2DBlockLoadTransposeINTEL:
+    case Op::Subgroup2DBlockPrefetchINTEL:
+    case Op::Subgroup2DBlockStoreINTEL:
+    case Op::CreateTensorLayoutNV:
+    case Op::CreateTensorViewNV:
+    case Op::TensorViewSetClipNV:
+    case Op::TensorViewSetDimensionNV:
+    case Op::TensorViewSetStrideNV:
+    case Op::TensorLayoutSetDimensionNV:
+    case Op::TensorLayoutSetBlockSizeNV:
+    case Op::TensorLayoutSetClampValueNV:
+    case Op::TensorLayoutSetStrideNV:
+    case Op::TensorLayoutSliceNV:
+    case Op::RayQueryGetClusterIdNV:
+    case Op::RayQueryIsSphereHitNV:
+    case Op::RayQueryIsLSSHitNV:
+    case Op::RayQueryGetIntersectionLSSHitValueNV:
+    case Op::RayQueryGetIntersectionLSSPositionsNV:
+    case Op::RayQueryGetIntersectionLSSRadiiNV:
+    case Op::RayQueryGetIntersectionSpherePositionNV:
+    case Op::RayQueryGetIntersectionSphereRadiusNV:
+    case Op::HitObjectIsLSSHitNV:
+    case Op::HitObjectIsSphereHitNV:
+    case Op::HitObjectGetLSSPositionsNV:
+    case Op::HitObjectGetLSSRadiiNV:
+    case Op::HitObjectGetSpherePositionNV:
+    case Op::HitObjectGetSphereRadiusNV:
+    case Op::HitObjectGetClusterIdNV:
+    case Op::CooperativeMatrixConvertNV:
+    case Op::CooperativeMatrixReduceNV:
+    case Op::CooperativeMatrixLoadTensorNV:
+    case Op::CooperativeMatrixStoreTensorNV:
+    case Op::CooperativeMatrixPerElementOpNV:
+    case Op::CooperativeMatrixTransposeNV:
+    case Op::CooperativeVectorLoadNV:
+    case Op::CooperativeVectorStoreNV:
+    case Op::CooperativeVectorMatrixMulAddNV:
+    case Op::CooperativeVectorMatrixMulNV:
+    case Op::CooperativeVectorOuterProductAccumulateNV:
+    case Op::CooperativeVectorReduceSumAccumulateNV:
     {
       // these are kernel only
       RDCERR("Encountered unexpected kernel SPIR-V operation %s", ToStr(opdata.op).c_str());

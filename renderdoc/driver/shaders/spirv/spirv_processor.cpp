@@ -461,7 +461,7 @@ void Processor::Parse(const rdcarray<uint32_t> &spirvWords)
     }
     else if(opcode == Op::Decorate || opcode == Op::MemberDecorate || opcode == Op::GroupDecorate ||
             opcode == Op::GroupMemberDecorate || opcode == Op::DecorationGroup ||
-            opcode == Op::DecorateStringGOOGLE || opcode == Op::MemberDecorateStringGOOGLE)
+            opcode == Op::DecorateString || opcode == Op::MemberDecorateString)
     {
       START_SECTION(Section::Annotations);
     }
