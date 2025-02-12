@@ -57,7 +57,7 @@ VkDynamicState ConvertDynamicState(VulkanDynamicStateIndex idx)
     case VkDynamicExclusiveScissorNV: return VK_DYNAMIC_STATE_EXCLUSIVE_SCISSOR_NV;
     case VkDynamicExclusiveScissorEnableNV: return VK_DYNAMIC_STATE_EXCLUSIVE_SCISSOR_ENABLE_NV;
     case VkDynamicShadingRateKHR: return VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR;
-    case VkDynamicLineStippleKHR: return VK_DYNAMIC_STATE_LINE_STIPPLE_KHR;
+    case VkDynamicLineStipple: return VK_DYNAMIC_STATE_LINE_STIPPLE;
     case VkDynamicCullMode: return VK_DYNAMIC_STATE_CULL_MODE;
     case VkDynamicFrontFace: return VK_DYNAMIC_STATE_FRONT_FACE;
     case VkDynamicPrimitiveTopology: return VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
@@ -115,6 +115,7 @@ VkDynamicState ConvertDynamicState(VulkanDynamicStateIndex idx)
     case VkDynamicCoverageReductionModeEXT: return VK_DYNAMIC_STATE_COVERAGE_REDUCTION_MODE_NV;
     case VkDynamicAttachmentFeedbackLoopEnableEXT:
       return VK_DYNAMIC_STATE_ATTACHMENT_FEEDBACK_LOOP_ENABLE_EXT;
+    case VkDynamicAttachmentDepthClampRangeEXT: return VK_DYNAMIC_STATE_DEPTH_CLAMP_RANGE_EXT;
     case VkDynamicCount: break;
   }
 
@@ -150,7 +151,7 @@ VulkanDynamicStateIndex ConvertDynamicState(VkDynamicState state)
     case VK_DYNAMIC_STATE_EXCLUSIVE_SCISSOR_NV: return VkDynamicExclusiveScissorNV;
     case VK_DYNAMIC_STATE_EXCLUSIVE_SCISSOR_ENABLE_NV: return VkDynamicExclusiveScissorEnableNV;
     case VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR: return VkDynamicShadingRateKHR;
-    case VK_DYNAMIC_STATE_LINE_STIPPLE_KHR: return VkDynamicLineStippleKHR;
+    case VK_DYNAMIC_STATE_LINE_STIPPLE: return VkDynamicLineStipple;
     case VK_DYNAMIC_STATE_CULL_MODE: return VkDynamicCullMode;
     case VK_DYNAMIC_STATE_FRONT_FACE: return VkDynamicFrontFace;
     case VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY: return VkDynamicPrimitiveTopology;
@@ -208,6 +209,7 @@ VulkanDynamicStateIndex ConvertDynamicState(VkDynamicState state)
     case VK_DYNAMIC_STATE_COVERAGE_REDUCTION_MODE_NV: return VkDynamicCoverageReductionModeEXT;
     case VK_DYNAMIC_STATE_ATTACHMENT_FEEDBACK_LOOP_ENABLE_EXT:
       return VkDynamicAttachmentFeedbackLoopEnableEXT;
+    case VK_DYNAMIC_STATE_DEPTH_CLAMP_RANGE_EXT: return VkDynamicAttachmentDepthClampRangeEXT;
     case VK_DYNAMIC_STATE_MAX_ENUM: break;
   }
 
@@ -249,7 +251,7 @@ static VkGraphicsPipelineLibraryFlagsEXT DynamicStateValidState(VkDynamicState s
     case VK_DYNAMIC_STATE_EXCLUSIVE_SCISSOR_NV: return vert;
     case VK_DYNAMIC_STATE_EXCLUSIVE_SCISSOR_ENABLE_NV: return vert;
     case VK_DYNAMIC_STATE_FRAGMENT_SHADING_RATE_KHR: return vert | frag;
-    case VK_DYNAMIC_STATE_LINE_STIPPLE_KHR: return vert;
+    case VK_DYNAMIC_STATE_LINE_STIPPLE: return vert;
     case VK_DYNAMIC_STATE_CULL_MODE: return vert;
     case VK_DYNAMIC_STATE_FRONT_FACE: return vert;
     case VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY: return vinput;
@@ -301,6 +303,7 @@ static VkGraphicsPipelineLibraryFlagsEXT DynamicStateValidState(VkDynamicState s
     case VK_DYNAMIC_STATE_REPRESENTATIVE_FRAGMENT_TEST_ENABLE_NV: return frag;
     case VK_DYNAMIC_STATE_COVERAGE_REDUCTION_MODE_NV: return frag | colout;
     case VK_DYNAMIC_STATE_ATTACHMENT_FEEDBACK_LOOP_ENABLE_EXT: return colout;
+    case VK_DYNAMIC_STATE_DEPTH_CLAMP_RANGE_EXT: return vert;
     case VK_DYNAMIC_STATE_MAX_ENUM: break;
   }
 
@@ -1207,15 +1210,15 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
     }
 
     // if there's a divisors struct, apply them now
-    const VkPipelineVertexInputDivisorStateCreateInfoKHR *divisors =
-        (const VkPipelineVertexInputDivisorStateCreateInfoKHR *)FindNextStruct(
+    const VkPipelineVertexInputDivisorStateCreateInfo *divisors =
+        (const VkPipelineVertexInputDivisorStateCreateInfo *)FindNextStruct(
             pCreateInfo->pVertexInputState,
-            VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_KHR);
+            VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO);
     if(divisors)
     {
       for(uint32_t b = 0; b < divisors->vertexBindingDivisorCount; b++)
       {
-        const VkVertexInputBindingDivisorDescriptionKHR &div = divisors->pVertexBindingDivisors[b];
+        const VkVertexInputBindingDivisorDescription &div = divisors->pVertexBindingDivisors[b];
 
         if(div.binding < vertexBindings.size())
           vertexBindings[div.binding].instanceDivisor = div.divisor;
@@ -1374,15 +1377,15 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
     extraPrimitiveOverestimationSize = conservRast->extraPrimitiveOverestimationSize;
   }
 
-  // VkPipelineRasterizationLineStateCreateInfoKHR
-  lineRasterMode = VK_LINE_RASTERIZATION_MODE_DEFAULT_KHR;
+  // VkPipelineRasterizationLineStateCreateInfo
+  lineRasterMode = VK_LINE_RASTERIZATION_MODE_DEFAULT;
   stippleEnabled = false;
   stippleFactor = stipplePattern = 0;
 
-  const VkPipelineRasterizationLineStateCreateInfoKHR *lineRasterState =
-      (const VkPipelineRasterizationLineStateCreateInfoKHR *)FindNextStruct(
+  const VkPipelineRasterizationLineStateCreateInfo *lineRasterState =
+      (const VkPipelineRasterizationLineStateCreateInfo *)FindNextStruct(
           pCreateInfo->pRasterizationState,
-          VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_KHR);
+          VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO);
   if(lineRasterState)
   {
     lineRasterMode = lineRasterState->lineRasterizationMode;

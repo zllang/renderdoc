@@ -2789,10 +2789,10 @@ public:
 
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetRenderingAttachmentLocationsKHR,
                                 VkCommandBuffer commandBuffer,
-                                const VkRenderingAttachmentLocationInfoKHR *pLocationInfo);
+                                const VkRenderingAttachmentLocationInfo *pLocationInfo);
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetRenderingInputAttachmentIndicesKHR,
                                 VkCommandBuffer commandBuffer,
-                                const VkRenderingInputAttachmentIndexInfoKHR *pLocationInfo);
+                                const VkRenderingInputAttachmentIndexInfo *pLocationInfo);
 
   // VK_KHR_fragment_shading_rate
 
@@ -2865,7 +2865,7 @@ public:
                                 VkCommandBuffer commandBuffer,
                                 float extraPrimitiveOverestimationSize);
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetLineRasterizationModeEXT, VkCommandBuffer commandBuffer,
-                                VkLineRasterizationModeKHR lineRasterizationMode);
+                                VkLineRasterizationMode lineRasterizationMode);
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetLineStippleEnableEXT, VkCommandBuffer commandBuffer,
                                 VkBool32 stippledLineEnable);
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdSetLogicOpEnableEXT, VkCommandBuffer commandBuffer,

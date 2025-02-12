@@ -972,7 +972,7 @@ rdcstr HumanDriverName(VkDriverId driverId)
     case VK_DRIVER_ID_MESA_NVK: return "Mesa NVK";
     case VK_DRIVER_ID_IMAGINATION_OPEN_SOURCE_MESA: return "Imagination Open-source";
     case VK_DRIVER_ID_MESA_HONEYKRISP: return "Mesa Honeykrisp";
-    case VK_DRIVER_ID_RESERVED_27: return "<Unknown>";
+    case VK_DRIVER_ID_VULKAN_SC_EMULATION_ON_VULKAN: return "Vulkan SC Emulation on Vulkan";
     case VK_DRIVER_ID_MAX_ENUM: break;
   }
 
@@ -1416,17 +1416,17 @@ void DescriptorSetSlot::AccumulateBindRefs(DescriptorBindRefs &refs, VulkanResou
 
 void DynamicRenderingLocalRead::Init(const VkBaseInStructure *infoStruct)
 {
-  const VkRenderingAttachmentLocationInfoKHR *attachmentLocationInfo =
-      (const VkRenderingAttachmentLocationInfoKHR *)FindNextStruct(
-          infoStruct, VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO_KHR);
+  const VkRenderingAttachmentLocationInfo *attachmentLocationInfo =
+      (const VkRenderingAttachmentLocationInfo *)FindNextStruct(
+          infoStruct, VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO);
   if(attachmentLocationInfo != NULL)
   {
     UpdateLocations(*attachmentLocationInfo);
   }
 
-  const VkRenderingInputAttachmentIndexInfoKHR *inputAttachmentIndexInfo =
-      (const VkRenderingInputAttachmentIndexInfoKHR *)FindNextStruct(
-          infoStruct, VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR);
+  const VkRenderingInputAttachmentIndexInfo *inputAttachmentIndexInfo =
+      (const VkRenderingInputAttachmentIndexInfo *)FindNextStruct(
+          infoStruct, VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO);
   if(inputAttachmentIndexInfo != NULL)
   {
     UpdateInputIndices(*inputAttachmentIndexInfo);
@@ -1434,10 +1434,10 @@ void DynamicRenderingLocalRead::Init(const VkBaseInStructure *infoStruct)
 }
 
 void DynamicRenderingLocalRead::UpdateLocations(
-    const VkRenderingAttachmentLocationInfoKHR &attachmentLocationInfo)
+    const VkRenderingAttachmentLocationInfo &attachmentLocationInfo)
 {
   // If NULL is given, an identity mapping is assumed.  This is indicated by an empty
-  // array.  This works out because not providing VkRenderingAttachmentLocationInfoKHR has the
+  // array.  This works out because not providing VkRenderingAttachmentLocationInfo has the
   // same meaning.
   if(attachmentLocationInfo.pColorAttachmentLocations == NULL)
   {
@@ -1451,10 +1451,10 @@ void DynamicRenderingLocalRead::UpdateLocations(
 }
 
 void DynamicRenderingLocalRead::UpdateInputIndices(
-    const VkRenderingInputAttachmentIndexInfoKHR &inputAttachmentIndexInfo)
+    const VkRenderingInputAttachmentIndexInfo &inputAttachmentIndexInfo)
 {
   // If NULL is given, an identity mapping is assumed.  This is indicated by an empty
-  // array.  This works out because not providing VkRenderingInputAttachmentIndexInfoKHR has the
+  // array.  This works out because not providing VkRenderingInputAttachmentIndexInfo has the
   // same meaning.
   if(inputAttachmentIndexInfo.pColorAttachmentInputIndices == NULL)
   {
@@ -1494,8 +1494,8 @@ void DynamicRenderingLocalRead::CopyInputIndices(const DynamicRenderingLocalRead
 
 void DynamicRenderingLocalRead::SetLocations(VkCommandBuffer cmd)
 {
-  VkRenderingAttachmentLocationInfoKHR attachmentLocations = {};
-  attachmentLocations.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO_KHR;
+  VkRenderingAttachmentLocationInfo attachmentLocations = {};
+  attachmentLocations.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO;
   attachmentLocations.colorAttachmentCount = colorAttachmentLocations.count();
   attachmentLocations.pColorAttachmentLocations = colorAttachmentLocations.data();
 
@@ -1504,8 +1504,8 @@ void DynamicRenderingLocalRead::SetLocations(VkCommandBuffer cmd)
 
 void DynamicRenderingLocalRead::SetInputIndices(VkCommandBuffer cmd)
 {
-  VkRenderingInputAttachmentIndexInfoKHR inputIndices = {};
-  inputIndices.sType = VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR;
+  VkRenderingInputAttachmentIndexInfo inputIndices = {};
+  inputIndices.sType = VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO;
   inputIndices.colorAttachmentCount = colorAttachmentInputIndices.count();
   inputIndices.pColorAttachmentInputIndices = colorAttachmentInputIndices.data();
   inputIndices.pDepthInputAttachmentIndex =

@@ -52,7 +52,7 @@ VkDeviceSize IndexTypeSize(VkIndexType type)
   {
     case VK_INDEX_TYPE_UINT32: return 4;
     case VK_INDEX_TYPE_UINT16: return 2;
-    case VK_INDEX_TYPE_UINT8_KHR: return 1;
+    case VK_INDEX_TYPE_UINT8: return 1;
     default: return 0;
   }
 }
@@ -759,7 +759,7 @@ void VulkanAccelerationStructureManager::Apply(ResourceId id, VkInitialContents 
         0,
         sizeResult.accelerationStructureSize,
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT_KHR,
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
     };
 
     VkBuffer asBuf = VK_NULL_HANDLE;

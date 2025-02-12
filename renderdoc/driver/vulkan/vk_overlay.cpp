@@ -329,14 +329,14 @@ struct VulkanQuadOverdrawCallback : public VulkanActionCallback
       // Reset the attachment mapping, if any
       if(m_PrevState.dynamicRendering.localRead.AreLocationsNonDefault())
       {
-        VkRenderingAttachmentLocationInfoKHR attachmentLocations = {};
-        attachmentLocations.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO_KHR;
+        VkRenderingAttachmentLocationInfo attachmentLocations = {};
+        attachmentLocations.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_LOCATION_INFO;
         m_pDriver->vkCmdSetRenderingAttachmentLocationsKHR(cmd, &attachmentLocations);
       }
       if(m_PrevState.dynamicRendering.localRead.AreInputIndicesNonDefault())
       {
-        VkRenderingInputAttachmentIndexInfoKHR inputIndices = {};
-        inputIndices.sType = VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR;
+        VkRenderingInputAttachmentIndexInfo inputIndices = {};
+        inputIndices.sType = VK_STRUCTURE_TYPE_RENDERING_INPUT_ATTACHMENT_INDEX_INFO;
 
         m_pDriver->vkCmdSetRenderingInputAttachmentIndicesKHR(cmd, &inputIndices);
       }
@@ -1092,9 +1092,9 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
       }
 
       // disable line stipple
-      VkPipelineRasterizationLineStateCreateInfoEXT *lineRasterState =
-          (VkPipelineRasterizationLineStateCreateInfoEXT *)FindNextStruct(
-              rs, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT);
+      VkPipelineRasterizationLineStateCreateInfo *lineRasterState =
+          (VkPipelineRasterizationLineStateCreateInfo *)FindNextStruct(
+              rs, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO);
 
       if(lineRasterState)
       {
@@ -4029,7 +4029,7 @@ ResourceId VulkanReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, D
                 if(fmt.indexByteStride == 4)
                   idxtype = VK_INDEX_TYPE_UINT32;
                 else if(fmt.indexByteStride == 1)
-                  idxtype = VK_INDEX_TYPE_UINT8_KHR;
+                  idxtype = VK_INDEX_TYPE_UINT8;
 
                 if(fmt.indexResourceId != ResourceId())
                 {

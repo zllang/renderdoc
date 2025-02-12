@@ -1756,9 +1756,9 @@
               pRenderingInfo);                                                                       \
   HookDefine1(void, vkCmdEndRendering, VkCommandBuffer, commandBuffer);                              \
   HookDefine2(void, vkCmdSetRenderingAttachmentLocationsKHR, VkCommandBuffer, commandBuffer,         \
-              const VkRenderingAttachmentLocationInfoKHR *, pLocationInfo);                          \
+              const VkRenderingAttachmentLocationInfo *, pLocationInfo);                             \
   HookDefine2(void, vkCmdSetRenderingInputAttachmentIndicesKHR, VkCommandBuffer, commandBuffer,      \
-              const VkRenderingInputAttachmentIndexInfoKHR *, pInputAttachmentIndexInfo);            \
+              const VkRenderingInputAttachmentIndexInfo *, pInputAttachmentIndexInfo);               \
   HookDefine3(void, vkCmdSetFragmentShadingRateKHR, VkCommandBuffer, commandBuffer,                  \
               const VkExtent2D *, pFragmentSize, const VkFragmentShadingRateCombinerOpKHR *,         \
               combinerOps);                                                                          \
@@ -1813,7 +1813,7 @@
   HookDefine2(void, vkCmdSetExtraPrimitiveOverestimationSizeEXT, VkCommandBuffer, commandBuffer,     \
               float, extraPrimitiveOverestimationSize);                                              \
   HookDefine2(void, vkCmdSetLineRasterizationModeEXT, VkCommandBuffer, commandBuffer,                \
-              VkLineRasterizationModeEXT, lineRasterizationMode);                                    \
+              VkLineRasterizationMode, lineRasterizationMode);                                       \
   HookDefine2(void, vkCmdSetLineStippleEnableEXT, VkCommandBuffer, commandBuffer, VkBool32,          \
               stippledLineEnable);                                                                   \
   HookDefine2(void, vkCmdSetLogicOpEnableEXT, VkCommandBuffer, commandBuffer, VkBool32,              \

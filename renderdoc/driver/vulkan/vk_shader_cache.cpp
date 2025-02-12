@@ -687,10 +687,10 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
                                                                  : VK_VERTEX_INPUT_RATE_VERTEX;
   }
 
-  static VkPipelineVertexInputDivisorStateCreateInfoKHR vertexDivisor = {
-      VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO_KHR,
+  static VkPipelineVertexInputDivisorStateCreateInfo vertexDivisor = {
+      VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO,
   };
-  static VkVertexInputBindingDivisorDescriptionKHR vibindDivisors[128] = {};
+  static VkVertexInputBindingDivisorDescription vibindDivisors[128] = {};
 
   if(m_pDriver->GetExtensions(GetRecord(m_Device)).ext_EXT_vertex_attribute_divisor ||
      m_pDriver->GetExtensions(GetRecord(m_Device)).ext_KHR_vertex_attribute_divisor)
@@ -832,11 +832,12 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
     rs.pNext = &depthClipState;
   }
 
-  static VkPipelineRasterizationLineStateCreateInfoEXT lineRasterState = {
-      VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO_EXT,
+  static VkPipelineRasterizationLineStateCreateInfo lineRasterState = {
+      VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_LINE_STATE_CREATE_INFO,
   };
 
-  if(m_pDriver->GetExtensions(GetRecord(m_Device)).ext_EXT_line_rasterization)
+  if(m_pDriver->GetExtensions(GetRecord(m_Device)).ext_EXT_line_rasterization ||
+     m_pDriver->GetExtensions(GetRecord(m_Device)).ext_KHR_line_rasterization)
   {
     lineRasterState.lineRasterizationMode = pipeInfo.lineRasterMode;
     lineRasterState.stippledLineEnable = pipeInfo.stippleEnabled;

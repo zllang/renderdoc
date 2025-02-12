@@ -1120,9 +1120,9 @@ bool WrappedVulkan::Serialise_vkCreateRenderPass(SerialiserType &ser, VkDevice d
         // without doing a clear or a DONT_CARE load.
         for(uint32_t i = 0; i < CreateInfo.attachmentCount; i++)
         {
-          if(att[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+          if(att[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE)
             att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          if(att[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+          if(att[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE)
             att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         }
 
@@ -1225,9 +1225,9 @@ VkResult WrappedVulkan::vkCreateRenderPass(VkDevice device, const VkRenderPassCr
       for(uint32_t i = 0; i < info.attachmentCount; i++)
       {
         atts[i] = info.pAttachments[i];
-        if(atts[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+        if(atts[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE)
           atts[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        if(atts[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+        if(atts[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE)
           atts[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
       }
 
@@ -1379,9 +1379,9 @@ bool WrappedVulkan::Serialise_vkCreateRenderPass2(SerialiserType &ser, VkDevice 
         // without doing a clear or a DONT_CARE load.
         for(uint32_t i = 0; i < CreateInfo.attachmentCount; i++)
         {
-          if(att[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+          if(att[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE)
             att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-          if(att[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+          if(att[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE)
             att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         }
 
@@ -1486,9 +1486,9 @@ VkResult WrappedVulkan::vkCreateRenderPass2(VkDevice device,
       for(uint32_t i = 0; i < info.attachmentCount; i++)
       {
         atts[i] = info.pAttachments[i];
-        if(atts[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+        if(atts[i].loadOp != VK_ATTACHMENT_LOAD_OP_NONE)
           atts[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        if(atts[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE_KHR)
+        if(atts[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE)
           atts[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
       }
 
@@ -2134,6 +2134,9 @@ static ObjData GetObjData(VkObjectType objType, uint64_t object)
     case VK_OBJECT_TYPE_UNKNOWN:
     case VK_OBJECT_TYPE_VIDEO_SESSION_KHR:
     case VK_OBJECT_TYPE_VIDEO_SESSION_PARAMETERS_KHR:
+    case VK_OBJECT_TYPE_PIPELINE_BINARY_KHR:
+    case VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_EXT:
+    case VK_OBJECT_TYPE_INDIRECT_EXECUTION_SET_EXT:
     case VK_OBJECT_TYPE_MAX_ENUM: break;
   }
 

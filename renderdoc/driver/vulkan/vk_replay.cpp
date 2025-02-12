@@ -1583,20 +1583,20 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
 
     ret.rasterizer.lineRasterMode = LineRaster::Default;
 
-    // "VK_LINE_RASTERIZATION_MODE_DEFAULT_HKR is equivalent to
-    // VK_LINE_RASTERIZATION_MODE_RECTANGULAR_KHR if VkPhysicalDeviceLimits::strictLines is VK_TRUE"
+    // "VK_LINE_RASTERIZATION_MODE_DEFAULT is equivalent to
+    // VK_LINE_RASTERIZATION_MODE_RECTANGULAR if VkPhysicalDeviceLimits::strictLines is VK_TRUE"
     if(m_pDriver->GetDeviceProps().limits.strictLines)
       ret.rasterizer.lineRasterMode = LineRaster::Rectangular;
 
     switch(state.lineRasterMode)
     {
-      case VK_LINE_RASTERIZATION_MODE_RECTANGULAR_KHR:
+      case VK_LINE_RASTERIZATION_MODE_RECTANGULAR:
         ret.rasterizer.lineRasterMode = LineRaster::Rectangular;
         break;
-      case VK_LINE_RASTERIZATION_MODE_BRESENHAM_KHR:
+      case VK_LINE_RASTERIZATION_MODE_BRESENHAM:
         ret.rasterizer.lineRasterMode = LineRaster::Bresenham;
         break;
-      case VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_KHR:
+      case VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH:
         ret.rasterizer.lineRasterMode = LineRaster::RectangularSmooth;
         break;
       default: break;
@@ -2176,7 +2176,7 @@ void VulkanReplay::SavePipelineState(uint32_t eventId)
 
         destSet.descriptorSetResourceId = rm->GetOriginalID(sourceSet);
         destSet.pushDescriptor = (c.m_DescSetLayout[layoutId].flags &
-                                  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
+                                  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT);
 
         destSet.layoutResourceId = rm->GetOriginalID(layoutId);
       }

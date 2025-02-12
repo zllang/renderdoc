@@ -88,7 +88,7 @@ VkDescriptorUpdateTemplateCreateInfo WrappedVulkan::UnwrapInfo(
 {
   VkDescriptorUpdateTemplateCreateInfo ret = *info;
 
-  if(ret.templateType == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR)
+  if(ret.templateType == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS)
     ret.pipelineLayout = Unwrap(ret.pipelineLayout);
   if(ret.templateType == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET)
     ret.descriptorSetLayout = Unwrap(ret.descriptorSetLayout);
@@ -642,7 +642,7 @@ VkResult WrappedVulkan::vkAllocateDescriptorSets(VkDevice device,
 
         // only mark descriptor set as dirty if it's not a push descriptor layout
         if((layoutRecord->descInfo->layout->flags &
-            VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) == 0)
+            VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT) == 0)
         {
           GetResourceManager()->MarkDirtyResource(id);
         }
@@ -1600,7 +1600,7 @@ VkResult WrappedVulkan::vkCreateDescriptorUpdateTemplate(
       VkResourceRecord *record = GetResourceManager()->AddResourceRecord(*pDescriptorUpdateTemplate);
       record->AddChunk(chunk);
 
-      if(unwrapped.templateType == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR)
+      if(unwrapped.templateType == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS)
         record->AddParent(GetRecord(pCreateInfo->pipelineLayout));
       else if(unwrapped.templateType == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET)
         record->AddParent(GetRecord(pCreateInfo->descriptorSetLayout));

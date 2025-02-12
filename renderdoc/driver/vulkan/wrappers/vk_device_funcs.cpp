@@ -1713,14 +1713,14 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     m_PhysicalDeviceData.driverInfo =
         VkDriverInfo(m_PhysicalDeviceData.props, m_PhysicalDeviceData.driverProps, true);
 
-    rdcarray<VkDeviceQueueGlobalPriorityCreateInfoKHR *> queuePriorities;
+    rdcarray<VkDeviceQueueGlobalPriorityCreateInfo *> queuePriorities;
 
     for(uint32_t i = 0; i < CreateInfo.queueCreateInfoCount; i++)
     {
-      VkDeviceQueueGlobalPriorityCreateInfoKHR *queuePrio =
-          (VkDeviceQueueGlobalPriorityCreateInfoKHR *)FindNextStruct(
+      VkDeviceQueueGlobalPriorityCreateInfo *queuePrio =
+          (VkDeviceQueueGlobalPriorityCreateInfo *)FindNextStruct(
               &CreateInfo.pQueueCreateInfos[i],
-              VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_KHR);
+              VK_STRUCTURE_TYPE_DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO);
 
       if(queuePrio)
         queuePriorities.push_back(queuePrio);
@@ -2578,7 +2578,7 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceVariablePointerFeatures,
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceVariablePointersFeatures,
                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES);
       {
         CHECK_PHYS_EXT_FEATURE(variablePointersStorageBuffer);
@@ -2586,8 +2586,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceVertexAttributeDivisorFeaturesKHR,
-                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_KHR);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceVertexAttributeDivisorFeatures,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES);
       {
         CHECK_PHYS_EXT_FEATURE(vertexAttributeInstanceRateDivisor);
         CHECK_PHYS_EXT_FEATURE(vertexAttributeInstanceRateZeroDivisor);
@@ -2778,8 +2778,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceIndexTypeUint8FeaturesKHR,
-                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceIndexTypeUint8Features,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES);
       {
         CHECK_PHYS_EXT_FEATURE(indexTypeUint8);
       }
@@ -2808,8 +2808,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceLineRasterizationFeaturesEXT,
-                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceLineRasterizationFeatures,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES);
       {
         CHECK_PHYS_EXT_FEATURE(rectangularLines);
         CHECK_PHYS_EXT_FEATURE(bresenhamLines);
@@ -2923,8 +2923,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceComputeShaderDerivativesFeaturesNV,
-                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_NV);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR);
       {
         CHECK_PHYS_EXT_FEATURE(computeDerivativeGroupQuads);
         CHECK_PHYS_EXT_FEATURE(computeDerivativeGroupLinear);
@@ -3062,8 +3062,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceGlobalPriorityQueryFeaturesKHR,
-                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GLOBAL_PRIORITY_QUERY_FEATURES_KHR);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceGlobalPriorityQueryFeatures,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GLOBAL_PRIORITY_QUERY_FEATURES);
       {
         CHECK_PHYS_EXT_FEATURE(globalPriorityQuery);
       }
@@ -3114,9 +3114,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(
-          VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR,
-          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceDynamicRenderingLocalReadFeatures,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES);
       {
         CHECK_PHYS_EXT_FEATURE(dynamicRenderingLocalRead);
       }
@@ -3187,8 +3186,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
-      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceDepthClampZeroOneFeaturesEXT,
-                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLAMP_ZERO_ONE_FEATURES_EXT);
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceDepthClampZeroOneFeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLAMP_ZERO_ONE_FEATURES_KHR);
       {
         CHECK_PHYS_EXT_FEATURE(depthClampZeroOne);
       }
@@ -3683,8 +3682,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
     }
 
-    VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalarBlockEXTFeatures = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT,
+    VkPhysicalDeviceScalarBlockLayoutFeatures scalarBlockFeatures = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES,
     };
 
     if(RDCMIN(m_EnabledExtensions.vulkanVersion, physProps.apiVersion) >= VK_MAKE_VERSION(1, 2, 0))
@@ -3708,9 +3707,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         }
         else
         {
-          VkPhysicalDeviceScalarBlockLayoutFeaturesEXT *existingEXT =
-              (VkPhysicalDeviceScalarBlockLayoutFeaturesEXT *)FindNextStruct(
-                  &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT);
+          VkPhysicalDeviceScalarBlockLayoutFeatures *existingEXT =
+              (VkPhysicalDeviceScalarBlockLayoutFeatures *)FindNextStruct(
+                  &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES);
 
           if(existingEXT)
           {
@@ -3721,18 +3720,18 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
             // don't add a new VkPhysicalDeviceVulkan12Features to the pNext chain because if we do
             // we have to remove any components etc. Instead just add the individual
             // VkPhysicalDeviceScalarBlockLayoutFeaturesEXT
-            scalarBlockEXTFeatures.scalarBlockLayout = VK_TRUE;
+            scalarBlockFeatures.scalarBlockLayout = VK_TRUE;
 
-            scalarBlockEXTFeatures.pNext = (void *)createInfo.pNext;
-            createInfo.pNext = &scalarBlockEXTFeatures;
+            scalarBlockFeatures.pNext = (void *)createInfo.pNext;
+            createInfo.pNext = &scalarBlockFeatures;
           }
         }
       }
     }
     else if(scalarBlock)
     {
-      VkPhysicalDeviceScalarBlockLayoutFeaturesEXT scalarAvail = {
-          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT,
+      VkPhysicalDeviceScalarBlockLayoutFeatures scalarAvail = {
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES,
       };
       VkPhysicalDeviceFeatures2 availBase = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
       availBase.pNext = &scalarAvail;
@@ -3741,9 +3740,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       if(scalarAvail.scalarBlockLayout)
       {
         // see if there's an existing struct
-        VkPhysicalDeviceScalarBlockLayoutFeaturesEXT *existing =
-            (VkPhysicalDeviceScalarBlockLayoutFeaturesEXT *)FindNextStruct(
-                &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT);
+        VkPhysicalDeviceScalarBlockLayoutFeatures *existing =
+            (VkPhysicalDeviceScalarBlockLayoutFeatures *)FindNextStruct(
+                &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES);
 
         if(existing)
         {
@@ -3752,10 +3751,10 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         else
         {
           // otherwise, add our own, and push it onto the pNext array
-          scalarBlockEXTFeatures.scalarBlockLayout = VK_TRUE;
+          scalarBlockFeatures.scalarBlockLayout = VK_TRUE;
 
-          scalarBlockEXTFeatures.pNext = (void *)createInfo.pNext;
-          createInfo.pNext = &scalarBlockEXTFeatures;
+          scalarBlockFeatures.pNext = (void *)createInfo.pNext;
+          createInfo.pNext = &scalarBlockFeatures;
         }
       }
       else
@@ -3771,8 +3770,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     VkPhysicalDeviceBufferDeviceAddressFeaturesEXT bufAddrEXTFeatures = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT,
     };
-    VkPhysicalDeviceBufferDeviceAddressFeaturesKHR bufAddrKHRFeatures = {
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR,
+    VkPhysicalDeviceBufferDeviceAddressFeatures bufAddrFeatures = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES,
     };
 
     if(RDCMIN(m_EnabledExtensions.vulkanVersion, physProps.apiVersion) >= VK_MAKE_VERSION(1, 3, 0))
@@ -3807,9 +3806,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         }
         else
         {
-          VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *existingKHR =
-              (VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *)FindNextStruct(
-                  &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR);
+          VkPhysicalDeviceBufferDeviceAddressFeatures *existingKHR =
+              (VkPhysicalDeviceBufferDeviceAddressFeatures *)FindNextStruct(
+                  &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES);
           VkPhysicalDeviceBufferDeviceAddressFeaturesEXT *existingEXT =
               (VkPhysicalDeviceBufferDeviceAddressFeaturesEXT *)FindNextStruct(
                   &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT);
@@ -3831,11 +3830,11 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
             // don't add a new VkPhysicalDeviceVulkan12Features to the pNext chain because if we do
             // we have to remove any components etc. Instead just add the individual
             // VkPhysicalDeviceBufferDeviceAddressFeaturesKHR
-            bufAddrKHRFeatures.bufferDeviceAddress = VK_TRUE;
-            bufAddrKHRFeatures.bufferDeviceAddressMultiDevice = VK_FALSE;
+            bufAddrFeatures.bufferDeviceAddress = VK_TRUE;
+            bufAddrFeatures.bufferDeviceAddressMultiDevice = VK_FALSE;
 
-            bufAddrKHRFeatures.pNext = (void *)createInfo.pNext;
-            createInfo.pNext = &bufAddrKHRFeatures;
+            bufAddrFeatures.pNext = (void *)createInfo.pNext;
+            createInfo.pNext = &bufAddrFeatures;
           }
         }
       }
@@ -3843,15 +3842,15 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     else if(KHRbuffer)
     {
       VkPhysicalDeviceFeatures2 availBase = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-      availBase.pNext = &bufAddrKHRFeatures;
+      availBase.pNext = &bufAddrFeatures;
       ObjDisp(physicalDevice)->GetPhysicalDeviceFeatures2(Unwrap(physicalDevice), &availBase);
 
-      if(bufAddrKHRFeatures.bufferDeviceAddress)
+      if(bufAddrFeatures.bufferDeviceAddress)
       {
         // see if there's an existing struct
-        VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *existing =
-            (VkPhysicalDeviceBufferDeviceAddressFeaturesKHR *)FindNextStruct(
-                &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR);
+        VkPhysicalDeviceBufferDeviceAddressFeatures *existing =
+            (VkPhysicalDeviceBufferDeviceAddressFeatures *)FindNextStruct(
+                &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES);
 
         if(existing)
         {
@@ -3863,11 +3862,11 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         else
         {
           // otherwise, add our own, and push it onto the pNext array
-          bufAddrKHRFeatures.bufferDeviceAddress = VK_TRUE;
-          bufAddrKHRFeatures.bufferDeviceAddressMultiDevice = VK_FALSE;
+          bufAddrFeatures.bufferDeviceAddress = VK_TRUE;
+          bufAddrFeatures.bufferDeviceAddressMultiDevice = VK_FALSE;
 
-          bufAddrKHRFeatures.pNext = (void *)createInfo.pNext;
-          createInfo.pNext = &bufAddrKHRFeatures;
+          bufAddrFeatures.pNext = (void *)createInfo.pNext;
+          createInfo.pNext = &bufAddrFeatures;
         }
       }
       else
@@ -3961,11 +3960,11 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     {
       RDCWARN("Failed to create logical device: %s. Reducing queue priorities", ToStr(vkr).c_str());
 
-      for(VkDeviceQueueGlobalPriorityCreateInfoKHR *q : queuePriorities)
+      for(VkDeviceQueueGlobalPriorityCreateInfo *q : queuePriorities)
       {
         // medium is considered the default if no priority is set otherwise
-        if(q->globalPriority > VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_EXT)
-          q->globalPriority = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_EXT;
+        if(q->globalPriority > VK_QUEUE_GLOBAL_PRIORITY_MEDIUM)
+          q->globalPriority = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM;
       }
 
       vkr = GetDeviceDispatchTable(NULL)->CreateDevice(Unwrap(physicalDevice), &createInfo, NULL,

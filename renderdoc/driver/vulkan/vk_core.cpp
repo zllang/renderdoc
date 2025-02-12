@@ -1433,6 +1433,10 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_CALIBRATED_TIMESTAMPS_SPEC_VERSION,
     },
     {
+        VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME,
+        VK_KHR_COMPUTE_SHADER_DERIVATIVES_SPEC_VERSION,
+    },
+    {
         VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
         VK_KHR_COPY_COMMANDS_2_SPEC_VERSION,
     },
@@ -1447,6 +1451,10 @@ static const VkExtensionProperties supportedExtensions[] = {
     {
         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
         VK_KHR_DEFERRED_HOST_OPERATIONS_SPEC_VERSION,
+    },
+    {
+        VK_KHR_DEPTH_CLAMP_ZERO_ONE_EXTENSION_NAME,
+        VK_KHR_DEPTH_CLAMP_ZERO_ONE_SPEC_VERSION,
     },
     {
         VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME,
@@ -4272,7 +4280,7 @@ bool WrappedVulkan::ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk)
       return Serialise_vkCmdSetExtraPrimitiveOverestimationSizeEXT(ser, VK_NULL_HANDLE, 0.0f);
     case VulkanChunk::vkCmdSetLineRasterizationModeEXT:
       return Serialise_vkCmdSetLineRasterizationModeEXT(ser, VK_NULL_HANDLE,
-                                                        VK_LINE_RASTERIZATION_MODE_MAX_ENUM_KHR);
+                                                        VK_LINE_RASTERIZATION_MODE_MAX_ENUM);
     case VulkanChunk::vkCmdSetLineStippleEnableEXT:
       return Serialise_vkCmdSetLineStippleEnableEXT(ser, VK_NULL_HANDLE, VK_FALSE);
     case VulkanChunk::vkCmdSetLogicOpEnableEXT:

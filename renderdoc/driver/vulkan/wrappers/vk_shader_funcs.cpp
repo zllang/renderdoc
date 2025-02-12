@@ -557,7 +557,7 @@ VkResult WrappedVulkan::vkCreateShadersEXT(VkDevice device, uint32_t createInfoC
     // shader binaries aren't supported, and any calls to vkGetShaderBinaryData should return a
     // valid but incompatible UUID
     if(pCreateInfos[i].codeType == VK_SHADER_CODE_TYPE_BINARY_EXT)
-      return VK_ERROR_INCOMPATIBLE_SHADER_BINARY_EXT;
+      return VK_INCOMPATIBLE_SHADER_BINARY_EXT;
     else
       pShaders[i] = VK_NULL_HANDLE;
   }
@@ -1473,9 +1473,8 @@ VkResult WrappedVulkan::vkCreateRayTracingPipelinesKHR(
     pPipelines[i] = VK_NULL_HANDLE;
 
     // Patch in capture/replay creation flags
-    VkPipelineCreateFlags2CreateInfoKHR *flagsInfo =
-        (VkPipelineCreateFlags2CreateInfoKHR *)FindNextStruct(
-            &unwrappedCreateInfos[i], VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO_KHR);
+    VkPipelineCreateFlags2CreateInfo *flagsInfo = (VkPipelineCreateFlags2CreateInfo *)FindNextStruct(
+        &unwrappedCreateInfos[i], VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO);
     if(flagsInfo)
       flagsInfo->flags |= VK_PIPELINE_CREATE_2_RAY_TRACING_SHADER_GROUP_HANDLE_CAPTURE_REPLAY_BIT_KHR;
     else

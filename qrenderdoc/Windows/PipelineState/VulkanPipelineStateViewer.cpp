@@ -4612,7 +4612,7 @@ void VulkanPipelineStateViewer::AddFossilizeNexts(QVariantMap &info, const SDObj
     {
       QVariant v = ConvertSDObjectToFossilizeJSON(
           next, {
-                    // VkPipelineVertexInputDivisorStateCreateInfoEXT
+                    // VkPipelineVertexInputDivisorStateCreateInfo
                     {"pVertexBindingDivisors", "vertexBindingDivisors"},
                     // VkRenderPassMultiviewCreateInfo
                     {"subpassCount", ""},

@@ -937,7 +937,7 @@ bool WrappedVulkan::Serialise_vkCmdSetLineStippleKHR(SerialiserType &ser,
         {
           VulkanRenderState &renderstate = GetCmdRenderState();
 
-          renderstate.dynamicStates[VkDynamicLineStippleKHR] = true;
+          renderstate.dynamicStates[VkDynamicLineStipple] = true;
 
           renderstate.stippleFactor = lineStippleFactor;
           renderstate.stipplePattern = lineStipplePattern;
@@ -2837,8 +2837,7 @@ void WrappedVulkan::vkCmdSetExtraPrimitiveOverestimationSizeEXT(VkCommandBuffer 
 
 template <typename SerialiserType>
 bool WrappedVulkan::Serialise_vkCmdSetLineRasterizationModeEXT(
-    SerialiserType &ser, VkCommandBuffer commandBuffer,
-    VkLineRasterizationModeKHR lineRasterizationMode)
+    SerialiserType &ser, VkCommandBuffer commandBuffer, VkLineRasterizationMode lineRasterizationMode)
 {
   SERIALISE_ELEMENT(commandBuffer);
   SERIALISE_ELEMENT(lineRasterizationMode).Important();
@@ -2879,7 +2878,7 @@ bool WrappedVulkan::Serialise_vkCmdSetLineRasterizationModeEXT(
 }
 
 void WrappedVulkan::vkCmdSetLineRasterizationModeEXT(VkCommandBuffer commandBuffer,
-                                                     VkLineRasterizationModeKHR lineRasterizationMode)
+                                                     VkLineRasterizationMode lineRasterizationMode)
 {
   SCOPED_DBG_SINK();
 
@@ -3569,7 +3568,7 @@ void WrappedVulkan::vkCmdSetRayTracingPipelineStackSizeKHR(VkCommandBuffer comma
 template <typename SerialiserType>
 bool WrappedVulkan::Serialise_vkCmdSetRenderingAttachmentLocationsKHR(
     SerialiserType &ser, VkCommandBuffer commandBuffer,
-    const VkRenderingAttachmentLocationInfoKHR *pLocationInfo)
+    const VkRenderingAttachmentLocationInfo *pLocationInfo)
 {
   SERIALISE_ELEMENT(commandBuffer);
   SERIALISE_ELEMENT_LOCAL(locationInfo, *pLocationInfo).Named("pLocationInfo"_lit).Important();
@@ -3608,7 +3607,7 @@ bool WrappedVulkan::Serialise_vkCmdSetRenderingAttachmentLocationsKHR(
 }
 
 void WrappedVulkan::vkCmdSetRenderingAttachmentLocationsKHR(
-    VkCommandBuffer commandBuffer, const VkRenderingAttachmentLocationInfoKHR *pLocationInfo)
+    VkCommandBuffer commandBuffer, const VkRenderingAttachmentLocationInfo *pLocationInfo)
 {
   SCOPED_DBG_SINK();
 
@@ -3632,7 +3631,7 @@ void WrappedVulkan::vkCmdSetRenderingAttachmentLocationsKHR(
 template <typename SerialiserType>
 bool WrappedVulkan::Serialise_vkCmdSetRenderingInputAttachmentIndicesKHR(
     SerialiserType &ser, VkCommandBuffer commandBuffer,
-    const VkRenderingInputAttachmentIndexInfoKHR *pInputAttachmentIndexInfo)
+    const VkRenderingInputAttachmentIndexInfo *pInputAttachmentIndexInfo)
 {
   SERIALISE_ELEMENT(commandBuffer);
   SERIALISE_ELEMENT_LOCAL(inputAttachmentIndexInfo, *pInputAttachmentIndexInfo)
@@ -3676,7 +3675,7 @@ bool WrappedVulkan::Serialise_vkCmdSetRenderingInputAttachmentIndicesKHR(
 
 void WrappedVulkan::vkCmdSetRenderingInputAttachmentIndicesKHR(
     VkCommandBuffer commandBuffer,
-    const VkRenderingInputAttachmentIndexInfoKHR *pInputAttachmentIndexInfo)
+    const VkRenderingInputAttachmentIndexInfo *pInputAttachmentIndexInfo)
 {
   SCOPED_DBG_SINK();
 
@@ -3817,7 +3816,7 @@ INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetExtraPrimitiveOverestimationSizeEX
                                 VkCommandBuffer commandBuffer,
                                 float extraPrimitiveOverestimationSize);
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetLineRasterizationModeEXT, VkCommandBuffer commandBuffer,
-                                VkLineRasterizationModeKHR lineRasterizationMode);
+                                VkLineRasterizationMode lineRasterizationMode);
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetLineStippleEnableEXT, VkCommandBuffer commandBuffer,
                                 VkBool32 stippledLineEnable);
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetLogicOpEnableEXT, VkCommandBuffer commandBuffer,
@@ -3842,7 +3841,7 @@ INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetRayTracingPipelineStackSizeKHR,
 
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetRenderingAttachmentLocationsKHR,
                                 VkCommandBuffer commandBuffer,
-                                const VkRenderingAttachmentLocationInfoKHR *pLocationInfo);
-INSTANTIATE_FUNCTION_SERIALISED(
-    void, vkCmdSetRenderingInputAttachmentIndicesKHR, VkCommandBuffer commandBuffer,
-    const VkRenderingInputAttachmentIndexInfoKHR *pInputAttachmentIndexInfo);
+                                const VkRenderingAttachmentLocationInfo *pLocationInfo);
+INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdSetRenderingInputAttachmentIndicesKHR,
+                                VkCommandBuffer commandBuffer,
+                                const VkRenderingInputAttachmentIndexInfo *pInputAttachmentIndexInfo);

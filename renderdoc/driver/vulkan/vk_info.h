@@ -292,7 +292,7 @@ struct VulkanCreationInfo
     VkFormat depthFormat;
     VkFormat stencilFormat;
 
-    // VkRenderingAttachmentLocationInfoKHR and VkRenderingInputAttachmentIndexInfoKHR
+    // VkRenderingAttachmentLocationInfo and VkRenderingInputAttachmentIndexInfo
     DynamicRenderingLocalRead dynamicRenderingLocalRead;
 
     // a variant of the pipeline that uses subpass 0, used for when we are replaying in isolation.
@@ -318,7 +318,7 @@ struct VulkanCreationInfo
       uint32_t bytestride;
       bool perInstance;
 
-      // VkVertexInputBindingDivisorDescriptionEXT
+      // VkVertexInputBindingDivisorDescription
       uint32_t instanceDivisor;
     };
     rdcarray<VertBinding> vertexBindings;
@@ -369,8 +369,8 @@ struct VulkanCreationInfo
     VkConservativeRasterizationModeEXT conservativeRasterizationMode;
     float extraPrimitiveOverestimationSize;
 
-    // VkPipelineRasterizationLineStateCreateInfoKHR
-    VkLineRasterizationModeKHR lineRasterMode;
+    // VkPipelineRasterizationLineStateCreateInfo
+    VkLineRasterizationMode lineRasterMode;
     bool stippleEnabled;
     uint32_t stippleFactor;
     uint16_t stipplePattern;

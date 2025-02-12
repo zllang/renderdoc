@@ -160,7 +160,7 @@ bool WrappedVulkan::Prepare_InitialState(WrappedVkRes *res)
 
     VkInitialContents initialContents(type, VkInitialContents::DescriptorSet);
 
-    if((layout.flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) == 0)
+    if((layout.flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT) == 0)
     {
       record->descInfo->data.copy(initialContents.descriptorSlots, initialContents.numDescriptors,
                                   initialContents.inlineData, initialContents.inlineByteSize);
@@ -1189,7 +1189,7 @@ bool WrappedVulkan::Serialise_InitialState(SerialiserType &ser, ResourceId id, V
       const DescSetLayout &layout =
           m_CreationInfo.m_DescSetLayout[m_DescriptorSetState[liveid].layout];
 
-      if(layout.flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)
+      if(layout.flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT)
       {
         RDCERR("Push descriptor set with initial contents!");
         return true;
