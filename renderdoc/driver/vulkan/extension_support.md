@@ -197,6 +197,7 @@ Maintainers can update this file by updating vk.xml in this folder and running `
 * `VK_KHR_shader_draw_parameters`
 * `VK_KHR_shader_expect_assume`
 * `VK_KHR_shader_float_controls`
+* `VK_KHR_shader_float_controls2`
 * `VK_KHR_shader_float16_int8`
 * `VK_KHR_shader_integer_dot_product`
 * `VK_KHR_shader_maximal_reconvergence`
@@ -259,7 +260,6 @@ KHR extensions will definitely be implemented at some point, though KHR extensio
 * `VK_KHR_pipeline_binary`
 * `VK_KHR_ray_tracing_maintenance1`
 * `VK_KHR_ray_tracing_position_fetch`
-* `VK_KHR_shader_float_controls2`
 * `VK_KHR_shader_subgroup_rotate`
 
 ## KHR Portability

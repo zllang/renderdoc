@@ -646,6 +646,8 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::RoundingModeRTE:
       case Capability::RoundingModeRTZ:
 
+      case Capability::FloatControls2:
+
       // group instructions
 
       // workgroup layout:
@@ -817,7 +819,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::CooperativeMatrixPerElementOperationsNV:
       case Capability::CooperativeMatrixTensorAddressingNV:
       case Capability::CooperativeMatrixBlockLoadsNV:
-      case Capability::FloatControls2:
       case Capability::FPGAClusterAttributesV2INTEL:
       case Capability::FPMaxErrorINTEL:
       case Capability::GlobalVariableFPGADecorationsINTEL:
