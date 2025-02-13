@@ -402,7 +402,13 @@ bool StopChildAtMain(pid_t childPid, bool *exitWithNoExec)
     char line[512] = {0};
     if(fgets(line, 511, maps))
     {
-      if(strstr(line, "r-xp"))
+      char *sp = strchr(line, ' ');
+      if(sp == NULL)
+        continue;
+
+      sp++;
+
+      if(!strncmp(sp, "r-xp ", 4))
       {
         RDCCOMPILE_ASSERT(sizeof(long) == sizeof(void *), "Expected long to be pointer sized");
         int pathOffset = 0;
