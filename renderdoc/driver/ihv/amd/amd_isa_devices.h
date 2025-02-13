@@ -36,6 +36,7 @@ struct asic
 };
 
 const int legacyAsicCount = 20;
+const int AMDILIndex = 24;
 const int asicCount = 31;
 extern const asic asicInfo[];
 
