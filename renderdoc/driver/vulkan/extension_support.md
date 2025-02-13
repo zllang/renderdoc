@@ -205,6 +205,7 @@ Maintainers can update this file by updating vk.xml in this folder and running `
 * `VK_KHR_shader_quad_control`
 * `VK_KHR_shader_relaxed_extended_instruction`
 * `VK_KHR_shader_subgroup_extended_types`
+* `VK_KHR_shader_subgroup_rotate`
 * `VK_KHR_shader_subgroup_uniform_control_flow`
 * `VK_KHR_shader_terminate_invocation`
 * `VK_KHR_shared_presentable_image`
@@ -260,7 +261,6 @@ KHR extensions will definitely be implemented at some point, though KHR extensio
 * `VK_KHR_pipeline_binary`
 * `VK_KHR_ray_tracing_maintenance1`
 * `VK_KHR_ray_tracing_position_fetch`
-* `VK_KHR_shader_subgroup_rotate`
 
 ## KHR Portability
 

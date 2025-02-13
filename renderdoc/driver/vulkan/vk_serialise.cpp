@@ -1378,6 +1378,10 @@ SERIALISE_VK_HANDLES();
   PNEXT_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_EXTENDED_TYPES_FEATURES,              \
                VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures)                                    \
                                                                                                        \
+  /* VK_KHR_shader_subgroup_rotate */                                                                  \
+  PNEXT_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_ROTATE_FEATURES,                      \
+               VkPhysicalDeviceShaderSubgroupRotateFeatures)                                           \
+                                                                                                       \
   /* VK_KHR_shader_subgroup_uniform_control_flow */                                                    \
   PNEXT_STRUCT(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_UNIFORM_CONTROL_FLOW_FEATURES_KHR,    \
                VkPhysicalDeviceShaderSubgroupUniformControlFlowFeaturesKHR)                            \
@@ -1840,9 +1844,6 @@ SERIALISE_VK_HANDLES();
                                                                                                        \
   /* VK_KHR_ray_tracing_position_fetch */                                                              \
   PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR)         \
-                                                                                                       \
-  /* VK_KHR_shader_subgroup_rotate */                                                                  \
-  PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_ROTATE_FEATURES)                 \
                                                                                                        \
   /* VK_KHR_video_decode_av1 */                                                                        \
   PNEXT_UNSUPPORTED(VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_CAPABILITIES_KHR)                               \
@@ -10389,6 +10390,23 @@ void Deserialise(const VkPhysicalDeviceShaderTerminateInvocationFeatures &el)
 }
 
 template <typename SerialiserType>
+void DoSerialise(SerialiserType &ser, VkPhysicalDeviceShaderSubgroupRotateFeatures &el)
+{
+  RDCASSERT(ser.IsReading() ||
+            el.sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_ROTATE_FEATURES);
+  SerialiseNext(ser, el.sType, el.pNext);
+
+  SERIALISE_MEMBER(shaderSubgroupRotate);
+  SERIALISE_MEMBER(shaderSubgroupRotateClustered);
+}
+
+template <>
+void Deserialise(const VkPhysicalDeviceShaderSubgroupRotateFeatures &el)
+{
+  DeserialiseNext(el.pNext);
+}
+
+template <typename SerialiserType>
 void DoSerialise(SerialiserType &ser, VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures &el)
 {
   RDCASSERT(ser.IsReading() ||
@@ -13048,6 +13066,7 @@ INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderObjectFeaturesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderObjectPropertiesEXT);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderQuadControlFeaturesKHR);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderRelaxedExtendedInstructionFeaturesKHR);
+INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderSubgroupRotateFeatures);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderSubgroupUniformControlFlowFeaturesKHR);
 INSTANTIATE_SERIALISE_TYPE(VkPhysicalDeviceShaderTerminateInvocationFeatures);

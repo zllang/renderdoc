@@ -2827,6 +2827,14 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderSubgroupRotateFeatures,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_ROTATE_FEATURES);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderSubgroupRotate);
+        CHECK_PHYS_EXT_FEATURE(shaderSubgroupRotateClustered);
+      }
+      END_PHYS_EXT_CHECK();
+
       BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceCoherentMemoryFeaturesAMD,
                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD);
       {
