@@ -3024,4 +3024,8 @@ public:
   VkDeviceSize vkGetRayTracingShaderGroupStackSizeKHR(VkDevice device, VkPipeline pipeline,
                                                       uint32_t group,
                                                       VkShaderGroupShaderKHR groupShader);
+
+  // VK_KHR_ray_tracing_maintenance1
+  IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdTraceRaysIndirect2KHR, VkCommandBuffer commandBuffer,
+                                VkDeviceAddress indirectDeviceAddress);
 };

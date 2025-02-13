@@ -3436,6 +3436,14 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR);
+      {
+        CHECK_PHYS_EXT_FEATURE(rayTracingMaintenance1);
+        CHECK_PHYS_EXT_FEATURE(rayTracingPipelineTraceRaysIndirect2);
+      }
+      END_PHYS_EXT_CHECK();
+
       BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR,
                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR);
       {

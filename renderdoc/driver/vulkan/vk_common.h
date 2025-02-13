@@ -1148,6 +1148,7 @@ enum class VulkanChunk : uint32_t
   vkCreateRayTracingPipelinesKHR,
   vkCmdSetRenderingAttachmentLocationsKHR,
   vkCmdSetRenderingInputAttachmentIndicesKHR,
+  vkCmdTraceRaysIndirect2KHR,
   Max,
 };
 
@@ -1468,6 +1469,7 @@ DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceProvokingVertexPropertiesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDevicePushDescriptorProperties);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceRayQueryFeaturesKHR);
+DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceRayTracingPipelineFeaturesKHR);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceRayTracingPipelinePropertiesKHR);
 DECLARE_REFLECTION_STRUCT(VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR);
@@ -1918,6 +1920,7 @@ DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceProvokingVertexPropertiesEXT);
 DECLARE_DESERIALISE_TYPE(VkPhysicalDevicePushDescriptorProperties);
 DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceRasterizationOrderAttachmentAccessFeaturesEXT);
 DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceRayQueryFeaturesKHR);
+DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR);
 DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceRayTracingPipelineFeaturesKHR);
 DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceRayTracingPipelinePropertiesKHR);
 DECLARE_DESERIALISE_TYPE(VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR);

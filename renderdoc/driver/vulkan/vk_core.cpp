@@ -1659,6 +1659,10 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_RAY_QUERY_SPEC_VERSION,
     },
     {
+        VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME,
+        VK_KHR_RAY_TRACING_MAINTENANCE_1_SPEC_VERSION,
+    },
+    {
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
         VK_KHR_RAY_TRACING_PIPELINE_SPEC_VERSION,
     },
@@ -4356,6 +4360,8 @@ bool WrappedVulkan::ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk)
     case VulkanChunk::vkCreateRayTracingPipelinesKHR:
       return Serialise_vkCreateRayTracingPipelinesKHR(ser, VK_NULL_HANDLE, VK_NULL_HANDLE,
                                                       VK_NULL_HANDLE, 0, NULL, NULL, NULL);
+    case VulkanChunk::vkCmdTraceRaysIndirect2KHR:
+      return Serialise_vkCmdTraceRaysIndirect2KHR(ser, VK_NULL_HANDLE, 0);
 
     // chunks that are reserved but not yet serialised
     case VulkanChunk::vkResetCommandPool:

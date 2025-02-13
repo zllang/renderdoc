@@ -544,7 +544,8 @@
   DeclExt(EXT_subgroup_size_control);                  \
   DeclExt(EXT_shader_subgroup_ballot);                 \
   DeclExt(EXT_shader_subgroup_vote);                   \
-  DeclExt(KHR_shader_subgroup_uniform_control_flow);
+  DeclExt(KHR_shader_subgroup_uniform_control_flow);   \
+  DeclExt(KHR_ray_tracing_maintenance1);
 
 // for simplicity and since the check itself is platform agnostic,
 // these aren't protected in platform defines
@@ -678,7 +679,8 @@
   CheckExt(EXT_subgroup_size_control, VK13);                  \
   CheckExt(EXT_shader_subgroup_ballot, VK11);                 \
   CheckExt(EXT_shader_subgroup_vote, VK11);                   \
-  CheckExt(KHR_shader_subgroup_uniform_control_flow, VKXX);
+  CheckExt(KHR_shader_subgroup_uniform_control_flow, VKXX);   \
+  CheckExt(KHR_ray_tracing_maintenance1, VKXX);
 
 #define HookInitVulkanInstanceExts_PhysDev()                                                         \
   HookInitExtension(KHR_surface, GetPhysicalDeviceSurfaceSupportKHR);                                \
@@ -1044,6 +1046,7 @@
   HookInitExtension(KHR_ray_tracing_pipeline, GetRayTracingCaptureReplayShaderGroupHandlesKHR);      \
   HookInitExtension(KHR_ray_tracing_pipeline, GetRayTracingShaderGroupHandlesKHR);                   \
   HookInitExtension(KHR_ray_tracing_pipeline, GetRayTracingShaderGroupStackSizeKHR);                 \
+  HookInitExtension(KHR_ray_tracing_maintenance1, CmdTraceRaysIndirect2KHR);                         \
   HookInitExtension_Device_Win32();                                                                  \
   HookInitExtension_Device_Linux();                                                                  \
   HookInitExtension_Device_Android();                                                                \
@@ -1949,6 +1952,8 @@
               pipeline, uint32_t, group, VkShaderGroupShaderKHR, groupShader);                       \
   HookDefine2(void, vkCmdSetRayTracingPipelineStackSizeKHR, VkCommandBuffer, commandBuffer,          \
               uint32_t, pipelineStackSize);                                                          \
+  HookDefine2(void, vkCmdTraceRaysIndirect2KHR, VkCommandBuffer, commandBuffer, VkDeviceAddress,     \
+              indirectDeviceAddress);                                                                \
   HookDefine_Win32();                                                                                \
   HookDefine_Linux();                                                                                \
   HookDefine_Android();                                                                              \
