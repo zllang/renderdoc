@@ -30,7 +30,7 @@
 RDOC_DEBUG_CONFIG(
     bool, Vulkan_Debug_VerboseCommandRecording, false,
     "Add verbose logging around recording and submission of command buffers in vulkan.");
-RDOC_EXTERN_CONFIG(bool, Vulkan_Hack_DisableRPRobustness);
+RDOC_EXTERN_CONFIG(bool, Vulkan_Hack_DisableRPNormalisation);
 
 static rdcstr ToHumanStr(const VkAttachmentLoadOp &el)
 {
@@ -785,7 +785,7 @@ void WrappedVulkan::ApplyRPStoreDiscards(VkCommandBuffer commandBuffer, VkRect2D
 
     VkImageLayout layout = rpinfo.attachments[i].finalLayout;
 
-    if(Vulkan_Hack_DisableRPRobustness())
+    if(Vulkan_Hack_DisableRPNormalisation())
       layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if(IsStencilFormat(viewInfo.format))
@@ -2350,7 +2350,7 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass(SerialiserType &ser, VkCommandB
 
         ResourceId currentRP = GetCmdRenderState().GetRenderPass();
 
-        if(Vulkan_Hack_DisableRPRobustness() && !m_FeedbackRPs.contains(currentRP))
+        if(Vulkan_Hack_DisableRPNormalisation() && !m_FeedbackRPs.contains(currentRP))
         {
           ApplyRPStoreDiscards(commandBuffer, GetCmdRenderState().renderArea, currentRP,
                                GetCmdRenderState().GetFramebufferAttachments());
@@ -3014,7 +3014,7 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass2(SerialiserType &ser, VkCommand
         }
 
         ResourceId currentRP = GetCmdRenderState().GetRenderPass();
-        if(Vulkan_Hack_DisableRPRobustness() && !m_FeedbackRPs.contains(currentRP))
+        if(Vulkan_Hack_DisableRPNormalisation() && !m_FeedbackRPs.contains(currentRP))
         {
           ApplyRPStoreDiscards(commandBuffer, GetCmdRenderState().renderArea, currentRP,
                                GetCmdRenderState().GetFramebufferAttachments());
@@ -7314,7 +7314,7 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
         // effects of that are never user-visible.
         if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
         {
-          if(Vulkan_Hack_DisableRPRobustness())
+          if(Vulkan_Hack_DisableRPNormalisation())
           {
             static bool warned = false;
 
@@ -7671,7 +7671,7 @@ bool WrappedVulkan::Serialise_vkCmdEndRendering(SerialiserType &ser, VkCommandBu
         m_BakedCmdBufferInfo[m_LastCmdBufferID].renderPassOpen = false;
 
         // only do discards when not suspending!
-        if(Vulkan_Hack_DisableRPRobustness() && !suspending)
+        if(Vulkan_Hack_DisableRPNormalisation() && !suspending)
         {
           rdcarray<VkRenderingAttachmentInfo> dynAtts = renderstate.dynamicRendering.color;
           dynAtts.push_back(renderstate.dynamicRendering.depth);
