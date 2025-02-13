@@ -156,6 +156,18 @@ static void MakeSubpassLoadRP(RPCreateInfo &info, const RPCreateInfo *origInfo, 
   }
 }
 
+template <typename type>
+bool RemoveForcedRef()
+{
+  return false;
+}
+
+template <>
+bool RemoveForcedRef<VkAccelerationStructureKHR>()
+{
+  return true;
+}
+
 // note, for threading reasons we ensure to release the wrappers before
 // releasing the underlying object. Otherwise after releasing the vulkan object
 // that same handle could be returned by create on another thread, and we
@@ -166,7 +178,11 @@ static void MakeSubpassLoadRP(RPCreateInfo &info, const RPCreateInfo *origInfo, 
     if(obj == VK_NULL_HANDLE)                                                            \
       return;                                                                            \
     type unwrappedObj = Unwrap(obj);                                                     \
-    m_ForcedReferences.removeOne(GetRecord(obj));                                        \
+    if(RemoveForcedRef<type>())                                                          \
+    {                                                                                    \
+      SCOPED_LOCK(m_ForcedReferencesLock);                                               \
+      m_ForcedReferences.removeOne(GetRecord(obj));                                      \
+    }                                                                                    \
     if(IsReplayMode(m_State))                                                            \
       m_CreationInfo.erase(GetResID(obj));                                               \
     GetResourceManager()->ReleaseWrappedResource(obj, true);                             \
