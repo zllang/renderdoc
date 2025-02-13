@@ -408,7 +408,7 @@ bool StopChildAtMain(pid_t childPid, bool *exitWithNoExec)
 
       sp++;
 
-      if(!strncmp(sp, "r-xp ", 4))
+      if(!strncmp(sp, "r-xp", 4))
       {
         RDCCOMPILE_ASSERT(sizeof(long) == sizeof(void *), "Expected long to be pointer sized");
         int pathOffset = 0;
