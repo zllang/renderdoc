@@ -314,9 +314,9 @@ RDResult WrappedVulkan::Initialise(VkInitParams &params, uint64_t sectionVersion
 
   AddRequiredExtensions(true, params.Extensions, supportedExtensions);
 
-  // after 1.0, VK_KHR_get_physical_device_properties2 is promoted to core, but enable it if it's
+  // after 1.1, VK_KHR_get_physical_device_properties2 is promoted to core, but enable it if it's
   // reported as available, just in case.
-  if(params.APIVersion >= VK_API_VERSION_1_0)
+  if(params.APIVersion >= VK_API_VERSION_1_1)
   {
     if(supportedExtensions.find(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) !=
        supportedExtensions.end())
@@ -337,6 +337,17 @@ RDResult WrappedVulkan::Initialise(VkInitParams &params, uint64_t sectionVersion
     {
       if(!params.Extensions.contains(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
         params.Extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    }
+  }
+
+  // enable device group extension if on 1.0, so we can use BDA. Shuts the validation layers up
+  if(params.APIVersion <= VK_API_VERSION_1_0)
+  {
+    if(supportedExtensions.find(VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME) !=
+       supportedExtensions.end())
+    {
+      if(!params.Extensions.contains(VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME))
+        params.Extensions.push_back(VK_KHR_DEVICE_GROUP_CREATION_EXTENSION_NAME);
     }
   }
 
@@ -1915,6 +1926,9 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     {
       Extensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
       RDCLOG("Enabling VK_KHR_buffer_device_address");
+
+      if(!Extensions.contains(VK_KHR_DEVICE_GROUP_EXTENSION_NAME))
+        Extensions.push_back(VK_KHR_DEVICE_GROUP_EXTENSION_NAME);
 
       KHRbuffer = true;
     }
