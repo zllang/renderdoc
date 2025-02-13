@@ -1691,6 +1691,10 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_KHR_SHADER_DRAW_PARAMETERS_SPEC_VERSION,
     },
     {
+        VK_KHR_SHADER_EXPECT_ASSUME_EXTENSION_NAME,
+        VK_KHR_SHADER_EXPECT_ASSUME_SPEC_VERSION,
+    },
+    {
         VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
         VK_KHR_SHADER_FLOAT16_INT8_SPEC_VERSION,
     },
