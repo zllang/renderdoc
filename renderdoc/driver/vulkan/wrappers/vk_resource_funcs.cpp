@@ -506,7 +506,7 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
   VkMemoryAllocateFlagsInfo *memFlags = (VkMemoryAllocateFlagsInfo *)FindNextStruct(
       &unwrapped, VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO);
 
-  static VkMemoryAllocateFlagsInfo rtForcedFlags = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};
+  VkMemoryAllocateFlagsInfo rtForcedFlags = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};
 
   // massive wart and oversight in RT APIs. ASs are bound to buffers which are then bound to memory.
   // Buffers are not required to be BDA, but we need them to be BDA capture/replay'd in order to
