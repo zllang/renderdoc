@@ -1051,6 +1051,8 @@ private:
   void AddImplicitResolveResourceUsage(uint32_t subpass = 0);
   rdcarray<VkImageMemoryBarrier> GetImplicitRenderPassBarriers(uint32_t subpass = 0);
   rdcstr MakeRenderPassOpString(bool store);
+  void ApplyRPStoreDiscards(VkCommandBuffer commandBuffer, VkRect2D renderArea,
+                            ResourceId currentRP, const rdcarray<ResourceId> &attachments);
   void ApplyRPLoadDiscards(VkCommandBuffer commandBuffer, VkRect2D renderArea);
 
   RDCDriver GetFrameCaptureDriver() { return RDCDriver::Vulkan; }

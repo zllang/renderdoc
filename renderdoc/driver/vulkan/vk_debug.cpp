@@ -2376,7 +2376,8 @@ void VulkanDebugManager::FillWithDiscardPattern(VkCommandBuffer cmd, DiscardType
                                        : (VkAccessFlags)VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     dstimBarrier.dstAccessMask = VK_ACCESS_ALL_WRITE_BITS | VK_ACCESS_ALL_READ_BITS;
 
-    DoPipelineBarrier(cmd, 1, &dstimBarrier);
+    if(curLayout != VK_IMAGE_LAYOUT_UNDEFINED)
+      DoPipelineBarrier(cmd, 1, &dstimBarrier);
 
     m_pDriver->GetCmdRenderState().BindPipeline(m_pDriver, cmd, VulkanRenderState::BindInitial,
                                                 false);

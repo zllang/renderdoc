@@ -24,6 +24,11 @@
 
 #include "../vk_core.h"
 #include "../vk_debug.h"
+#include "core/settings.h"
+
+RDOC_CONFIG(
+    bool, Vulkan_Hack_DisableRPNormalisation, false,
+    "Disable default behaviour to normalise renderpasses to be more consistent and debuggable.");
 
 static void PatchSeparateStencil(VkAttachmentDescription &att, const VkAttachmentReference *ref)
 {
@@ -1041,28 +1046,35 @@ bool WrappedVulkan::Serialise_vkCreateRenderPass(SerialiserType &ser, VkDevice d
     VkAttachmentDescription *att = (VkAttachmentDescription *)CreateInfo.pAttachments;
     for(uint32_t i = 0; i < CreateInfo.attachmentCount; i++)
     {
-      if(att[i].storeOp != VK_ATTACHMENT_STORE_OP_NONE)
-        att[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      if(att[i].stencilStoreOp != VK_ATTACHMENT_STORE_OP_NONE)
-        att[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-      if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
+      if(Vulkan_Hack_DisableRPNormalisation())
       {
-        if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-          att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-          att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        RDCWARN("RP attachment normalisation not applied!");
+      }
+      else
+      {
+        if(att[i].storeOp != VK_ATTACHMENT_STORE_OP_NONE)
+          att[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        if(att[i].stencilStoreOp != VK_ATTACHMENT_STORE_OP_NONE)
+          att[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-        if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
-           att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+        if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
         {
-          att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-        }
+          if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+            att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+            att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
-        if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
-           att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
-        {
-          att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+          if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
+             att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+          {
+            att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+          }
+
+          if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
+             att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+          {
+            att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+          }
         }
       }
 
@@ -1124,6 +1136,21 @@ bool WrappedVulkan::Serialise_vkCreateRenderPass(SerialiserType &ser, VkDevice d
             att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
           if(att[i].stencilLoadOp != VK_ATTACHMENT_LOAD_OP_NONE)
             att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+
+          if(Vulkan_Hack_DisableRPNormalisation())
+          {
+            if((att[i].loadOp == VK_ATTACHMENT_LOAD_OP_LOAD ||
+                att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD) &&
+               att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+            {
+              att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+            }
+
+            if(att[i].storeOp != VK_ATTACHMENT_STORE_OP_NONE)
+              att[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            if(att[i].stencilStoreOp != VK_ATTACHMENT_STORE_OP_NONE)
+              att[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+          }
         }
 
         VkRenderPassCreateInfo loadInfo = CreateInfo;
@@ -1295,36 +1322,35 @@ bool WrappedVulkan::Serialise_vkCreateRenderPass2(SerialiserType &ser, VkDevice 
     VkAttachmentDescription2 *att = (VkAttachmentDescription2 *)CreateInfo.pAttachments;
     for(uint32_t i = 0; i < CreateInfo.attachmentCount; i++)
     {
-      if(att[i].storeOp != VK_ATTACHMENT_STORE_OP_NONE)
-        att[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-      if(att[i].stencilStoreOp != VK_ATTACHMENT_STORE_OP_NONE)
-        att[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-      if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
+      if(Vulkan_Hack_DisableRPNormalisation())
       {
-        if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-          att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-          att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        RDCWARN("RP attachment normalisation not applied!");
       }
-
-      if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
+      else
       {
-        if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-          att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
-          att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        if(att[i].storeOp != VK_ATTACHMENT_STORE_OP_NONE)
+          att[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        if(att[i].stencilStoreOp != VK_ATTACHMENT_STORE_OP_NONE)
+          att[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-        if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
-           att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+        if(m_ReplayOptions.optimisation != ReplayOptimisationLevel::Fastest)
         {
-          att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
-        }
+          if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+            att[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+          if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_DONT_CARE)
+            att[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 
-        if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
-           att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
-        {
-          att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+          if(att[i].loadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
+             att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+          {
+            att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+          }
+
+          if(att[i].stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
+             att[i].initialLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+          {
+            att[i].initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+          }
         }
       }
 
