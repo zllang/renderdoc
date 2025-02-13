@@ -437,7 +437,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       "SPV_KHR_non_semantic_info",
       "SPV_KHR_physical_storage_buffer",
       "SPV_KHR_post_depth_coverage",
-      // SPV_KHR_quad_control
+      "SPV_KHR_quad_control",
       // SPV_KHR_ray_cull_mask
       // SPV_KHR_ray_query
       // SPV_KHR_ray_tracing
@@ -603,6 +603,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::SignedZeroInfNanPreserve:
       case Capability::PhysicalStorageBufferAddresses:
       case Capability::MeshShadingEXT:
+      case Capability::QuadControlKHR:
       {
         supported = true;
         break;
@@ -805,7 +806,6 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       case Capability::FPGAArgumentInterfacesINTEL:
       case Capability::TextureBlockMatch2QCOM:
       case Capability::ShaderEnqueueAMDX:
-      case Capability::QuadControlKHR:
       case Capability::DisplacementMicromapNV:
       case Capability::AtomicFloat16VectorNV:
       case Capability::RayTracingDisplacementMicromapNV:
