@@ -431,7 +431,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       // SPV_KHR_fragment_shading_rate
       // SPV_KHR_integer_dot_product
       // SPV_KHR_linkonce_odr  - kernel only
-      // SPV_KHR_maximal_reconvergence
+      "SPV_KHR_maximal_reconvergence",
       "SPV_KHR_multiview",
       "SPV_KHR_no_integer_wrap_decoration",
       "SPV_KHR_non_semantic_info",
@@ -449,7 +449,7 @@ void Reflector::CheckDebuggable(bool &debuggable, rdcstr &debugStatus) const
       "SPV_KHR_shader_draw_parameters",
       "SPV_KHR_storage_buffer_storage_class",
       "SPV_KHR_subgroup_rotate",
-      // SPV_KHR_subgroup_uniform_control_flow
+      "SPV_KHR_subgroup_uniform_control_flow",
       "SPV_KHR_subgroup_vote",
       "SPV_KHR_terminate_invocation",
       // SPV_KHR_uniform_group_instructions - kernel?

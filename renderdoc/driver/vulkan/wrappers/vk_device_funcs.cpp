@@ -3367,6 +3367,14 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       }
       END_PHYS_EXT_CHECK();
 
+      BEGIN_PHYS_EXT_CHECK(
+          VkPhysicalDeviceShaderMaximalReconvergenceFeaturesKHR,
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MAXIMAL_RECONVERGENCE_FEATURES_KHR);
+      {
+        CHECK_PHYS_EXT_FEATURE(shaderMaximalReconvergence);
+      }
+      END_PHYS_EXT_CHECK();
+
       BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceShaderQuadControlFeaturesKHR,
                            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_QUAD_CONTROL_FEATURES_KHR);
       {
