@@ -164,7 +164,7 @@ static void StripUnwantedExtensions(rdcarray<rdcstr> &Extensions)
     if(ext == "VK_KHR_xlib_surface" || ext == "VK_KHR_xcb_surface" ||
        ext == "VK_KHR_wayland_surface" || ext == "VK_KHR_mir_surface" ||
        ext == "VK_MVK_macos_surface" || ext == "VK_KHR_android_surface" ||
-       ext == "VK_KHR_win32_surface")
+       ext == "VK_KHR_win32_surface" || ext == "VK_EXT_headless_surface")
     {
       return true;
     }
@@ -192,7 +192,8 @@ static void StripUnwantedExtensions(rdcarray<rdcstr> &Extensions)
     if(ext == "VK_GOOGLE_display_timing" || ext == "VK_KHR_display_swapchain" ||
        ext == "VK_EXT_display_control" || ext == "VK_KHR_present_id" ||
        ext == "VK_KHR_present_wait" || ext == "VK_EXT_surface_maintenance1" ||
-       ext == "VK_EXT_swapchain_maintenance1" || ext == "VK_EXT_hdr_metadata")
+       ext == "VK_EXT_swapchain_maintenance1" || ext == "VK_EXT_hdr_metadata" ||
+       ext == "VK_KHR_get_display_properties2")
       return true;
 
     // remove fullscreen exclusive extension
