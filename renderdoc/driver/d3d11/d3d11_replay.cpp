@@ -2044,13 +2044,15 @@ bool D3D11Replay::GetHistogram(ResourceId texid, const Subresource &sub, CompTyp
   int srvOffset = 0;
   int intIdx = 0;
 
-  if(IsUIntFormat(details.texFmt))
+  DXGI_FORMAT fmt = GetTypedFormat(details.texFmt, typeCast);
+
+  if(IsUIntFormat(fmt))
   {
     cdata.HistogramFlags |= TEXDISPLAY_UINT_TEX;
     srvOffset = 10;
     intIdx = 1;
   }
-  if(IsIntFormat(details.texFmt))
+  if(IsIntFormat(fmt))
   {
     cdata.HistogramFlags |= TEXDISPLAY_SINT_TEX;
     srvOffset = 20;

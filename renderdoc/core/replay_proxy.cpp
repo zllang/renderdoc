@@ -2515,7 +2515,7 @@ void ReplayProxy::RemapProxyTextureIfNeeded(TextureDescription &tex, GetTextureD
     params.remap = RemapTexture::RGBA32;
     tex.format.compCount = 4;
     tex.format.compByteWidth = 4;
-    tex.format.compType = CompType::Float;
+    params.typeCast = tex.format.compType = CompType::Float;
     tex.format.type = ResourceFormatType::Regular;
     tex.creationFlags &= ~TextureCategory::DepthTarget;
     return;
@@ -2566,8 +2566,14 @@ void ReplayProxy::RemapProxyTextureIfNeeded(TextureDescription &tex, GetTextureD
       case ResourceFormatType::R5G5B5A1:
       case ResourceFormatType::R4G4:
       case ResourceFormatType::R4G4B4A4:
-      case ResourceFormatType::ETC2: params.remap = RemapTexture::RGBA8; break;
-      case ResourceFormatType::R10G10B10A2: params.remap = RemapTexture::RGBA16; break;
+      case ResourceFormatType::ETC2:
+        params.remap = RemapTexture::RGBA8;
+        tex.format.compType = CompType::UNorm;
+        break;
+      case ResourceFormatType::R10G10B10A2:
+        params.remap = RemapTexture::RGBA16;
+        tex.format.compType = CompType::Float;
+        break;
       default:
         RDCERR("Don't know how to remap resource format type %u, falling back to RGBA32",
                tex.format.type);
@@ -2604,6 +2610,8 @@ void ReplayProxy::RemapProxyTextureIfNeeded(TextureDescription &tex, GetTextureD
       tex.format.compType = CompType::Float;
     }
   }
+
+  params.typeCast = tex.format.compType;
 
   tex.format.SetBGRAOrder(false);
   tex.format.type = ResourceFormatType::Regular;
@@ -2677,6 +2685,8 @@ void ReplayProxy::EnsureTexCached(ResourceId &texid, CompType &typeCast, const S
 
       GetTextureDataParams params = proxy.params;
 
+      if(typeCast == CompType::Typeless)
+        typeCast = params.typeCast;
       params.typeCast = typeCast;
       params.standardLayout = true;
 
@@ -2695,7 +2705,11 @@ void ReplayProxy::EnsureTexCached(ResourceId &texid, CompType &typeCast, const S
   }
 
   if(proxyit->second.params.remap != RemapTexture::NoRemap)
+  {
     typeCast = BaseRemapType(proxyit->second.params.remap, typeCast);
+    if(typeCast == CompType::Typeless)
+      typeCast = proxyit->second.params.typeCast;
+  }
 
   // change texid to the proxy texture's ID for passing to our proxy renderer
   texid = proxyit->second.id;
