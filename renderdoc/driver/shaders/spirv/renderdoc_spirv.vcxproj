@@ -155,6 +155,12 @@
       <PrecompiledHeaderFile>precompiled.h</PrecompiledHeaderFile>
       <ForcedIncludeFiles>precompiled.h</ForcedIncludeFiles>
     </ClCompile>
+    <ClCompile Include="spirv_controlflow.cpp">
+      <WarningLevel>Level4</WarningLevel>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>precompiled.h</PrecompiledHeaderFile>
+      <ForcedIncludeFiles>precompiled.h</ForcedIncludeFiles>
+    </ClCompile>
     <ClCompile Include="spirv_debug.cpp">
       <WarningLevel>Level4</WarningLevel>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -267,6 +273,7 @@
     <ClInclude Include="precompiled.h" />
     <ClInclude Include="spirv_common.h" />
     <ClInclude Include="spirv_compile.h" />
+    <ClInclude Include="spirv_controlflow.h" />
     <ClInclude Include="spirv_debug.h" />
     <ClInclude Include="spirv_editor.h" />
     <ClInclude Include="spirv_gen.h" />

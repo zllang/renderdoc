@@ -99,6 +99,7 @@ set(sources
     glslang_compile.h
     spirv_common.cpp
     spirv_common.h
+    spirv_controlflow.cpp
     spirv_editor.cpp
     spirv_editor.h
     spirv_gen.cpp
