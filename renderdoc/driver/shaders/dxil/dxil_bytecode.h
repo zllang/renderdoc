@@ -1616,6 +1616,9 @@ public:
   void FetchComputeProperties(DXBC::Reflection *reflection);
   void FetchEntryPoint();
   DXBC::Reflection *BuildReflection();
+
+  rdcstr GetDefaultCommandLine() const { return "-T " + m_Profile; }
+
   rdcstr GetDebugStatus();
   const DXIL::EntryPointInterface *GetEntryPointInterface() const;
   rdcarray<ShaderEntryPoint> GetEntryPoints();
@@ -1644,6 +1647,10 @@ public:
   void GetLocals(const DXBC::DXBCContainer *dxbc, size_t instruction, uintptr_t offset,
                  rdcarray<SourceVariableMapping> &locals) const override;
   // IDebugInfo interface
+
+  // Source-contents overlaying interface can modify list of files directly, but let it modify
+  // shader compile flags here
+  void SetShaderCompileFlags(ShaderCompileFlags flags) { m_CompileFlags = flags; }
 
   const Metadata *GetMetadataByName(const rdcstr &name) const;
   uint32_t GetDirectHeapAcessCount() const { return m_directHeapAccessCount; }

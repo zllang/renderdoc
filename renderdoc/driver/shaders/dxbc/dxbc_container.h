@@ -176,6 +176,7 @@ static const uint32_t FOURCC_PSV0 = MAKE_FOURCC('P', 'S', 'V', '0');
 static const uint32_t FOURCC_RTS0 = MAKE_FOURCC('R', 'T', 'S', '0');
 static const uint32_t FOURCC_RDAT = MAKE_FOURCC('R', 'D', 'A', 'T');
 static const uint32_t FOURCC_VERS = MAKE_FOURCC('V', 'E', 'R', 'S');
+static const uint32_t FOURCC_SRCI = MAKE_FOURCC('S', 'R', 'C', 'I');
 
 struct RDEFHeader;
 
@@ -275,6 +276,7 @@ public:
 
 private:
   void TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &debugInfoPath);
+  void ProcessSourceInfo(const byte *chunkContents, uint32_t size);
 
   bytebuf m_DebugShaderBlob;
   bytebuf m_ShaderBlob;

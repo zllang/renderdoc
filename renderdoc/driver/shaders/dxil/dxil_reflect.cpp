@@ -1716,11 +1716,14 @@ DXBC::Reflection *Program::BuildReflection()
       }
     }
 
+    if(cmdline.empty())
+      cmdline = GetDefaultCommandLine();
+
     m_CompileFlags.flags.push_back({"@cmdline", cmdline});
   }
   else
   {
-    m_CompileFlags.flags.push_back({"@cmdline", "-T " + m_Profile});
+    m_CompileFlags.flags.push_back({"@cmdline", GetDefaultCommandLine()});
   }
 
   if(dx.resources)

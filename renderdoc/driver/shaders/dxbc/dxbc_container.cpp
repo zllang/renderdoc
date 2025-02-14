@@ -32,6 +32,7 @@
 #include "driver/shaders/dxil/dxil_bytecode.h"
 #include "lz4/lz4.h"
 #include "md5/md5.h"
+#include "miniz/miniz.h"
 #include "replay/replay_driver.h"
 #include "serialise/serialiser.h"
 #include "dxbc_bytecode.h"
@@ -46,6 +47,7 @@ namespace
 
 // lookup from plain filename -> absolute path of first result in search paths
 std::unordered_map<rdcstr, rdcstr> cachedDebugFilesLookup;
+int32_t cachedDebugFilesLookupInit = 0;
 
 void CacheSearchDirDebugPaths(rdcstr dir)
 {
@@ -70,7 +72,7 @@ void CacheSearchDirDebugPaths(rdcstr dir)
 
 void CacheSearchDirDebugPaths()
 {
-  if(!cachedDebugFilesLookup.empty())
+  if(Atomic::CmpExch32(&cachedDebugFilesLookupInit, 0, 1) != 0)
     return;
 
   if(!RenderDoc::Inst().IsReplayApp())
@@ -92,6 +94,7 @@ namespace DXBC
 void ResetSearchDirsCache()
 {
   cachedDebugFilesLookup.clear();
+  cachedDebugFilesLookupInit = 0;
 }
 
 rdcstr BasicDemangle(const rdcstr &possiblyMangledName)
@@ -2329,6 +2332,33 @@ DXBCContainer::DXBCContainer(const bytebuf &ByteCode, const rdcstr &debugInfoPat
     PreprocessLineDirectives(m_DebugInfo->Files);
   }
 
+  // if we have DXIL bytecode, check for separate source-info chunks and layer them over the top
+  if(m_DXILByteCode)
+  {
+    // check debug header first, but we don't expect to see these in a non-debug header
+    for(uint32_t chunkIdx = 0; debugHeader && chunkIdx < debugHeader->numChunks; chunkIdx++)
+    {
+      const uint32_t *fourcc = (const uint32_t *)(debugData + debugChunkOffsets[chunkIdx]);
+      const uint32_t *chunkSize = (const uint32_t *)(fourcc + 1);
+
+      const byte *chunkContents = (const byte *)(chunkSize + 1);
+
+      if(*fourcc == FOURCC_SRCI)
+        ProcessSourceInfo(chunkContents, *chunkSize);
+    }
+
+    for(uint32_t chunkIdx = 0; header && chunkIdx < header->numChunks; chunkIdx++)
+    {
+      const uint32_t *fourcc = (const uint32_t *)(data + chunkOffsets[chunkIdx]);
+      const uint32_t *chunkSize = (const uint32_t *)(fourcc + 1);
+
+      const byte *chunkContents = (const byte *)(chunkSize + 1);
+
+      if(*fourcc == FOURCC_SRCI)
+        ProcessSourceInfo(chunkContents, *chunkSize);
+    }
+  }
+
   // if we had bytecode in this container, ensure we had reflection. If it's a blob with only an
   // input signature then we can do without reflection.
   if(m_DXBCByteCode || m_DXILByteCode)
@@ -2370,6 +2400,297 @@ DXBCContainer::~DXBCContainer()
   SAFE_DELETE(m_DXILByteCode);
 
   SAFE_DELETE(m_Reflection);
+}
+
+struct SRCIHeader
+{
+  uint32_t size;    // utterly redundant?
+  uint16_t flags;
+  uint16_t numSections;
+};
+
+enum class SRCISectionType : uint16_t
+{
+  FileContents = 0,
+  Filenames,
+  Args,
+};
+
+struct SRCISection
+{
+  uint32_t sectionSize;
+  uint16_t flags;
+  SRCISectionType type;
+};
+
+struct SRCIArgsSection
+{
+  uint32_t flags;
+  uint32_t dataSize;
+  uint32_t numArgs;
+};
+
+struct SRCIFileContentsSection
+{
+  uint32_t sectionSize;    // NOTE For this section only, this is the size of the data *with* the
+                           // header. Who knows why?
+  uint16_t flags;
+  uint16_t zLibCompressed;
+  uint32_t dataSize;
+  uint32_t uncompressedDataSize;
+  uint32_t numFiles;
+};
+
+struct SRCIFileContentsEntry
+{
+  uint32_t entrySize;
+  uint32_t flags;
+  uint32_t fileSize;
+};
+
+struct SRCIFilenamesSection
+{
+  uint32_t flags;
+  uint32_t numFiles;
+  uint16_t dataSize;
+  // NOTE: NO PADDING HERE BECAUSE OF COURSE NOT
+  byte beginningOfData;
+
+  static constexpr size_t unpaddedSize() { return offsetof(SRCIFilenamesSection, beginningOfData); }
+};
+
+struct SRCIFilenameEntry
+{
+  uint32_t entrySize;
+  uint32_t flags;
+  uint32_t nameSize;
+  uint32_t fileSize;
+};
+
+void DXBCContainer::ProcessSourceInfo(const byte *chunkContents, uint32_t chunkSize)
+{
+  const SRCIHeader *srci = (const SRCIHeader *)chunkContents;
+  chunkContents += sizeof(SRCIHeader);
+
+  // redundant size? this should always be equal
+  RDCASSERTEQUAL(srci->size, chunkSize);
+  RDCASSERTEQUAL(srci->flags, 0);
+
+  rdcarray<ShaderSourceFile> &sourceFiles = m_DXILByteCode->Files;
+
+  if(!sourceFiles.empty())
+  {
+    // if we have source files, check that they're all at least empty
+    bool allEmpty = true;
+    for(const ShaderSourceFile &f : sourceFiles)
+      allEmpty &= f.contents.empty();
+
+    if(!allEmpty)
+      RDCERR("Some shader source files have contents being overridden by SRCI");
+    sourceFiles.clear();
+  }
+
+  for(uint32_t sec = 0; sec < srci->numSections; sec++)
+  {
+    const SRCISection *section = (const SRCISection *)chunkContents;
+    chunkContents += section->sectionSize;
+    RDCASSERTEQUAL(section->flags, 0);
+
+    const byte *sectionContents = (const byte *)(section + 1);
+    switch(section->type)
+    {
+      case SRCISectionType::FileContents:
+      {
+        const SRCIFileContentsSection *contents = (const SRCIFileContentsSection *)(section + 1);
+
+        // flags on flags on flags
+        RDCASSERTEQUAL(contents->flags, 0);
+        // not only would this be pointless if it contains the section size, but dxc seems to set it
+        // to 0 because of course it does.
+        RDCASSERTEQUAL(contents->sectionSize, 0);
+
+        if(!sourceFiles.empty() && sourceFiles.size() != contents->numFiles)
+        {
+          RDCERR(
+              "Unexpected number of source files in contents section %u when we have %zu already",
+              contents->numFiles, sourceFiles.size());
+          continue;
+        }
+
+        sourceFiles.resize(contents->numFiles);
+
+        bytebuf decompressedData;
+        const byte *contentsData = (const byte *)(contents + 1);
+
+        if(contents->zLibCompressed == 1)
+        {
+          decompressedData.resize(contents->uncompressedDataSize);
+
+          mz_stream stream = {};
+
+          stream.next_in = contentsData;
+          stream.avail_in = contents->dataSize;
+          stream.next_out = decompressedData.data();
+          stream.avail_out = contents->uncompressedDataSize;
+
+          int status = mz_inflateInit(&stream);
+          if(status != MZ_OK)
+          {
+            RDCERR("Couldn't initialise zlib decompressor");
+            continue;
+          }
+
+          status = mz_inflate(&stream, MZ_FINISH);
+          if(status != MZ_STREAM_END)
+          {
+            mz_inflateEnd(&stream);
+            RDCERR("zlib decompression failed");
+            continue;
+          }
+          RDCASSERTEQUAL((uint32_t)stream.total_out, contents->uncompressedDataSize);
+          decompressedData.resize(stream.total_out);
+
+          status = mz_inflateEnd(&stream);
+          if(status != MZ_OK)
+          {
+            RDCERR("Failed shutting down zlib decompressor");
+            continue;
+          }
+
+          contentsData = decompressedData.data();
+        }
+        else
+        {
+          RDCASSERTEQUAL(contents->zLibCompressed, 0);
+        }
+
+        for(uint32_t fileIdx = 0; fileIdx < contents->numFiles; fileIdx++)
+        {
+          const SRCIFileContentsEntry *contentsEntry = (const SRCIFileContentsEntry *)contentsData;
+          const char *fileContents = (const char *)(contentsEntry + 1);
+
+          // should be null terminated but don't take any chances because who knows if that will change
+          sourceFiles[fileIdx].contents.assign(fileContents, contentsEntry->fileSize);
+
+          RDCASSERTEQUAL(fileContents[contentsEntry->fileSize], 0);
+
+          // flags on flags on flags
+          RDCASSERTEQUAL(contentsEntry->flags, 0);
+
+          contentsData += contentsEntry->entrySize;
+        }
+        break;
+      }
+      case SRCISectionType::Filenames:
+      {
+        const SRCIFilenamesSection *names = (const SRCIFilenamesSection *)(section + 1);
+
+        // flags on flags on flags
+        RDCASSERTEQUAL(names->flags, 0);
+
+        RDCASSERTEQUAL(AlignUp4(names->dataSize + SRCIFilenamesSection::unpaddedSize()),
+                       AlignUp4(section->sectionSize - sizeof(SRCISection)));
+
+        if(!sourceFiles.empty() && sourceFiles.size() != names->numFiles)
+        {
+          RDCERR(
+              "Unexpected number of source files in filenames section %u when we have %zu already",
+              names->numFiles, sourceFiles.size());
+          continue;
+        }
+
+        sourceFiles.resize(names->numFiles);
+
+        const byte *nameContents = (const byte *)names + SRCIFilenamesSection::unpaddedSize();
+        for(uint32_t fileIdx = 0; fileIdx < names->numFiles; fileIdx++)
+        {
+          const SRCIFilenameEntry *filenameEntry = (const SRCIFilenameEntry *)nameContents;
+          const char *filename = (const char *)(filenameEntry + 1);
+
+          sourceFiles[fileIdx].filename.assign(filename, filenameEntry->nameSize);
+
+          RDCASSERTEQUAL(filename[filenameEntry->nameSize], 0);
+
+          nameContents += filenameEntry->entrySize;
+
+          // I have no idea what you're expected to do with this filesize. I guess pre-allocate, but why?
+          RDCASSERT(sourceFiles[fileIdx].contents.empty() ||
+                        sourceFiles[fileIdx].contents.size() == filenameEntry->fileSize,
+                    sourceFiles[fileIdx].contents.count(), filenameEntry->fileSize);
+        }
+
+        break;
+      }
+      case SRCISectionType::Args:
+      {
+        const SRCIArgsSection *args = (const SRCIArgsSection *)sectionContents;
+
+        // flags on flags on flags
+        RDCASSERTEQUAL(args->flags, 0);
+        RDCASSERTEQUAL(AlignUp4(args->dataSize + sizeof(SRCIArgsSection)),
+                       AlignUp4(section->sectionSize - sizeof(SRCISection)));
+
+        ShaderCompileFlags flags = m_DXILByteCode->GetShaderCompileFlags();
+
+        size_t cmdlineIdx = flags.flags.size();
+        for(size_t i = 0; i < flags.flags.size(); i++)
+        {
+          if(flags.flags[i].name == "preferSourceDebug")
+            continue;
+
+          if(flags.flags[i].name == "@cmdline")
+          {
+            cmdlineIdx = i;
+
+            // print an error if we're not just overriding default data, but continue to override
+            // assuming the SRCI is 'better' data
+            if(flags.flags[i].value != m_DXILByteCode->GetDefaultCommandLine())
+            {
+              RDCERR(
+                  "Unexpected non-default command line in existing DXIL data, will be "
+                  "overridden by SRCI information: %s",
+                  flags.flags[i].value.c_str());
+            }
+
+            continue;
+          }
+        }
+
+        // if we didn't find a @cmdline (we expect to always do that, even with no original debug
+        // source info), add one here
+        if(cmdlineIdx == flags.flags.size())
+          flags.flags.push_back({"@cmdline", ""});
+
+        flags.flags[cmdlineIdx].value.clear();
+
+        // NULL-terminated pairs of strings
+        const char *strData = (const char *)(args + 1);
+        for(uint32_t arg = 0; arg < args->numArgs; arg++)
+        {
+          const char *name = strData;
+          strData += strlen(name) + 1;
+          const char *value = strData;
+          strData += strlen(value) + 1;
+
+          if(arg > 0)
+            flags.flags[cmdlineIdx].value += " ";
+
+          flags.flags[cmdlineIdx].value += "-";
+          flags.flags[cmdlineIdx].value += name;
+          if(value[0] != 0)
+          {
+            flags.flags[cmdlineIdx].value += "=";
+            flags.flags[cmdlineIdx].value += value;
+          }
+        }
+
+        m_DXILByteCode->SetShaderCompileFlags(flags);
+
+        break;
+      }
+      default: RDCERR("Unexpected SRCI section type %u", section->type); break;
+    }
+  }
 }
 
 struct DxcArg
