@@ -474,6 +474,15 @@ struct RDATData
   rdcarray<ResourceInfo> resourceInfo;
   rdcarray<FunctionInfo2> functionInfo;
   rdcarray<SubobjectInfo> subobjectsInfo;
+
+  rdcarray<ShaderEntryPoint> GetEntryPoints() const
+  {
+    rdcarray<ShaderEntryPoint> ret;
+    ret.reserve(functionInfo.size());
+    for(const FunctionInfo2 &func : functionInfo)
+      ret.push_back({func.name, GetShaderStage(func.type)});
+    return ret;
+  }
 };
 
 };

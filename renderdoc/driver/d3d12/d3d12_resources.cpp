@@ -891,9 +891,12 @@ void D3D12ShaderExportDatabase::PopulateDatabase(size_t NumSubobjects,
     {
       D3D12_DXIL_LIBRARY_DESC *dxil = (D3D12_DXIL_LIBRARY_DESC *)subobjects[i].pDesc;
 
-      DXBC::DXBCContainer container(
-          bytebuf((byte *)dxil->DXILLibrary.pShaderBytecode, dxil->DXILLibrary.BytecodeLength),
-          rdcstr(), GraphicsAPI::D3D12, ~0U, ~0U);
+      size_t rdatSize = 0;
+      const byte *rdatData = DXBC::DXBCContainer::FindChunk(
+          (const byte *)dxil->DXILLibrary.pShaderBytecode, dxil->DXILLibrary.BytecodeLength,
+          DXBC::FOURCC_RDAT, rdatSize);
+      DXIL::RDATData rdat;
+      bool haveRDAT = DXBC::DXBCContainer::GetRuntimeData(rdatData, rdatSize, rdat);
 
       rdcarray<rdcstr> exports;
       if(dxil->NumExports > 0)
@@ -909,20 +912,39 @@ void D3D12ShaderExportDatabase::PopulateDatabase(size_t NumSubobjects,
       else
       {
         // hard part, we need to parse the DXIL to get the entry points
-        rdcarray<ShaderEntryPoint> entries = container.GetEntryPoints();
+        rdcarray<ShaderEntryPoint> entries;
+
+        if(haveRDAT)
+        {
+          entries = rdat.GetEntryPoints();
+        }
+        else
+        {
+          RDCERR("Falling back to expensive container-based enumeration of entry points");
+
+          DXBC::DXBCContainer container(
+              bytebuf((byte *)dxil->DXILLibrary.pShaderBytecode, dxil->DXILLibrary.BytecodeLength),
+              rdcstr(), GraphicsAPI::D3D12, ~0U, ~0U);
+
+          entries = container.GetEntryPoints();
+        }
 
         for(const ShaderEntryPoint &e : entries)
           AddExport(e.name);
       }
 
       // import local root signature subobjects
-      DXIL::RDATData rdat;
       rdcarray<rdcstr> localRSs;
-      if(container.GetRuntimeData(rdat))
+      if(haveRDAT)
       {
         for(const DXIL::RDATData::SubobjectInfo &sub : rdat.subobjectsInfo)
         {
-          if(sub.type == DXIL::RDATData::SubobjectInfo::SubobjectType::LocalRS)
+          if(sub.type == DXIL::RDATData::SubobjectInfo::SubobjectType::Hitgroup)
+          {
+            if(dxil->NumExports == 0)
+              AddExport(sub.name);
+          }
+          else if(sub.type == DXIL::RDATData::SubobjectInfo::SubobjectType::LocalRS)
           {
             if(exports.contains(sub.name) || exports.empty())
             {
