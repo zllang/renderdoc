@@ -6193,6 +6193,8 @@ rdcpair<int32_t, int32_t> Program::ParseDIExpressionMD(const Metadata *expressio
           break;
         case DXIL::DW_OP::DW_OP_none: break;
         case DXIL::DW_OP::DW_OP_nop: break;
+        case DXIL::DW_OP::DW_OP_plus: RDCERR("DIExpression DW_OP_plus is not implemented"); break;
+        case DXIL::DW_OP::DW_OP_deref: break;
         default: RDCERR("Unhandled DIExpression op %s", ToStr(expression->op).c_str()); break;
       }
     }
