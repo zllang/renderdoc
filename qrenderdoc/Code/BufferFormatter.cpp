@@ -2511,7 +2511,7 @@ QString BufferFormatter::GetBufferFormatString(Packing::Rules pack, ResourceId s
   {
     const ShaderConstantType &desc = res.variableType;
 
-    if(viewFormat.type == ResourceFormatType::Undefined)
+    if(viewFormat.type == ResourceFormatType::Undefined || viewFormat.compType == CompType::Typeless)
     {
       if(desc.baseType == VarType::Unknown)
       {

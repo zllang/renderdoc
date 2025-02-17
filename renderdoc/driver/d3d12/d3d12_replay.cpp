@@ -1157,7 +1157,7 @@ void D3D12Replay::FillRootDescriptor(Descriptor &dst, const D3D12RenderState::Si
     // parameters from resource/view
     dst.resource = rm->GetOriginalID(src.id);
     dst.textureType = TextureType::Buffer;
-    dst.format = MakeResourceFormat(DXGI_FORMAT_R32_UINT);
+    dst.format = MakeResourceFormat(DXGI_FORMAT_R32_TYPELESS);
 
     dst.elementByteSize = sizeof(uint32_t);
     dst.byteOffset = src.offset;
@@ -1175,7 +1175,7 @@ void D3D12Replay::FillRootDescriptor(Descriptor &dst, const D3D12RenderState::Si
     // parameters from resource/view
     dst.resource = rm->GetOriginalID(src.id);
     dst.textureType = TextureType::Buffer;
-    dst.format = MakeResourceFormat(DXGI_FORMAT_R32_UINT);
+    dst.format = MakeResourceFormat(DXGI_FORMAT_R32_TYPELESS);
 
     dst.elementByteSize = sizeof(uint32_t);
     dst.byteOffset = src.offset;
