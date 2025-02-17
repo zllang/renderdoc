@@ -520,6 +520,16 @@ void D3D11GraphicsTest::ClearRenderTargetView(ID3D11RenderTargetView *rt, Vec4f 
   ctx->ClearRenderTargetView(rt, &col.x);
 }
 
+void D3D11GraphicsTest::ClearUnorderedAccessView(ID3D11UnorderedAccessView *uav, Vec4f col)
+{
+  ctx->ClearUnorderedAccessViewFloat(uav, &col.x);
+}
+
+void D3D11GraphicsTest::ClearUnorderedAccessView(ID3D11UnorderedAccessView *uav, Vec4u col)
+{
+  ctx->ClearUnorderedAccessViewUint(uav, &col.x);
+}
+
 void D3D11GraphicsTest::RSSetViewport(D3D11_VIEWPORT view)
 {
   ctx->RSSetViewports(1, &view);

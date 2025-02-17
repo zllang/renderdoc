@@ -147,6 +147,8 @@ struct D3D11GraphicsTest : public GraphicsTest
   void IASetVertexBuffer(ID3D11Buffer *vb, UINT stride, UINT offset);
 
   void ClearRenderTargetView(ID3D11RenderTargetView *rt, Vec4f col);
+  void ClearUnorderedAccessView(ID3D11UnorderedAccessView *uav, Vec4f col);
+  void ClearUnorderedAccessView(ID3D11UnorderedAccessView *uav, Vec4u col);
 
   D3D11_RASTERIZER_DESC GetRasterState();
   void SetRasterState(const D3D11_RASTERIZER_DESC &desc);

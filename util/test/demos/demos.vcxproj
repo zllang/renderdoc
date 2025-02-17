@@ -146,6 +146,7 @@
     <ClCompile Include="d3d11\d3d11_empty_drawcall.cpp" />
     <ClCompile Include="d3d11\d3d11_empty_viewports.cpp" />
     <ClCompile Include="d3d11\d3d11_feature_level_9.cpp" />
+    <ClCompile Include="d3d11\d3d11_groupshared.cpp" />
     <ClCompile Include="d3d11\d3d11_helpers.cpp" />
     <ClCompile Include="d3d11\d3d11_large_buffer.cpp" />
     <ClCompile Include="d3d11\d3d11_leak_check.cpp" />
@@ -193,6 +194,7 @@
     <ClCompile Include="d3d12\d3d12_empty_capture.cpp" />
     <ClCompile Include="d3d12\d3d12_execute_indirect.cpp" />
     <ClCompile Include="d3d12\d3d12_existing_heap.cpp" />
+    <ClCompile Include="d3d12\d3d12_groupshared.cpp" />
     <ClCompile Include="d3d12\d3d12_helpers.cpp" />
     <ClCompile Include="d3d12\d3d12_mesh_shader.cpp" />
     <ClCompile Include="d3d12\d3d12_multi_wait_before_signal.cpp" />
@@ -312,6 +314,7 @@
     <ClCompile Include="vk\vk_empty_capture.cpp" />
     <ClCompile Include="vk\vk_extended_dyn_state.cpp" />
     <ClCompile Include="vk\vk_graphics_pipeline.cpp" />
+    <ClCompile Include="vk\vk_groupshared.cpp" />
     <ClCompile Include="vk\vk_khr_buffer_address.cpp" />
     <ClCompile Include="vk\vk_large_buffer.cpp" />
     <ClCompile Include="vk\vk_large_descriptor_sets.cpp" />
