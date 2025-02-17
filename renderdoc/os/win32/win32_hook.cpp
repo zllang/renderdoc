@@ -687,10 +687,13 @@ HMODULE WINAPI Hooked_LoadLibraryExW(LPCWSTR lpLibFileName, HANDLE fileHandle, D
   // always returned first regardless of the search order and so we can detect the DLL is already loaded
   if(wcschr(lpLibFileName, L'\\') == 0 && wcschr(lpLibFileName, L'/') == 0)
   {
-    flagsExcludingSearchOrders &=
-        ~(LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-          LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_USER_DIRS |
-          LOAD_WITH_ALTERED_SEARCH_PATH | LOAD_LIBRARY_SAFE_CURRENT_DIRS);
+    flagsExcludingSearchOrders &= ~(LOAD_LIBRARY_SEARCH_APPLICATION_DIR |
+                                    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32 |
+                                    LOAD_LIBRARY_SEARCH_USER_DIRS | LOAD_WITH_ALTERED_SEARCH_PATH);
+
+#ifdef LOAD_LIBRARY_SAFE_CURRENT_DIRS
+    flagsExcludingSearchOrders &= ~LOAD_LIBRARY_SAFE_CURRENT_DIRS;
+#endif
   }
 
   // if there are no flags (possibly with search path flags excluded) and we already have the
