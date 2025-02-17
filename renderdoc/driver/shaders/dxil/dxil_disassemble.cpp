@@ -3710,12 +3710,20 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                         uint32_t bytesPerElement = 4;
                         if(retType)
                         {
-                          RDCASSERTEQUAL(retType->type, Type::TypeKind::Struct);
                           if(retType->type == Type::TypeKind::Struct)
                           {
                             const Type *baseType = retType->members[0];
                             RDCASSERTEQUAL(baseType->type, Type::TypeKind::Scalar);
                             bytesPerElement = baseType->bitWidth / 8;
+                          }
+                          else if(retType->type == Type::TypeKind::Scalar)
+                          {
+                            const Type *baseType = retType;
+                            bytesPerElement = baseType->bitWidth / 8;
+                          }
+                          else
+                          {
+                            RDCWARN("Unhandled cbuffer return type");
                           }
                         }
                         lineStr +=
