@@ -6241,14 +6241,33 @@ SourceMappingInfo Program::ParseDbgOpDeclare(const DXIL::Instruction &inst) cons
   SourceMappingInfo ret;
   ret.isDeclare = true;
 
-  // arg 0 contains the SSA Id of the alloca result which represents the local variable (a pointer)
+  // arg 0 contains the SSA Id of the result which represents the local variable (a pointer)
   const Metadata *allocaInstMD = cast<Metadata>(inst.args[0]);
   RDCASSERT(allocaInstMD);
-  const Instruction *allocaInst = cast<Instruction>(allocaInstMD->value);
-  RDCASSERT(allocaInst);
-  RDCASSERTEQUAL(allocaInst->op, Operation::Alloca);
-  ret.dbgVarId = Program::GetResultSSAId(*allocaInst);
-  Program::MakeResultId(*allocaInst, ret.dbgVarName);
+  const DXIL::Value *value = allocaInstMD->value;
+  const Instruction *varInst = cast<Instruction>(value);
+  if(varInst)
+  {
+    // Instruction can be alloca or NoOp
+    RDCASSERT(varInst->op == Operation::Alloca || varInst->op == Operation::NoOp);
+    ret.dbgVarId = Program::GetResultSSAId(*varInst);
+    Program::MakeResultId(*varInst, ret.dbgVarName);
+  }
+  else
+  {
+    const GlobalVar *gv = cast<GlobalVar>(allocaInstMD->value);
+    if(gv)
+    {
+      ret.dbgVarId = gv->ssaId;
+      rdcstr n = DXBC::BasicDemangle(gv->name);
+      DXIL::SanitiseName(n);
+      ret.dbgVarName = n;
+    }
+    else
+    {
+      RDCERR("Unhandled metadata value type %s", ToStr(allocaInstMD->value->kind()).c_str());
+    }
+  }
 
   // arg 1 is DILocalVariable metadata
   const Metadata *localVariableMD = cast<Metadata>(inst.args[1]);
