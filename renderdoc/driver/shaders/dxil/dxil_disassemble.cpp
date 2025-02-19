@@ -1158,6 +1158,23 @@ void Program::Parse(const DXBC::Reflection *reflection)
   m_SsaAliases.clear();
   ParseReferences(reflection);
 
+  if(m_Type == DXBC::ShaderType::Compute || m_Type == DXBC::ShaderType::Amplification ||
+     m_Type == DXBC::ShaderType::Mesh)
+  {
+    for(GlobalVar *g : m_GlobalVars)
+    {
+      RDCASSERT(g->type->type == Type::Pointer);
+      if(g->type->type == Type::Pointer && g->type->addrSpace == Type::PointerAddrSpace::GroupShared)
+        m_Threadscope |= DXBC::ThreadScope::Workgroup;
+    }
+
+    for(Function *f : m_Functions)
+    {
+      if(f->name == "dx.op.barrier")
+        m_Threadscope |= DXBC::ThreadScope::Workgroup;
+    }
+  }
+
   m_Parsed = true;
 }
 

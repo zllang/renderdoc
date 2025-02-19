@@ -1126,6 +1126,7 @@ public:
   uint32_t GetMajorVersion() const { return m_Major; }
   uint32_t GetMinorVersion() const { return m_Minor; }
   bool IsShaderModel51() const { return m_Major == 5 && m_Minor == 1; }
+  DXBC::ThreadScope GetThreadScope() const { return m_Threadscope; }
   D3D_PRIMITIVE_TOPOLOGY GetOutputTopology();
   const rdcstr &GetDisassembly()
   {
@@ -1163,6 +1164,7 @@ protected:
 
   DXBC::ShaderType m_Type = DXBC::ShaderType::Max;
   uint32_t m_Major = 0, m_Minor = 0;
+  DXBC::ThreadScope m_Threadscope = DXBC::ThreadScope::Thread;
 
   rdcarray<uint32_t> m_ProgramWords;
 

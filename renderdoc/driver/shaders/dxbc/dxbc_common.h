@@ -85,6 +85,16 @@ enum class ShaderType : uint8_t
 
 ShaderStage GetShaderStage(ShaderType type);
 
+enum class ThreadScope : uint32_t
+{
+  Thread = 0,
+  Quad = 0x1,
+  Subgroup = 0x2,
+  Workgroup = 0x4,
+};
+
+BITMASK_OPERATORS(ThreadScope);
+
 /////////////////////////////////////////////////////////////////////////
 // the below classes basically mimics the existing reflection interface.
 //

@@ -1617,6 +1617,8 @@ public:
   void FetchEntryPoint();
   DXBC::Reflection *BuildReflection();
 
+  DXBC::ThreadScope GetThreadScope() const { return m_Threadscope; }
+
   rdcstr GetDefaultCommandLine() const { return "-T " + m_Profile; }
 
   rdcstr GetDebugStatus();
@@ -1717,6 +1719,7 @@ protected:
 
   rdcstr m_CompilerSig, m_EntryPoint, m_Profile;
   ShaderCompileFlags m_CompileFlags;
+  DXBC::ThreadScope m_Threadscope = DXBC::ThreadScope::Thread;
 
   const Type *m_CurParseType = NULL;
 

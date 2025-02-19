@@ -661,7 +661,7 @@ const rdcstr &DXBCContainer::GetDisassembly(bool dxcStyle)
         globalFlagsString += commentString + "       Resource descriptor heap indexing\n";
       if(m_GlobalFlags & GlobalShaderFlags::SamplerDescriptorHeapIndexing)
         globalFlagsString += commentString + "       Sampler descriptor heap indexing\n";
-      if(m_GlobalFlags & GlobalShaderFlags::Reserved)
+      if(m_GlobalFlags & GlobalShaderFlags::WaveMatrix)
         globalFlagsString += commentString + "       Wave Matrix\n";
       if(m_GlobalFlags & GlobalShaderFlags::AtomicInt64OnHeapResource)
         globalFlagsString += commentString + "       64-bit Atomics on Heap Resources\n";
@@ -697,6 +697,7 @@ const rdcstr &DXBCContainer::GetDisassembly(bool dxcStyle)
         m_Disassembly += "// Vendor shader extensions in use\n";
 
       m_Disassembly += m_DXBCByteCode->GetDisassembly();
+      m_Threadscope = m_DXBCByteCode->GetThreadScope();
     }
     else if(m_DXILByteCode)
     {
@@ -720,7 +721,14 @@ const rdcstr &DXBCContainer::GetDisassembly(bool dxcStyle)
 #endif
 
       m_Disassembly += m_DXILByteCode->GetDisassembly(dxcStyle, m_Reflection);
+      m_Threadscope = m_DXILByteCode->GetThreadScope();
     }
+
+    if(m_Type == DXBC::ShaderType::Pixel)
+      m_Threadscope |= ThreadScope::Quad;
+
+    if(m_GlobalFlags & GlobalShaderFlags::WaveOps)
+      m_Threadscope |= ThreadScope::Subgroup;
   }
 
   return m_Disassembly;

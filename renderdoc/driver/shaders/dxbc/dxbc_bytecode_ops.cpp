@@ -782,6 +782,10 @@ void Program::DecodeProgram()
         else
           m_LateDeclarations.back().push_back(decl);
       }
+
+      if(decl.declaration == OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_RAW ||
+         decl.declaration == OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED)
+        m_Threadscope |= DXBC::ThreadScope::Workgroup;
     }
     else
     {
@@ -791,6 +795,9 @@ void Program::DecodeProgram()
       if(op.operation == OPCODE_HS_CONTROL_POINT_PHASE || op.operation == OPCODE_HS_FORK_PHASE ||
          op.operation == OPCODE_HS_JOIN_PHASE)
         m_LateDeclarations.push_back({});
+
+      if(decl.declaration == OPCODE_SYNC)
+        m_Threadscope |= DXBC::ThreadScope::Workgroup;
     }
   }
 

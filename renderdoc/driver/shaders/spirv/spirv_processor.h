@@ -539,6 +539,7 @@ struct Section
 
 enum class ThreadScope : uint32_t
 {
+  Thread = 0,
   Quad = 0x1,
   Subgroup = 0x2,
   Workgroup = 0x4,
@@ -637,7 +638,7 @@ protected:
 
   LogicalSection m_Sections[Section::Count];
 
-  ThreadScope m_ThreadScope;
+  ThreadScope m_ThreadScope = ThreadScope::Thread;
 
 private:
   struct DeferredMemberDecoration

@@ -138,7 +138,7 @@ enum class GlobalShaderFlags : int64_t
   DerivativesInMeshAndAmpShaders = 0x1000000,
   ResourceDescriptorHeapIndexing = 0x2000000,
   SamplerDescriptorHeapIndexing = 0x4000000,
-  Reserved = 0x8000000,
+  WaveMatrix = 0x8000000,
   AtomicInt64OnHeapResource = 0x10000000,
   AdvancedTextureOps = 0x20000000,
   WriteableMSAATextures = 0x40000000,
@@ -207,6 +207,11 @@ public:
   const IDebugInfo *GetDebugInfo() const { return m_DebugInfo; }
   const Reflection *GetReflection() const { return m_Reflection; }
   D3D_PRIMITIVE_TOPOLOGY GetOutputTopology();
+  ThreadScope GetThreadScope()
+  {
+    GetDisassembly(false);
+    return m_Threadscope;
+  }
 
   CBufferVariableType GetRayPayload(const ShaderEntryPoint &entry)
   {
@@ -306,6 +311,7 @@ private:
 
   rdcflatmap<ShaderEntryPoint, rdcpair<CBufferVariableType, CBufferVariableType>> m_RayPayloads;
 
+  ThreadScope m_Threadscope = ThreadScope::Thread;
   ShaderStatistics m_ShaderStats;
   DXBCBytecode::Program *m_DXBCByteCode = NULL;
   DXIL::Program *m_DXILByteCode = NULL;
