@@ -1561,6 +1561,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
   std::sort(liveGlobals.begin(), liveGlobals.end());
 
+  rdcarray<rdcspv::ThreadIndex> threadIds;
   for(uint32_t i = 0; i < threadsInWorkgroup; i++)
   {
     ThreadState &lane = workgroup[i];
@@ -1589,7 +1590,13 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
     // now that the globals are allocated and their storage won't move, we can take pointers to them
     for(const PointerId &p : pointerIDs)
       p.Set(*this, global, lane);
+
+    // Only add active lanes to control flow
+    if(!lane.dead)
+      threadIds.push_back(i);
   }
+
+  controlFlow.Construct(threadIds);
 
   // find quad neighbours
   {
@@ -2462,6 +2469,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
   if(steps == 0)
   {
     ShaderDebugState initial;
+    uint32_t startBlock = INVALID_EXECUTION_POINT;
 
     // we should be sitting at the entry point function prologue, step forward into the first block
     // and past any function-local variable declarations
@@ -2474,6 +2482,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
         thread.EnterEntryPoint(&initial);
         FillCallstack(thread, initial);
         initial.nextInstruction = thread.nextInstruction;
+        startBlock = thread.callstack.back()->curBlock.value();
       }
       else
       {
@@ -2495,6 +2504,21 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
 
     ret.push_back(std::move(initial));
 
+    // Set the initial block for the threads in the root tangle
+    ThreadExecutionStates threadExecutionStates;
+    TangleGroup &tangles = controlFlow.GetTangles();
+    RDCASSERTEQUAL(tangles.size(), 1);
+    RDCASSERTNOTEQUAL(startBlock, INVALID_EXECUTION_POINT);
+    for(Tangle &tangle : tangles)
+    {
+      RDCASSERT(tangle.IsAliveActive());
+      for(uint32_t threadIdx = 0; threadIdx < workgroup.size(); ++threadIdx)
+      {
+        if(!workgroup[threadIdx].Finished())
+          threadExecutionStates[threadIdx].push_back(startBlock);
+      }
+    }
+    controlFlow.UpdateState(threadExecutionStates);
     steps++;
   }
 
@@ -2513,21 +2537,60 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
     if(active.Finished())
       break;
 
-    // calculate the current mask of which threads are active
-    CalcActiveMask(activeMask);
+    // Execute the threads in each active tangle
+    ThreadExecutionStates threadExecutionStates;
+    TangleGroup &tangles = controlFlow.GetTangles();
 
-    // step all active members of the workgroup
-    for(size_t lane = 0; lane < workgroup.size(); lane++)
+    bool anyActiveThreads = false;
+    for(Tangle &tangle : tangles)
     {
-      ThreadState &thread = workgroup[lane];
+      if(!tangle.IsAliveActive())
+        continue;
 
-      if(activeMask[lane])
+      rdcarray<rdcspv::ThreadReference> threadRefs = tangle.GetThreadRefs();
+      // calculate the current active thread mask from the threads in the tangle
       {
-        if(thread.nextInstruction >= instructionOffsets.size())
+        // one bool per workgroup thread
+        activeMask.resize(workgroup.size());
+
+        // start with all threads as inactive
+        for(size_t i = 0; i < workgroup.size(); i++)
+          activeMask[i] = false;
+
+        // activate the threads in the tangle
+        for(const rdcspv::ThreadReference &ref : threadRefs)
+        {
+          uint32_t idx = ref.id;
+          RDCASSERT(idx < workgroup.size(), idx, workgroup.size());
+          RDCASSERT(!workgroup[idx].Finished());
+          activeMask[idx] = true;
+          anyActiveThreads = true;
+        }
+      }
+
+      ExecutionPoint newConvergeInstruction = INVALID_EXECUTION_POINT;
+      ExecutionPoint newFunctionReturnPoint = INVALID_EXECUTION_POINT;
+      uint32_t countActiveThreads = 0;
+      uint32_t countDivergedThreads = 0;
+      uint32_t countConvergePointThreads = 0;
+      uint32_t countFunctionReturnThreads = 0;
+
+      // step all active members of the workgroup
+      for(size_t lane = 0; lane < workgroup.size(); lane++)
+      {
+        if(!activeMask[lane])
+          continue;
+        ++countActiveThreads;
+
+        ThreadState &thread = workgroup[lane];
+        const uint32_t currentPC = thread.nextInstruction;
+        const uint32_t threadId = lane;
+        if(currentPC >= instructionOffsets.size())
         {
           if(lane == activeLaneIndex)
             ret.emplace_back();
 
+          tangle.SetThreadDead(threadId);
           continue;
         }
 
@@ -2535,7 +2598,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
         {
           ShaderDebugState state;
 
-          size_t instOffs = instructionOffsets[thread.nextInstruction];
+          size_t instOffs = instructionOffsets[currentPC];
 
           // see if we're retiring any IDs at this state
           for(size_t l = 0; l < thread.live.size();)
@@ -2574,7 +2637,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
 
           if(m_DebugInfo.valid)
           {
-            size_t endOffs = instructionOffsets[thread.nextInstruction - 1];
+            size_t endOffs = instructionOffsets[currentPC - 1];
 
             // append any inlined functions to the top of the stack
             InlineData *inlined = m_DebugInfo.lineInline[endOffs];
@@ -2622,8 +2685,73 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
         {
           thread.StepNext(NULL, workgroup, activeMask);
         }
+        threadExecutionStates[threadId] = thread.enteredPoints;
+
+        uint32_t threadConvergeInstruction = thread.convergenceInstruction;
+        // the thread activated a new convergence point
+        if(threadConvergeInstruction != INVALID_EXECUTION_POINT)
+        {
+          if(newConvergeInstruction == INVALID_EXECUTION_POINT)
+          {
+            newConvergeInstruction = threadConvergeInstruction;
+            RDCASSERTNOTEQUAL(newConvergeInstruction, INVALID_EXECUTION_POINT);
+          }
+          else
+          {
+            // All the threads in the tangle should set the same convergence point
+            RDCASSERTEQUAL(threadConvergeInstruction, newConvergeInstruction);
+          }
+          ++countConvergePointThreads;
+        }
+        uint32_t threadFunctionReturnPoint = thread.functionReturnPoint;
+        // the thread activated a new function return point
+        if(threadFunctionReturnPoint != INVALID_EXECUTION_POINT)
+        {
+          if(newFunctionReturnPoint == INVALID_EXECUTION_POINT)
+          {
+            newFunctionReturnPoint = threadFunctionReturnPoint;
+            RDCASSERTNOTEQUAL(newFunctionReturnPoint, INVALID_EXECUTION_POINT);
+          }
+          else
+          {
+            // All the threads in the tangle should set the same function return point
+            RDCASSERTEQUAL(threadFunctionReturnPoint, newFunctionReturnPoint);
+          }
+          ++countFunctionReturnThreads;
+        }
+
+        if(thread.Finished())
+          tangle.SetThreadDead(threadId);
+
+        if(thread.diverged)
+          ++countDivergedThreads;
+      }
+      if(countConvergePointThreads)
+      {
+        // all the active threads should have a convergence point if any have one
+        RDCASSERTEQUAL(countConvergePointThreads, countActiveThreads);
+        tangle.AddMergePoint(newConvergeInstruction);
+      }
+      if(countFunctionReturnThreads)
+      {
+        // all the active threads should have a function return point if any have one
+        RDCASSERTEQUAL(countFunctionReturnThreads, countActiveThreads);
+        tangle.AddFunctionReturnPoint(newFunctionReturnPoint);
+      }
+      if(countDivergedThreads)
+      {
+        // all the active threads should have diverged if any diverges
+        RDCASSERTEQUAL(countDivergedThreads, countActiveThreads);
+        tangle.SetDiverged(true);
       }
     }
+    if(!anyActiveThreads)
+    {
+      active.dead = true;
+      controlFlow.UpdateState(threadExecutionStates);
+      RDCERR("No active threads in any tangle, killing active thread to terminate the debugger");
+    }
+    controlFlow.UpdateState(threadExecutionStates);
   }
 
   return ret;
@@ -3424,78 +3552,6 @@ rdcstr Debugger::GetHumanName(Id id)
   dynamicNames[id] = name;
 
   return name;
-}
-
-void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
-{
-  // one bool per workgroup thread
-  activeMask.resize(workgroup.size());
-
-  // mark any threads that have finished as inactive, otherwise they're active
-  for(size_t i = 0; i < workgroup.size(); i++)
-    activeMask[i] = !workgroup[i].Finished();
-
-  // otherwise we need to make sure that control flow which converges stays in lockstep so that
-  // derivatives etc are still valid. While diverged, we don't have to keep threads in lockstep
-  // since using derivatives is invalid.
-  //
-  // We take advantage of SPIR-V's structured control flow. We only ever diverge at a branch
-  // instruction, and the preceeding OpLoopMerge/OpSelectionMerge.
-  //
-  // So the scheme is as follows:
-  // * If we haven't diverged and all threads have the same nextInstruction, we're still uniform so
-  //   continue in lockstep.
-  // * As soon as they differ, we've diverged. Check the last mergeBlock that was specified - we
-  //   won't be uniform again until all threads reach that block.
-  // * Once we've diverged, any threads which are NOT in the merge block are active, and any threads
-  //   which are in it are inactive. This causes them to pause and wait for others to catch up
-  //   until the point where all threads are in the merge block at which point we've converged and
-  //   can go back to uniformity.
-
-  // if we're waiting on a converge block to be reached, we've diverged previously.
-  bool wasDiverged = convergeBlock != Id();
-
-  // see if we've diverged by starting procesing different next instructions
-  bool diverged = false;
-  for(size_t i = 1; !diverged && i < workgroup.size(); i++)
-    diverged |= (workgroup[0].nextInstruction != workgroup[i].nextInstruction);
-
-  if(!wasDiverged && diverged)
-  {
-    // if we've newly diverged, all workgroups should have the same merge block - the point where we
-    // become uniform again.
-    convergeBlock = workgroup[0].mergeBlock;
-    for(size_t i = 1; i < workgroup.size(); i++)
-      RDCASSERT(!activeMask[i] || convergeBlock == workgroup[i].mergeBlock);
-  }
-
-  if(wasDiverged || diverged)
-  {
-    // for every thread, turn it off if it's in the converge block
-    rdcarray<bool> inConverge;
-    inConverge.resize(activeMask.size());
-    for(size_t i = 0; i < workgroup.size(); i++)
-      inConverge[i] = (!workgroup[i].callstack.empty() &&
-                       workgroup[i].callstack.back()->curBlock == convergeBlock);
-
-    // is any thread active, but not converged?
-    bool anyActiveNotConverged = false;
-    for(size_t i = 0; i < workgroup.size(); i++)
-      anyActiveNotConverged |= activeMask[i] && !inConverge[i];
-
-    if(anyActiveNotConverged)
-    {
-      // if so, then only non-converged threads are active right now
-      for(size_t i = 0; i < workgroup.size(); i++)
-        activeMask[i] &= !inConverge[i];
-    }
-    else
-    {
-      // otherwise we can leave the active mask as is, forget the convergence point, and allow
-      // everything to run as normal
-      convergeBlock = Id();
-    }
-  }
 }
 
 void Debugger::AllocateVariable(Id id, Id typeId, ShaderVariable &outVar)

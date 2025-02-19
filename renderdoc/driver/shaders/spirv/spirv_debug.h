@@ -27,6 +27,7 @@
 #include "api/replay/rdcarray.h"
 #include "maths/vec.h"
 #include "spirv_common.h"
+#include "spirv_controlflow.h"
 #include "spirv_processor.h"
 
 struct SPIRVInterfaceAccess;
@@ -225,11 +226,18 @@ struct ThreadState
 
   // the id of the merge block that the last branch targetted
   Id mergeBlock;
+  uint32_t convergenceInstruction;
+  uint32_t functionReturnPoint;
   ShaderVariable returnValue;
   rdcarray<StackFrame *> callstack;
 
   // the list of IDs that are currently valid and live
   rdcarray<Id> live;
+
+  // true if executed an operation which could trigger divergence
+  bool diverged;
+  // list of potential convergence points that were entered in a single step (used for tracking thread convergence)
+  rdcarray<uint32_t> enteredPoints;
 
   std::map<Id, uint32_t> lastWrite;
 
@@ -259,6 +267,7 @@ private:
   bool ReferencePointer(Id id);
 
   void SkipIgnoredInstructions();
+  void SetConvergencePoint(Id block);
 
   ShaderDebugState *m_State = NULL;
 };
@@ -498,7 +507,6 @@ private:
 
   std::set<rdcstr> usedNames;
   std::map<Id, rdcstr> dynamicNames;
-  void CalcActiveMask(rdcarray<bool> &activeMask);
 
   struct
   {
@@ -527,6 +535,8 @@ private:
 
     rdcarray<LocalMapping> activeLocalMappings;
   } m_DebugInfo;
+
+  rdcspv::ControlFlow controlFlow;
 
   const ScopeData *GetScope(size_t offset) const;
 };

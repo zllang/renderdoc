@@ -173,6 +173,11 @@ ThreadState::~ThreadState()
   callstack.clear();
 }
 
+void ThreadState::SetConvergencePoint(Id block)
+{
+  convergenceInstruction = debugger.GetInstructionForLabel(block);
+}
+
 bool ThreadState::Finished() const
 {
   return dead || callstack.empty();
@@ -618,7 +623,11 @@ void ThreadState::JumpToLabel(Id target)
   frame->lastBlock = frame->curBlock;
   frame->curBlock = target;
 
-  nextInstruction = debugger.GetInstructionForLabel(target) + 1;
+  diverged = true;
+
+  uint32_t labelInstruction = debugger.GetInstructionForLabel(target);
+  enteredPoints.push_back(labelInstruction);
+  nextInstruction = labelInstruction + 1;
 
   // if jumping to an empty unconditional loop header, continue to the loop block
   Iter it = debugger.GetIterForInstruction(nextInstruction);
@@ -627,6 +636,7 @@ void ThreadState::JumpToLabel(Id target)
     OpLoopMerge merge(it);
 
     mergeBlock = merge.mergeBlock;
+    SetConvergencePoint(merge.mergeBlock);
 
     it++;
     if(it.opcode() == Op::Branch)
@@ -699,6 +709,7 @@ void ThreadState::SkipIgnoredInstructions()
       OpSelectionMerge merge(it);
 
       mergeBlock = merge.mergeBlock;
+      SetConvergencePoint(merge.mergeBlock);
 
       nextInstruction++;
       continue;
@@ -709,6 +720,7 @@ void ThreadState::SkipIgnoredInstructions()
       OpLoopMerge merge(it);
 
       mergeBlock = merge.mergeBlock;
+      SetConvergencePoint(merge.mergeBlock);
 
       nextInstruction++;
       continue;
@@ -734,6 +746,10 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
 
   Iter it = debugger.GetIterForInstruction(nextInstruction);
   nextInstruction++;
+  diverged = false;
+  enteredPoints.clear();
+  convergenceInstruction = INVALID_EXECUTION_POINT;
+  functionReturnPoint = INVALID_EXECUTION_POINT;
 
   OpDecoder opdata(it);
 
@@ -3879,6 +3895,8 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       // function. The second time we do have a return value so we process it and continue
       if(returnValue.name.empty())
       {
+        // The instruction after a function call is defined to be a convergence point
+        functionReturnPoint = nextInstruction;
         uint32_t returnInstruction = nextInstruction - 1;
         nextInstruction = debugger.GetInstructionForFunction(call.function);
 
@@ -3891,6 +3909,8 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       {
         SetDst(call.result, returnValue);
         returnValue.name.clear();
+        // The instruction after a function call is defined to be a convergence point, mark that we entered it
+        enteredPoints.push_back(nextInstruction);
       }
       break;
     }
