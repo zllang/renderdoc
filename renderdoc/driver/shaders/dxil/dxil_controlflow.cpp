@@ -481,13 +481,14 @@ bool ControlFlow::IsForwardConnection(uint32_t from, uint32_t to) const
 
 using namespace DXIL;
 
-TEST_CASE("DXIL Control Flow", "[dxil]")
+TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
 {
   SECTION("FindUniformBlocks")
   {
     ControlFlow controlFlow;
     rdcarray<uint32_t> uniformBlocks;
     rdcarray<uint32_t> loopBlocks;
+    SECTION("Degenerate Case")
     {
       // Degenerate case
       rdcarray<BlockLink> inputs;
@@ -497,6 +498,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       loopBlocks = controlFlow.GetLoopBlocks();
       REQUIRE(0 == loopBlocks.count());
     }
+    SECTION("Just Start and End")
     {
       // Only uniform flow is the start and end
       // 0 -> 1
@@ -511,6 +513,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(0 == loopBlocks.count());
     }
 
+    SECTION("Single Uniform Flow")
     {
       // Single uniform flow between start and end
       // 0 -> 1 -> 3
@@ -532,6 +535,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(0 == loopBlocks.count());
     }
 
+    SECTION("Simple Branch")
     {
       // Simple branch
       // 0 -> 1
@@ -556,6 +560,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       loopBlocks = controlFlow.GetLoopBlocks();
       REQUIRE(0 == loopBlocks.count());
     }
+    SECTION("Finite Loop1")
     {
       // Finite loop (3 -> 4 -> 5 -> 3)
       // 0 -> 1 -> 3
@@ -585,6 +590,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(loopBlocks.contains(4U));
       REQUIRE(loopBlocks.contains(5U));
     }
+    SECTION("Finite Loop2")
     {
       // Finite loop (3 -> 4 -> 5 -> 3)
       // 0 -> 1 -> 2
@@ -615,6 +621,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(loopBlocks.contains(5U));
     }
 
+    SECTION("Infinite Loop")
     {
       // Infinite loop which never converges (3 -> 4 -> 3)
       // 0 -> 1 -> 3
@@ -643,6 +650,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(loopBlocks.contains(4U));
     }
 
+    SECTION("Complex Case Two Loops")
     {
       // Complex case with two loops
       // Loop: 7 -> 9 -> 7, 13 -> 15 -> 13
@@ -718,6 +726,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(loopBlocks.contains(13U));
       REQUIRE(loopBlocks.contains(15U));
     }
+    SECTION("Complex Case Multiple Loops")
     {
       // Complex case with multiple loops: 4 -> 5 -> 6 -> 4, 10 -> 11 -> 12 -> 10, 68
       // 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 4
@@ -894,6 +903,7 @@ TEST_CASE("DXIL Control Flow", "[dxil]")
       REQUIRE(loopBlocks.contains(12U));
       REQUIRE(loopBlocks.contains(68U));
     }
+    SECTION("Single Loop Specific Setup")
     {
       // Specific loop case where a block (2) in a loop is only in a single path
       // 0 -> 1 -> 3 - 1
