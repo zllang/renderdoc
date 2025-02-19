@@ -480,7 +480,8 @@ struct RDATData
     rdcarray<ShaderEntryPoint> ret;
     ret.reserve(functionInfo.size());
     for(const FunctionInfo2 &func : functionInfo)
-      ret.push_back({func.name, GetShaderStage(func.type)});
+      if(func.type != DXBC::ShaderType::Library)
+        ret.push_back({func.name, GetShaderStage(func.type)});
     return ret;
   }
 };
