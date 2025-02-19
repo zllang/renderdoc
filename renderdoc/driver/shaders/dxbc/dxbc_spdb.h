@@ -248,6 +248,7 @@ struct LocalMapping
   bool operator<(const LocalMapping &o) const { return range.startRange < o.range.startRange; }
   LocalRange range;
   uint8_t regFirstComp;
+  rdcstr regSuffix;
   uint32_t varFirstComp;
   uint32_t varOffset;
   uint32_t numComps;
@@ -260,6 +261,9 @@ struct LocalMapping
   DXBCBytecode::OperandType regType;
   uint32_t regIndex;
 };
+
+struct TypeMember;
+struct TypeDesc;
 
 class SPDBChunk : public IDebugInfo
 {
@@ -280,6 +284,10 @@ public:
                  rdcarray<SourceVariableMapping> &locals) const;
 
 private:
+  void UnrollGroupsharedMappings(const std::map<uint32_t, TypeDesc> &typeInfo,
+                                 const rdcarray<TypeMember> &members, LocalMapping mapping,
+                                 uint32_t &comp);
+
   bool m_HasDebugInfo;
 
   rdcstr m_CompilerSig;

@@ -23,6 +23,7 @@
  ******************************************************************************/
 
 #include "d3d12_shaderdebug.h"
+#include "core/settings.h"
 #include "driver/dx/official/d3dcompiler.h"
 #include "driver/dxgi/dxgi_common.h"
 #include "driver/shaders/dxbc/dxbc_debug.h"
@@ -38,6 +39,8 @@
 #include "d3d12_shader_cache.h"
 
 #include "data/hlsl/hlsl_cbuffers.h"
+
+RDOC_EXTERN_CONFIG(bool, D3D_Hack_EnableGroups);
 
 using namespace DXBCBytecode;
 
@@ -3339,9 +3342,18 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
   ShaderDebugTrace *ret = NULL;
   if(dxbc->GetDXBCByteCode())
   {
+    uint32_t activeIndex = 0;
+    if(dxbc->GetThreadScope() == DXBC::ThreadScope::Workgroup)
+    {
+      if(D3D_Hack_EnableGroups())
+        activeIndex =
+            threadid[0] + threadid[1] * refl.dispatchThreadsDimension[0] +
+            threadid[2] * refl.dispatchThreadsDimension[0] * refl.dispatchThreadsDimension[1];
+    }
+
     InterpretDebugger *interpreter = new InterpretDebugger;
     interpreter->eventId = eventId;
-    ret = interpreter->BeginDebug(dxbc, refl, 0);
+    ret = interpreter->BeginDebug(dxbc, refl, activeIndex);
     GlobalState &global = interpreter->global;
     ThreadState &state = interpreter->activeLane();
 

@@ -664,6 +664,46 @@ void Program::SetupRegisterFile(rdcarray<ShaderVariable> &registers) const
     registers.push_back(makeReg(rdcstr()));
   if(m_OutputCoverage)
     registers.push_back(makeReg(rdcstr()));
+
+  for(size_t i = 0; i < m_GroupsharedTempSizes.size(); i++)
+  {
+    if(m_GroupsharedTempSizes[i].first == 0)
+      continue;
+
+    registers.push_back(makeReg(GetRegisterName(TYPE_THREAD_GROUP_SHARED_MEMORY, (uint32_t)i)));
+    registers.back().members.resize(m_GroupsharedTempSizes[i].second);
+    // nice case, groupshared is raw or structured with stride less than a register, we can treat
+    // it as a simple array
+    if(m_GroupsharedTempSizes[i].first <= 16)
+    {
+      for(uint32_t t = 0; t < m_GroupsharedTempSizes[i].second; t++)
+      {
+        registers.back().members[t] = makeReg(StringFormat::Fmt("[%u]", t));
+
+        // truncate columns if it's float[]/int[] or float2[] or something
+        registers.back().members[t].columns = uint8_t(m_GroupsharedTempSizes[i].first / 4);
+      }
+    }
+    else
+    {
+      // unfortunate case. With a larger stride we need to make every array element large enough for
+      // the 'struct'. We insert fake members since we can't tell what is what and do it component
+      // wise since that's hopefully slightly better than nothing. It also makes debug-info mapping easier
+      for(uint32_t t = 0; t < m_GroupsharedTempSizes[i].second; t++)
+      {
+        registers.back().members[t] = makeReg(StringFormat::Fmt("[%u]", t));
+
+        registers.back().members[t].members.resize(AlignUp4(m_GroupsharedTempSizes[i].first) / 4);
+
+        uint32_t idx = 0;
+        for(ShaderVariable &m : registers.back().members[t].members)
+        {
+          m = makeReg(StringFormat::Fmt("_%u", idx++));
+          m.columns = 1;
+        }
+      }
+    }
+  }
 }
 
 const Declaration *Program::FindDeclaration(OperandType declType, uint32_t identifier) const
@@ -718,6 +758,11 @@ uint32_t Program::GetRegisterIndex(OperandType type, uint32_t index) const
     return m_NumTemps + (uint32_t)m_IndexTempSizes.size() + m_NumOutputs + (m_OutputDepth ? 1 : 0) +
            (m_OutputStencil ? 1 : 0);
   }
+  else if(type == TYPE_THREAD_GROUP_SHARED_MEMORY)
+  {
+    return m_NumTemps + (uint32_t)m_IndexTempSizes.size() + m_NumOutputs + (m_OutputDepth ? 1 : 0) +
+           (m_OutputStencil ? 1 : 0) + (m_OutputCoverage ? 1 : 0);
+  }
 
   RDCERR("Unexpected type for register index: %s", ToStr(type).c_str());
 
@@ -736,6 +781,8 @@ rdcstr Program::GetRegisterName(OperandType oper, uint32_t index) const
     return StringFormat::Fmt("%s%u", IsShaderModel51() ? "CB" : "cb", index);
   else if(oper == TYPE_OUTPUT)
     return StringFormat::Fmt("o%u", index);
+  else if(oper == TYPE_THREAD_GROUP_SHARED_MEMORY)
+    return StringFormat::Fmt("g%u", index);
   else if(oper == TYPE_OUTPUT_DEPTH)
     return "oDepth";
   else if(oper == TYPE_OUTPUT_DEPTH_LESS_EQUAL)

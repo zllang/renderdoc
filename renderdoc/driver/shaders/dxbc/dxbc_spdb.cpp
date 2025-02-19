@@ -40,6 +40,25 @@
 
 namespace DXBC
 {
+struct TypeMember
+{
+  rdcstr name;
+  uint16_t byteOffset;
+  uint32_t typeIndex;
+};
+
+struct TypeDesc
+{
+  rdcstr name;
+  VarType baseType;
+  uint32_t byteSize;
+  uint16_t vecSize;
+  uint16_t matArrayStride : 15;
+  uint16_t colMajorMatrix : 1;
+  LEAF_ENUM_e leafType;
+  rdcarray<TypeMember> members;
+};
+
 bool IsPDBFile(void *data, size_t length)
 {
   FileHeaderPage *header = (FileHeaderPage *)data;
@@ -172,25 +191,6 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
       Files.push_back({filename, rdcstr((const char *)fileContents.Data(), s.byteLength)});
     }
   }
-
-  struct TypeMember
-  {
-    rdcstr name;
-    uint16_t byteOffset;
-    uint32_t typeIndex;
-  };
-
-  struct TypeDesc
-  {
-    rdcstr name;
-    VarType baseType;
-    uint32_t byteSize;
-    uint16_t vecSize;
-    uint16_t matArrayStride : 15;
-    uint16_t colMajorMatrix : 1;
-    LEAF_ENUM_e leafType;
-    rdcarray<TypeMember> members;
-  };
 
   std::map<uint32_t, TypeDesc> typeInfo;
 
@@ -609,8 +609,15 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
             stride = typeInfo[stridedArray->elemtype].byteSize & 0xffff;
           }
 
+          SPDBLOG(
+              "Type %x is a strided array of class %x indexed by type %x with original stride %u, "
+              "effective stride %u and length %u",
+              id, stridedArray->elemtype, stridedArray->idxtype, stridedArray->stride, stride,
+              bytelength);
+
           typeInfo[id] = {
-              "", typeInfo[stridedArray->elemtype].baseType, bytelength, 1, stride, 0, type, {},
+              "",   typeInfo[stridedArray->elemtype].baseType, bytelength, 1, stride, 0,
+              type, typeInfo[stridedArray->elemtype].members,
           };
 
           break;
@@ -841,6 +848,65 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
         // for hlsl/fxc
         RDCASSERT(compile3->flags.iLanguage == CV_CFL_HLSL &&
                   compile3->machine == CV_CFL_D3D11_SHADER);
+      }
+      else if(type == S_LDATA_HLSL)
+      {
+        DATASYMHLSL *ldata = (DATASYMHLSL *)sym;
+
+        LocalMapping mapping = {};
+
+        // CV_HLSLREG_e == OperandType
+
+        mapping.regType = (DXBCBytecode::OperandType)ldata->regType;
+        mapping.regIndex = ldata->dataslot;
+        mapping.regFirstComp = 0;
+
+        SPDBLOG(
+            "S_LDATA_HLSL: %s is type %x in register type %s data slot %hu data offset %hu, "
+            "tex/samp/uav slots %hu/%hu/%hu",
+            ldata->name, ldata->typind, ToStr(mapping.regType).c_str(), ldata->dataslot,
+            ldata->dataoff, ldata->texslot, ldata->sampslot, ldata->uavslot);
+
+        // range valid for the whole program
+        mapping.range.endRange = ~0U;
+
+        const rdcstr basename = (char *)ldata->name;
+        mapping.varOffset = 0;
+
+        const TypeDesc *vartype = &typeInfo[ldata->typind];
+
+        uint32_t groupsharedCount = (vartype->byteSize + vartype->matArrayStride - 1) /
+                                    RDCMAX(4U, (uint32_t)vartype->matArrayStride);
+
+        if(vartype->members.empty())
+        {
+          // if it has a 'simple' type with no members we can do one mapping to the whole groupshared
+          mapping.var.name = basename;
+          mapping.varFirstComp = 0;
+          mapping.numComps = vartype->vecSize;
+          mapping.var.baseType = vartype->baseType;
+          mapping.var.rows = 1;
+          mapping.var.columns = uint8_t(vartype->vecSize);
+          mapping.var.elements = groupsharedCount;
+
+          m_Locals.push_back(mapping);
+        }
+        else
+        {
+          mapping.numComps = 1;
+          // otherwise we need to explode the mappings and do it componentwise to be able to map things correctly
+          for(uint32_t g = 0; g < groupsharedCount; g++)
+          {
+            mapping.var.name = basename;
+            mapping.regSuffix = StringFormat::Fmt("[%u]", g);
+            mapping.var.name += mapping.regSuffix;
+            mapping.varOffset = g * vartype->byteSize / RDCMAX(1U, (uint32_t)vartype->matArrayStride);
+
+            // recursively linearise the members and apply mappings
+            uint32_t comp = 0;
+            UnrollGroupsharedMappings(typeInfo, vartype->members, mapping, comp);
+          }
+        }
       }
       else if(type == S_ENVBLOCK)
       {
@@ -1779,6 +1845,7 @@ void SPDBChunk::GetLocals(const DXBC::DXBCContainer *dxbc, size_t, uintptr_t off
       continue;
 
     range.name = dxbc->GetDXBCByteCode()->GetRegisterName(it->regType, it->regIndex);
+    range.name += it->regSuffix;
     range.component = it->regFirstComp;
 
     if(IsInput(it->regType))
@@ -1853,6 +1920,72 @@ void SPDBChunk::GetLocals(const DXBC::DXBCContainer *dxbc, size_t, uintptr_t off
 
         a.offset += VarTypeByteSize(a.type) * RDCMAX(1U, a.columns) * RDCMAX(1U, a.rows);
       }
+    }
+  }
+}
+
+void SPDBChunk::UnrollGroupsharedMappings(const std::map<uint32_t, TypeDesc> &typeInfo,
+                                          const rdcarray<TypeMember> &members, LocalMapping mapping,
+                                          uint32_t &comp)
+{
+  rdcstr basename = mapping.var.name;
+  rdcstr basesuffix = mapping.regSuffix;
+  uint32_t baseoffset = mapping.varOffset;
+  for(uint32_t m = 0; m < members.size(); m++)
+  {
+    mapping.var.name = basename + "." + members[m].name;
+    mapping.varOffset = baseoffset + members[m].byteOffset;
+
+    const TypeDesc &membertype = typeInfo.find(members[m].typeIndex)->second;
+
+    if(membertype.members.empty())
+    {
+      mapping.var.baseType = membertype.baseType;
+      mapping.var.rows = 1;
+      mapping.var.columns = uint8_t(AlignUp4(membertype.vecSize) / 4);
+      mapping.var.elements = 1;
+
+      if(membertype.matArrayStride)
+      {
+        mapping.var.rows = uint8_t((membertype.byteSize + membertype.matArrayStride - 1) /
+                                   membertype.matArrayStride);
+
+        // unless this is a column major matrix, in which case each vector is a column so swap the
+        // rows/columns (the number of ROWS is the vector size, when each vector is a column)
+        if(membertype.colMajorMatrix)
+          std::swap(mapping.var.rows, mapping.var.columns);
+
+        if(membertype.leafType != LF_MATRIX)
+        {
+          mapping.var.elements = mapping.var.rows;
+          mapping.var.rows = 1;
+        }
+      }
+
+      for(uint32_t c = 0; c < AlignUp4(membertype.byteSize) / 4; c++)
+      {
+        uint32_t element = c / membertype.vecSize;
+        mapping.varFirstComp = c % membertype.vecSize;
+
+        if(membertype.matArrayStride)
+        {
+          mapping.var.name =
+              StringFormat::Fmt("%s.%s[%u]", basename.c_str(), members[m].name.c_str(), element);
+        }
+        else if(membertype.vecSize > 1)
+        {
+          mapping.var.name = StringFormat::Fmt("%s.%s", basename.c_str(), members[m].name.c_str());
+        }
+
+        mapping.regSuffix = StringFormat::Fmt("%s._%u", basesuffix.c_str(), comp);
+        comp++;
+
+        m_Locals.push_back(mapping);
+      }
+    }
+    else
+    {
+      UnrollGroupsharedMappings(typeInfo, membertype.members, mapping, comp);
     }
   }
 }

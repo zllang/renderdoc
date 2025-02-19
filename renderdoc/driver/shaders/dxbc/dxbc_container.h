@@ -207,11 +207,7 @@ public:
   const IDebugInfo *GetDebugInfo() const { return m_DebugInfo; }
   const Reflection *GetReflection() const { return m_Reflection; }
   D3D_PRIMITIVE_TOPOLOGY GetOutputTopology();
-  ThreadScope GetThreadScope()
-  {
-    GetDisassembly(false);
-    return m_Threadscope;
-  }
+  ThreadScope GetThreadScope() const { return m_Threadscope; }
 
   CBufferVariableType GetRayPayload(const ShaderEntryPoint &entry)
   {

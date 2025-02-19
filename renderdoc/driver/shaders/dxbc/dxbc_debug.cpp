@@ -26,11 +26,15 @@
 #include "dxbc_debug.h"
 #include <algorithm>
 #include "common/formatting.h"
+#include "core/settings.h"
 #include "driver/dxgi/dxgi_common.h"
 #include "maths/formatpacking.h"
 #include "replay/replay_driver.h"
 #include "dxbc_bytecode.h"
 #include "dxbc_container.h"
+
+RDOC_DEBUG_CONFIG(bool, D3D_Hack_EnableGroups, false,
+                  "Work in progress allow shaders to be debugged with workgroup requirements.");
 
 using namespace DXBCBytecode;
 using namespace DXDebug;
@@ -1243,6 +1247,53 @@ void ThreadState::SetDst(ShaderDebugState *state, const Operand &dstoper, const 
   }
 }
 
+void ThreadState::SetGroupsharedDst(ShaderDebugState *state, uint32_t gsmIndex,
+                                    const uint32_t byteOffset, ShaderVariable &val)
+{
+  const uint32_t gsmStride = global.groupshared[gsmIndex].bytestride;
+
+  const uint32_t regIndex = byteOffset / gsmStride;
+  const uint32_t component = AlignUp4(byteOffset % gsmStride) / 4;
+
+  ShaderVariable *v = NULL;
+
+  uint32_t idx = program->GetRegisterIndex(TYPE_THREAD_GROUP_SHARED_MEMORY, gsmIndex);
+
+  if(idx < variables.size())
+    v = &variables[idx];
+
+  if(!v)
+  {
+    RDCERR("Couldn't find groupshared register %u", gsmIndex);
+  }
+  else
+  {
+    ShaderVariable *changeVar = v;
+
+    v = &v->members[regIndex];
+
+    ShaderVariableChange change = {*changeVar};
+
+    if(gsmStride <= 16)
+    {
+      // if the stride is less than a float4, the groupshared storage is a simple array of N
+      // float4 registers so we can just assign
+      for(uint32_t i = 0; i < val.columns; i++)
+        v->value.u32v[component + i] = val.value.u32v[i];
+    }
+    else
+    {
+      // otherwise each entry in the groupshared storage array is a series of N
+      // component-sized registers so unroll that here and assign to the first component
+      for(uint32_t i = 0; i < val.columns; i++)
+        v->members[component + i].members[0].value.u32v[0] = val.value.u32v[i];
+    }
+
+    change.after = *changeVar;
+    state->changes.push_back(change);
+  }
+}
+
 ShaderVariable ThreadState::DDX(bool fine, const rdcarray<ThreadState> &quad,
                                 const DXBCBytecode::Operand &oper,
                                 const DXBCBytecode::Operation &op) const
@@ -1529,6 +1580,7 @@ ShaderVariable ThreadState::GetSrc(const Operand &oper, const Operation &op, boo
           numthreads[0] = decl.groupSize[0];
           numthreads[1] = decl.groupSize[1];
           numthreads[2] = decl.groupSize[2];
+          break;
         }
       }
 
@@ -2549,13 +2601,67 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       /////////////////////////////////////////////////////////////////////////////////////////////////////
       // Misc
 
+    case OPCODE_SYNC:
+    {
+      // fully refresh all groupshared registers from backing store
+      if(state)
+      {
+        for(uint32_t gsmIndex = 0; gsmIndex < global.groupshared.size(); gsmIndex++)
+        {
+          const uint32_t gsmStride = global.groupshared[gsmIndex].bytestride;
+
+          uint32_t idx = program->GetRegisterIndex(TYPE_THREAD_GROUP_SHARED_MEMORY, gsmIndex);
+
+          ShaderVariable *v = NULL;
+          if(idx < variables.size())
+            v = &variables[idx];
+
+          if(!v)
+          {
+            RDCERR("Couldn't find groupshared register %u", gsmIndex);
+            continue;
+          }
+
+          ShaderVariable *changeVar = v;
+
+          ShaderVariableChange change = {*changeVar};
+
+          byte *data = global.groupshared[gsmIndex].data.data();
+          for(uint32_t i = 0; i < global.groupshared[gsmIndex].count; i++)
+          {
+            if(gsmStride <= 16)
+            {
+              // if the stride is less than a float4, the groupshared storage is a simple array of N
+              // float4 registers so we can just memcpy
+              memcpy(v->members[i].value.u32v.data(), data, gsmStride);
+              data += gsmStride;
+            }
+            else
+            {
+              // otherwise each entry in the groupshared storage array is a series of N
+              // component-sized registers so unroll that here and copy into each's first component
+              for(uint32_t c = 0; c < gsmStride; c += sizeof(uint32_t))
+              {
+                memcpy(v->members[i].members[c].value.u32v.data(), data, sizeof(uint32_t));
+
+                data += sizeof(uint32_t);
+              }
+            }
+          }
+
+          RDCASSERTEQUAL(data, global.groupshared[gsmIndex].data.end());
+
+          change.after = *changeVar;
+          state->changes.push_back(change);
+        }
+      }
+      break;
+    }
     case OPCODE_NOP:
     case OPCODE_CUSTOMDATA:
     case OPCODE_OPAQUE_CUSTOMDATA:
     case OPCODE_SHADER_MESSAGE:
     case OPCODE_DCL_IMMEDIATE_CONSTANT_BUFFER: break;
-    case OPCODE_SYNC:    // might never need to implement this. Who knows!
-      break;
     case OPCODE_DMOV:
     case OPCODE_MOV: SetDst(state, op.operands[0], op, srcOpers[0]); break;
     case OPCODE_DMOVC:
@@ -2973,6 +3079,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       bool structured = false;
 
       byte *data = NULL;
+      byte *gsm_base = NULL;
 
       if(gsm)
       {
@@ -2987,7 +3094,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
         {
           numElems = global.groupshared[resIndex].count;
           stride = global.groupshared[resIndex].bytestride;
-          data = &global.groupshared[resIndex].data[0];
+          gsm_base = data = &global.groupshared[resIndex].data[0];
           structured = global.groupshared[resIndex].structured;
         }
       }
@@ -3087,6 +3194,15 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           case OPCODE_IMM_ATOMIC_UMIN:
           case OPCODE_ATOMIC_UMIN: *udst = RDCMIN(*udst, *usrc0); break;
           default: break;
+        }
+
+        if(gsm && state)
+        {
+          // only one uint
+          ShaderVariable val = ShaderVariable(rdcstr(), *udst, *udst, *udst, *udst);
+          val.columns = 1;
+
+          SetGroupsharedDst(state, resIndex, uint32_t(data - gsm_base), val);
         }
       }
 
@@ -3212,6 +3328,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       RDCASSERT(stride != 0);
 
       byte *data = NULL;
+      byte *gsm_base = NULL;
       size_t dataSize = 0;
       bool texData = false;
       uint32_t rowPitch = 0;
@@ -3233,7 +3350,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
         {
           numElems = global.groupshared[resIndex].count;
           stride = global.groupshared[resIndex].bytestride;
-          data = global.groupshared[resIndex].data.data();
+          gsm_base = data = global.groupshared[resIndex].data.data();
           dataSize = global.groupshared[resIndex].data.size();
           fmt.fmt = CompType::UInt;
           fmt.byteWidth = 4;
@@ -3391,6 +3508,16 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
               break;
 
             TypedUAVStore(fmt, data, srcOpers[srcIdx]);
+          }
+
+          if(gsm && state)
+          {
+            // read the variable
+            ShaderVariable val = srcOpers[srcIdx];
+            // adjust the number of components
+            val.columns = fmt.numComps & 0xff;
+
+            SetGroupsharedDst(state, resIndex, uint32_t(data - gsm_base), val);
           }
         }
       }
@@ -4775,9 +4902,41 @@ ShaderDebugTrace *InterpretDebugger::BeginDebug(const DXBC::DXBCContainer *dxbcC
   this->dxbc = dxbcContainer;
   this->activeLaneIndex = activeIndex;
 
+  uint32_t numthreads[3] = {0, 0, 0};
+
+  for(size_t i = 0; i < dxbcContainer->GetDXBCByteCode()->GetNumDeclarations(); i++)
+  {
+    const Declaration &decl = dxbcContainer->GetDXBCByteCode()->GetDeclaration(i);
+
+    if(decl.declaration == OPCODE_DCL_THREAD_GROUP)
+    {
+      numthreads[0] = decl.groupSize[0];
+      numthreads[1] = decl.groupSize[1];
+      numthreads[2] = decl.groupSize[2];
+      break;
+    }
+  }
+
   int workgroupSize = dxbc->m_Type == DXBC::ShaderType::Pixel ? 4 : 1;
+
+  if(dxbc->m_Type == DXBC::ShaderType::Compute &&
+     dxbcContainer->GetThreadScope() == DXBC::ThreadScope::Workgroup)
+  {
+    if(D3D_Hack_EnableGroups())
+      workgroupSize = numthreads[0] * numthreads[1] * numthreads[2];
+  }
+
   for(int i = 0; i < workgroupSize; i++)
+  {
     workgroup.push_back(ThreadState(i, global, dxbc));
+
+    if(dxbc->m_Type == DXBC::ShaderType::Compute && workgroupSize > 1)
+    {
+      workgroup[i].semantics.ThreadID[0] = (i) % numthreads[0];
+      workgroup[i].semantics.ThreadID[1] = (i / numthreads[0]) % numthreads[1];
+      workgroup[i].semantics.ThreadID[2] = (i / numthreads[0] / numthreads[1]) % numthreads[2];
+    }
+  }
 
   if(dxbc->m_Type == DXBC::ShaderType::Compute)
     global.PopulateGroupshared(dxbc->GetDXBCByteCode());
@@ -5120,7 +5279,54 @@ void InterpretDebugger::CalcActiveMask(rdcarray<bool> &activeMask)
   for(bool &active : activeMask)
     active = true;
 
-  // only pixel shaders automatically converge workgroups, compute shaders need explicit sync
+  // only compute and pixel need any divergence/convergence info
+  if(dxbc->m_Type != DXBC::ShaderType::Pixel && dxbc->m_Type != DXBC::ShaderType::Compute)
+    return;
+
+  // see if we've diverged
+  bool differentNext = false;
+  for(size_t i = 1; i < workgroup.size(); i++)
+    differentNext |= (workgroup[0].nextInstruction != workgroup[i].nextInstruction);
+
+  // if we're all in lockstep, return!
+  if(!differentNext)
+    return;
+
+  // for compute shaders, we hold up any threads that are behind if one thread is on a SYNC opcode
+  if(dxbc->m_Type == DXBC::ShaderType::Compute)
+  {
+    bool anySync = false;
+    uint32_t minInst = workgroup[0].nextInstruction, syncPoint = ~0U;
+    for(size_t i = 0; i < workgroup.size(); i++)
+    {
+      DXBCBytecode::OpcodeType op =
+          dxbc->GetDXBCByteCode()->GetInstruction(workgroup[i].nextInstruction).operation;
+
+      if(op == DXBCBytecode::OPCODE_SYNC)
+      {
+        anySync = true;
+        RDCASSERT(syncPoint == ~0U || syncPoint == workgroup[i].nextInstruction);
+        syncPoint = workgroup[i].nextInstruction;
+      }
+      minInst = RDCMIN(minInst, workgroup[i].nextInstruction);
+    }
+
+    // we've diverged, and at least one thread is on a sync. Only threads before that sync are
+    // active. Check that we're not about to deadlock and that some threads are behind. We should
+    // never be in the situation where threads are on different sync operations provided that sync
+    // operations only exist in uniform control flow, and similarly it should not be possible to get
+    // diverged ahead of the sync point
+    RDCASSERT(!anySync || minInst < syncPoint);
+
+    if(anySync)
+    {
+      for(size_t i = 0; i < workgroup.size(); i++)
+        if(workgroup[i].nextInstruction == syncPoint)
+          activeMask[i] = false;
+    }
+  }
+
+  // only pixel shaders automatically converge workgroups, compute shaders are handled above
   if(dxbc->m_Type != DXBC::ShaderType::Pixel)
     return;
 
@@ -5147,60 +5353,52 @@ void InterpretDebugger::CalcActiveMask(rdcarray<bool> &activeMask)
   // all threads as active.
   // if we've converged, or we were never diverged, this keeps everything ticking
 
-  // see if we've diverged
-  bool differentNext = false;
-  for(size_t i = 1; i < workgroup.size(); i++)
-    differentNext |= (workgroup[0].nextInstruction != workgroup[i].nextInstruction);
+  // this isn't *perfect* but it will still eventually continue. We look for the most advanced
+  // thread, and check to see if it's just finished a control flow. If it has then we assume it's
+  // at the convergence point and wait for every other thread to catch up, pausing any threads
+  // that reach the convergence point before others.
 
-  if(differentNext)
+  // Note this might mean we don't have any threads paused even within divergent flow. This is
+  // fine and all we care about is pausing to make sure threads don't run ahead into code that
+  // should be lockstep. We don't care at all about what they do within the code that is
+  // divergent.
+
+  // The reason this isn't perfect is that the most advanced thread could be on an inner loop or
+  // inner if, not the convergence point, and we could be pausing it fruitlessly. Worse still - it
+  // could be on a branch none of the other threads will take so they will never reach that exact
+  // instruction.
+  // But we know that all threads will eventually go through the convergence point, so even in
+  // that worst case if we didn't pick the right waiting point, another thread will overtake and
+  // become the new most advanced thread and the previous waiting thread will resume. So in this
+  // case we caused a thread to wait more than it should have but that's not a big deal as it's
+  // within divergent flow so they don't have to stay in lockstep. Also if all threads will
+  // eventually pass that point we picked, we just waited to converge even in technically
+  // divergent code which is also harmless.
+
+  // Phew!
+
+  uint32_t convergencePoint = 0;
+
+  // find which thread is most advanced
+  for(size_t i = 0; i < workgroup.size(); i++)
+    if(workgroup[i].nextInstruction > convergencePoint)
+      convergencePoint = workgroup[i].nextInstruction;
+
+  if(convergencePoint > 0)
   {
-    // this isn't *perfect* but it will still eventually continue. We look for the most advanced
-    // thread, and check to see if it's just finished a control flow. If it has then we assume it's
-    // at the convergence point and wait for every other thread to catch up, pausing any threads
-    // that reach the convergence point before others.
+    DXBCBytecode::OpcodeType op =
+        dxbc->GetDXBCByteCode()->GetInstruction(convergencePoint - 1).operation;
 
-    // Note this might mean we don't have any threads paused even within divergent flow. This is
-    // fine and all we care about is pausing to make sure threads don't run ahead into code that
-    // should be lockstep. We don't care at all about what they do within the code that is
-    // divergent.
-
-    // The reason this isn't perfect is that the most advanced thread could be on an inner loop or
-    // inner if, not the convergence point, and we could be pausing it fruitlessly. Worse still - it
-    // could be on a branch none of the other threads will take so they will never reach that exact
-    // instruction.
-    // But we know that all threads will eventually go through the convergence point, so even in
-    // that worst case if we didn't pick the right waiting point, another thread will overtake and
-    // become the new most advanced thread and the previous waiting thread will resume. So in this
-    // case we caused a thread to wait more than it should have but that's not a big deal as it's
-    // within divergent flow so they don't have to stay in lockstep. Also if all threads will
-    // eventually pass that point we picked, we just waited to converge even in technically
-    // divergent code which is also harmless.
-
-    // Phew!
-
-    uint32_t convergencePoint = 0;
-
-    // find which thread is most advanced
-    for(size_t i = 0; i < workgroup.size(); i++)
-      if(workgroup[i].nextInstruction > convergencePoint)
-        convergencePoint = workgroup[i].nextInstruction;
-
-    if(convergencePoint > 0)
-    {
-      DXBCBytecode::OpcodeType op =
-          dxbc->GetDXBCByteCode()->GetInstruction(convergencePoint - 1).operation;
-
-      // if the most advnaced thread hasn't just finished control flow, then all
-      // threads are still running, so don't converge
-      if(op != OPCODE_ENDIF && op != OPCODE_ENDLOOP && op != OPCODE_ENDSWITCH)
-        convergencePoint = 0;
-    }
-
-    // pause any threads at that instruction (could be none)
-    for(size_t i = 0; i < workgroup.size(); i++)
-      if(workgroup[i].nextInstruction == convergencePoint)
-        activeMask[i] = false;
+    // if the most advnaced thread hasn't just finished control flow, then all
+    // threads are still running, so don't converge
+    if(op != OPCODE_ENDIF && op != OPCODE_ENDLOOP && op != OPCODE_ENDSWITCH)
+      convergencePoint = 0;
   }
+
+  // pause any threads at that instruction (could be none)
+  for(size_t i = 0; i < workgroup.size(); i++)
+    if(workgroup[i].nextInstruction == convergencePoint)
+      activeMask[i] = false;
 }
 
 rdcarray<ShaderDebugState> InterpretDebugger::ContinueDebug(DXBCDebug::DebugAPIWrapper *apiWrapper)

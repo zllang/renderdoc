@@ -2196,6 +2196,10 @@ bool Program::DecodeDecl(uint32_t *&tokenStream, Declaration &retDecl, bool frie
 
     retDecl.str += retDecl.operand.toString(m_Reflection, flags);
     retDecl.str += StringFormat::Fmt(", %u", retDecl.tgsmCount);
+
+    uint32_t reg = (uint32_t)retDecl.operand.indices[0].index;
+    m_GroupsharedTempSizes.resize_for_index(reg);
+    m_GroupsharedTempSizes[reg] = {4, AlignUp4(retDecl.tgsmCount) / 4};
   }
   else if(op == OPCODE_DCL_THREAD_GROUP_SHARED_MEMORY_STRUCTURED)
   {
@@ -2213,6 +2217,10 @@ bool Program::DecodeDecl(uint32_t *&tokenStream, Declaration &retDecl, bool frie
     retDecl.str += retDecl.operand.toString(m_Reflection, flags);
     retDecl.str +=
         StringFormat::Fmt(", %u, %u", retDecl.tsgm_structured.stride, retDecl.tsgm_structured.count);
+
+    uint32_t reg = (uint32_t)retDecl.operand.indices[0].index;
+    m_GroupsharedTempSizes.resize_for_index(reg);
+    m_GroupsharedTempSizes[reg] = {retDecl.tsgm_structured.stride, retDecl.tsgm_structured.count};
   }
   else if(op == OPCODE_DCL_INPUT_CONTROL_POINT_COUNT || op == OPCODE_DCL_OUTPUT_CONTROL_POINT_COUNT)
   {

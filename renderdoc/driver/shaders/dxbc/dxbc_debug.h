@@ -249,6 +249,8 @@ private:
   // file and applying any masking or swizzling
   void SetDst(ShaderDebugState *state, const DXBCBytecode::Operand &dstoper,
               const DXBCBytecode::Operation &op, const ShaderVariable &val);
+  void SetGroupsharedDst(ShaderDebugState *state, uint32_t gsmIndex, const uint32_t byteOffset,
+                         ShaderVariable &val);
 
   void MarkResourceAccess(ShaderDebugState *state, DXBCBytecode::OperandType type,
                           const BindingSlot &slot);

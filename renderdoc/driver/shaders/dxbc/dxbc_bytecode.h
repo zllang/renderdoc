@@ -1174,6 +1174,8 @@ protected:
 
   uint32_t m_NumTemps = 0;
   rdcarray<uint32_t> m_IndexTempSizes;
+  // each one is declared with byteStride, elementCount
+  rdcarray<rdcpair<uint32_t, uint32_t>> m_GroupsharedTempSizes;
 
   // most regular outputs, including system value outputs like primitive ID are given a register
   // number

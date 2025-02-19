@@ -23,6 +23,7 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
+#include "core/settings.h"
 #include "data/resource.h"
 #include "driver/shaders/dxbc/dx_debug.h"
 #include "driver/shaders/dxbc/dxbc_bytecode.h"
@@ -39,6 +40,8 @@
 #include "d3d11_shader_cache.h"
 
 #include "data/hlsl/hlsl_cbuffers.h"
+
+RDOC_EXTERN_CONFIG(bool, D3D_Hack_EnableGroups);
 
 struct DebugHit
 {
@@ -2613,9 +2616,17 @@ ShaderDebugTrace *D3D11Replay::DebugThread(uint32_t eventId,
 
   D3D11RenderState *rs = m_pImmediateContext->GetCurrentPipelineState();
 
+  uint32_t activeIndex = 0;
+  if(dxbc->GetThreadScope() == DXBC::ThreadScope::Workgroup)
+  {
+    if(D3D_Hack_EnableGroups())
+      activeIndex = threadid[0] + threadid[1] * refl.dispatchThreadsDimension[0] +
+                    threadid[2] * refl.dispatchThreadsDimension[0] * refl.dispatchThreadsDimension[1];
+  }
+
   InterpretDebugger *interpreter = new InterpretDebugger;
   interpreter->eventId = eventId;
-  ShaderDebugTrace *ret = interpreter->BeginDebug(dxbc, refl, 0);
+  ShaderDebugTrace *ret = interpreter->BeginDebug(dxbc, refl, activeIndex);
   GlobalState &global = interpreter->global;
   ThreadState &state = interpreter->activeLane();
 
