@@ -2578,9 +2578,9 @@ void DXBCContainer::ProcessSourceInfo(const byte *chunkContents, uint32_t chunkS
           const char *fileContents = (const char *)(contentsEntry + 1);
 
           // should be null terminated but don't take any chances because who knows if that will change
-          sourceFiles[fileIdx].contents.assign(fileContents, contentsEntry->fileSize);
+          sourceFiles[fileIdx].contents.assign(fileContents, contentsEntry->fileSize - 1);
 
-          RDCASSERTEQUAL(fileContents[contentsEntry->fileSize], 0);
+          RDCASSERTEQUAL(fileContents[contentsEntry->fileSize - 1], 0);
 
           // flags on flags on flags
           RDCASSERTEQUAL(contentsEntry->flags, 0);
@@ -2615,9 +2615,9 @@ void DXBCContainer::ProcessSourceInfo(const byte *chunkContents, uint32_t chunkS
           const SRCIFilenameEntry *filenameEntry = (const SRCIFilenameEntry *)nameContents;
           const char *filename = (const char *)(filenameEntry + 1);
 
-          sourceFiles[fileIdx].filename.assign(filename, filenameEntry->nameSize);
+          sourceFiles[fileIdx].filename.assign(filename, filenameEntry->nameSize - 1);
 
-          RDCASSERTEQUAL(filename[filenameEntry->nameSize], 0);
+          RDCASSERTEQUAL(filename[filenameEntry->nameSize - 1], 0);
 
           nameContents += filenameEntry->entrySize;
 
