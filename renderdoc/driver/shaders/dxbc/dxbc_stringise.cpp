@@ -538,7 +538,7 @@ rdcstr toString(const uint32_t values[], uint32_t numComps)
 
     if(floatOutput)
     {
-      str += ToStr(vf[0]);
+      str += StringFormat::Fmt("%0.6f", vf[0]);
     }
     else
     {

@@ -3342,6 +3342,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
         firstElem = 0;
         if(resIndex > global.groupshared.size())
         {
+          RDCERR("Invalid dxbc bytecode - garbage groupshared register being referenced");
           numElems = 0;
           stride = 4;
           data = NULL;
@@ -3439,34 +3440,86 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       {
         data += dataOffset;
 
-        int maxIndex = fmt.numComps;
-
         uint32_t srcIdx = 1;
-        if(op.operation == OPCODE_STORE_STRUCTURED || op.operation == OPCODE_LD_STRUCTURED)
+        if(op.operation == OPCODE_LD_STRUCTURED)
         {
           srcIdx = 2;
-          maxIndex = (stride - structOffset) / sizeof(uint32_t);
           fmt.byteWidth = 4;
+
           fmt.numComps = 4;
+
           if(op.operands[0].comps[0] != 0xff && op.operands[0].comps[1] == 0xff &&
              op.operands[0].comps[2] == 0xff && op.operands[0].comps[3] == 0xff)
             fmt.numComps = 1;
+        }
+        else if(op.operation == OPCODE_STORE_STRUCTURED)
+        {
+          srcIdx = 2;
+          fmt.byteWidth = 4;
+
+          // set number of components based on output register write mask
+          if(op.operands[0].comps[1] == 0xff)
+            fmt.numComps = 1;
+          else if(op.operands[0].comps[2] == 0xff)
+            fmt.numComps = 2;
+          else if(op.operands[0].comps[3] == 0xff)
+            fmt.numComps = 3;
+          else
+            fmt.numComps = 4;
+
+          // do not allow writing beyond the stride (we don't expect fxc to emit writes like this anyway)
+          fmt.numComps = RDCMIN(fmt.numComps, int((stride - structOffset) / sizeof(uint32_t)));
+
+          for(int c = 0; c < 4; c++)
+          {
+            if(c < fmt.numComps)
+              RDCASSERTEQUAL(op.operands[0].comps[c], c);
+            else
+              RDCASSERT(op.operands[0].comps[c] == 0xff, c, op.operands[0].comps[c]);
+          }
+
           fmt.fmt = CompType::UInt;
         }
         // raw loads/stores can come from any component (as long as it's within range of the data!)
-        if(op.operation == OPCODE_LD_RAW || op.operation == OPCODE_STORE_RAW)
+        else if(op.operation == OPCODE_LD_RAW)
         {
           fmt.byteWidth = 4;
 
           // normally we can read 4 elements
           fmt.numComps = 4;
+
           // clamp to out of bounds based on numElems
           fmt.numComps = RDCMIN(fmt.numComps, int(numElems - elemIdx) / 4);
-          maxIndex = fmt.numComps;
 
           if(op.operands[0].comps[0] != 0xff && op.operands[0].comps[1] == 0xff &&
              op.operands[0].comps[2] == 0xff && op.operands[0].comps[3] == 0xff)
             fmt.numComps = 1;
+        }
+        else if(op.operation == OPCODE_STORE_RAW)
+        {
+          fmt.byteWidth = 4;
+
+          // set number of components based on output register write mask
+          if(op.operands[0].comps[1] == 0xff)
+            fmt.numComps = 1;
+          else if(op.operands[0].comps[2] == 0xff)
+            fmt.numComps = 2;
+          else if(op.operands[0].comps[3] == 0xff)
+            fmt.numComps = 3;
+          else
+            fmt.numComps = 4;
+
+          // clamp to out of bounds based on numElems
+          fmt.numComps = RDCMIN(fmt.numComps, int(numElems - elemIdx) / 4);
+
+          for(int c = 0; c < 4; c++)
+          {
+            if(c < fmt.numComps)
+              RDCASSERTEQUAL(op.operands[0].comps[c], c);
+            else
+              RDCASSERT(op.operands[0].comps[c] == 0xff, c, op.operands[0].comps[c]);
+          }
+
           fmt.fmt = CompType::UInt;
         }
 
@@ -3500,15 +3553,15 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
         }
         else if(!Finished())    // helper/inactive pixels can't modify UAVs
         {
-          for(int i = 0; i < 4; i++)
-          {
-            uint8_t comp = op.operands[0].comps[i];
-            // masks must be contiguous from x, if we reach the 'end' we're done
-            if(comp == 0xff || comp >= maxIndex)
-              break;
-
-            TypedUAVStore(fmt, data, srcOpers[srcIdx]);
-          }
+          // from the spec on a typed UAV store:
+          // dstUAV always has a .xyzw write mask.
+          // All components must be written.
+          //
+          // for raw/structured stores, we've already set the format to be the right number of
+          // components
+          //
+          // so we can ignore op.operands[0].comps[] entirely and just write the data
+          TypedUAVStore(fmt, data, srcOpers[srcIdx]);
 
           if(gsm && state)
           {

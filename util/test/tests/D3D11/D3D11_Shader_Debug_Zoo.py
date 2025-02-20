@@ -7,43 +7,51 @@ class D3D11_Shader_Debug_Zoo(rdtest.TestCase):
     demos_test_name = 'D3D11_Shader_Debug_Zoo'
 
     def check_capture(self):
-        # Jump to the action
-        action = self.find_action("Main Test").next
-
         undefined_tests = [int(test) for test in self.find_action("Undefined tests: ").customName.split(" ")[2:]]
 
-        self.controller.SetFrameEvent(action.eventId, False)
+        # Jump to the action
+        for idx, action in enumerate([self.find_action("Main Test"), self.find_action("Optimised Test")]):
+            name = action.customName
 
-        pipe: rd.PipeState = self.controller.GetPipelineState()
+            action = action.next
 
-        failed = False
+            self.controller.SetFrameEvent(action.eventId, False)
 
-        # Loop over every test
-        rdtest.log.begin_section("General tests")
-        for test in range(action.numInstances):
-            # Debug the shader
-            trace: rd.ShaderDebugTrace = self.controller.DebugPixel(4 * test, 0, rd.DebugPixelInputs())
+            pipe: rd.PipeState = self.controller.GetPipelineState()
 
-            cycles, variables = self.process_trace(trace)
+            failed = False
 
-            output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
+            # Loop over every test
+            rdtest.log.begin_section(name)
+            for test in range(action.numInstances):
+                # Debug the shader
+                trace: rd.ShaderDebugTrace = self.controller.DebugPixel(4 * test, 4 * idx, rd.DebugPixelInputs())
 
-            debugged = self.evaluate_source_var(output, variables)
+                if trace.debugger is None:
+                    rdtest.log.error("Test {} failed to debug.".format(test))
+                    self.controller.FreeTrace(trace)
+                    continue
 
-            try:
-                self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 4 * test, 0, debugged.value.f32v[0:4])
-            except rdtest.TestFailureException as ex:
-                if test in undefined_tests:
-                    rdtest.log.comment("Undefined test {} did not match. {}".format(test, str(ex)))
-                else:
-                    rdtest.log.error("Test {} did not match. {}".format(test, str(ex)))
-                    failed = True
-                continue
-            finally:
-                self.controller.FreeTrace(trace)
+                cycles, variables = self.process_trace(trace)
 
-            rdtest.log.success("Test {} matched as expected".format(test))
-        rdtest.log.end_section("General tests")
+                output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
+
+                debugged = self.evaluate_source_var(output, variables)
+
+                try:
+                    self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 4 * test, 4 * idx, debugged.value.f32v[0:4])
+                except rdtest.TestFailureException as ex:
+                    if test in undefined_tests:
+                        rdtest.log.comment("Undefined test {} did not match. {}".format(test, str(ex)))
+                    else:
+                        rdtest.log.error("Test {} did not match. {}".format(test, str(ex)))
+                        failed = True
+                    continue
+                finally:
+                    self.controller.FreeTrace(trace)
+
+                rdtest.log.success("Test {} matched as expected".format(test))
+            rdtest.log.end_section(name)
 
         rdtest.log.begin_section("Flow tests")
         action = self.find_action("Flow Test").next
@@ -51,7 +59,7 @@ class D3D11_Shader_Debug_Zoo(rdtest.TestCase):
         pipe: rd.PipeState = self.controller.GetPipelineState()
 
         # Debug the shader
-        trace: rd.ShaderDebugTrace = self.controller.DebugPixel(0, 4, rd.DebugPixelInputs())
+        trace: rd.ShaderDebugTrace = self.controller.DebugPixel(0, 8, rd.DebugPixelInputs())
 
         cycles, variables = self.process_trace(trace)
 
@@ -60,8 +68,8 @@ class D3D11_Shader_Debug_Zoo(rdtest.TestCase):
         debugged = self.evaluate_source_var(output, variables)
 
         try:
-            self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 0, 4, debugged.value.f32v[0:4])
-            self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 0, 4, [9.0, 66.0, 4.0, 18.0])
+            self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 0, 8, debugged.value.f32v[0:4])
+            self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 0, 8, [9.0, 66.0, 4.0, 18.0])
         except rdtest.TestFailureException as ex:
             raise rdtest.TestFailureException("Flow test did not match. {}".format(str(ex)))
         finally:
