@@ -1096,6 +1096,7 @@ D3D12PSOCreator::D3D12PSOCreator(ID3D12DevicePtr dev) : m_Dev(dev)
 
 D3D12PSOCreator &D3D12PSOCreator::VS(ID3DBlobPtr blob)
 {
+  vsblob = blob;
   if(blob)
   {
     GraphicsDesc.VS.pShaderBytecode = blob->GetBufferPointer();
@@ -1111,6 +1112,7 @@ D3D12PSOCreator &D3D12PSOCreator::VS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::AS(ID3DBlobPtr blob)
 {
+  asblob = blob;
   if(blob)
   {
     m_AS.pShaderBytecode = blob->GetBufferPointer();
@@ -1126,6 +1128,7 @@ D3D12PSOCreator &D3D12PSOCreator::AS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::MS(ID3DBlobPtr blob)
 {
+  msblob = blob;
   if(blob)
   {
     m_MS.pShaderBytecode = blob->GetBufferPointer();
@@ -1141,6 +1144,7 @@ D3D12PSOCreator &D3D12PSOCreator::MS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::HS(ID3DBlobPtr blob)
 {
+  hsblob = blob;
   if(blob)
   {
     GraphicsDesc.HS.pShaderBytecode = blob->GetBufferPointer();
@@ -1156,6 +1160,7 @@ D3D12PSOCreator &D3D12PSOCreator::HS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::DS(ID3DBlobPtr blob)
 {
+  dsblob = blob;
   if(blob)
   {
     GraphicsDesc.DS.pShaderBytecode = blob->GetBufferPointer();
@@ -1171,6 +1176,7 @@ D3D12PSOCreator &D3D12PSOCreator::DS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::GS(ID3DBlobPtr blob)
 {
+  gsblob = blob;
   if(blob)
   {
     GraphicsDesc.GS.pShaderBytecode = blob->GetBufferPointer();
@@ -1186,6 +1192,7 @@ D3D12PSOCreator &D3D12PSOCreator::GS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::PS(ID3DBlobPtr blob)
 {
+  psblob = blob;
   if(blob)
   {
     GraphicsDesc.PS.pShaderBytecode = blob->GetBufferPointer();
@@ -1201,6 +1208,7 @@ D3D12PSOCreator &D3D12PSOCreator::PS(ID3DBlobPtr blob)
 
 D3D12PSOCreator &D3D12PSOCreator::CS(ID3DBlobPtr blob)
 {
+  csblob = blob;
   if(blob)
   {
     ComputeDesc.CS.pShaderBytecode = blob->GetBufferPointer();

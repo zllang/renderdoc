@@ -125,6 +125,8 @@ private:
   D3D12_SHADER_BYTECODE m_AS = {};
   D3D12_SHADER_BYTECODE m_MS = {};
   ID3D12DevicePtr m_Dev;
+
+  ID3DBlobPtr vsblob, psblob, hsblob, dsblob, gsblob, csblob, asblob, msblob;
 };
 
 class D3D12BufferCreator
