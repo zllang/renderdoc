@@ -658,6 +658,11 @@ QString PythonContext::LoadExtension(ICaptureContext &ctx, const rdcstr &extensi
   if(!syspath)
     qCritical() << "couldn't get sys.stdout";
 
+  QString typeStr;
+  QString valueStr;
+  int finalLine = -1;
+  QList<QString> frames;
+
   if(extensions[extension] == NULL)
   {
     qInfo() << "First load of " << QString(extension);
@@ -670,61 +675,71 @@ QString PythonContext::LoadExtension(ICaptureContext &ctx, const rdcstr &extensi
     // call unregister() if it exists
     PyObject *unregister_func = PyObject_SafeGetAttrString(extensions[extension], "unregister");
 
+    bool reloadSuccess = true;
+
     if(unregister_func)
     {
       PyObject *retval = PyObject_CallFunction(unregister_func, "");
+
+      if(retval == NULL)
+      {
+        FetchException(typeStr, valueStr, finalLine, frames);
+        reloadSuccess = false;
+      }
 
       // discard the return value, regardless of error we don't abort the reload
       Py_XDECREF(retval);
     }
 
-    // if the extension is a package, we need to manually reload any loaded submodules
-    PyObject *sysmodules = PyObject_SafeGetAttrString(sysobj, "modules");
-
-    if(!syspath)
-      qCritical() << "couldn't get sys.modules";
-
-    PyObject *keys = PyDict_Keys(sysmodules);
-
-    QString search = extension + lit(".");
-
-    bool reloadSuccess = true;
-
-    if(keys)
+    if(reloadSuccess)
     {
-      Py_ssize_t len = PyList_Size(keys);
-      for(Py_ssize_t i = 0; i < len; i++)
+      // if the extension is a package, we need to manually reload any loaded submodules
+      PyObject *sysmodules = PyObject_SafeGetAttrString(sysobj, "modules");
+
+      if(!syspath)
+        qCritical() << "couldn't get sys.modules";
+
+      PyObject *keys = PyDict_Keys(sysmodules);
+
+      QString search = extension + lit(".");
+
+      if(keys)
       {
-        PyObject *key = PyList_GetItem(keys, i);
-        PyObject *value = PyDict_GetItem(sysmodules, key);
-
-        QString keystr = ToQStr(key);
-
-        if(keystr.contains(search))
+        Py_ssize_t len = PyList_Size(keys);
+        for(Py_ssize_t i = 0; i < len; i++)
         {
-          qInfo() << "Reloading submodule " << keystr;
-          PyObject *mod = PyImport_ReloadModule(value);
+          PyObject *key = PyList_GetItem(keys, i);
+          PyObject *value = PyDict_GetItem(sysmodules, key);
 
-          if(mod == NULL)
+          QString keystr = ToQStr(key);
+
+          if(keystr.contains(search))
           {
-            qCritical() << "Failed to reload " << keystr;
-            ret += tr("Failed to reload submodule '%1'\n").arg(keystr);
-            reloadSuccess = false;
-            break;
+            qInfo() << "Reloading submodule " << keystr;
+
+            PyObject *mod = PyImport_ReloadModule(value);
+
+            if(mod == NULL)
+            {
+              qCritical() << "Failed to reload " << keystr;
+              ret += tr("Failed to reload submodule '%1'\n").arg(keystr);
+              reloadSuccess = false;
+              break;
+            }
+
+            // we don't need the reference, we just wanted to reload it
+            Py_DECREF(mod);
+
+            value = PyDict_GetItem(sysmodules, key);
+
+            if(value != mod)
+              qCritical() << "sys.modules[" << keystr << "]"
+                          << " after reload doesn't match reloaded object";
           }
-
-          // we don't need the reference, we just wanted to reload it
-          Py_DECREF(mod);
-
-          value = PyDict_GetItem(sysmodules, key);
-
-          if(value != mod)
-            qCritical() << "sys.modules[" << keystr << "]"
-                        << " after reload doesn't match reloaded object";
         }
-      }
 
-      Py_DECREF(keys);
+        Py_DECREF(keys);
+      }
     }
 
     if(reloadSuccess)
@@ -740,11 +755,6 @@ QString PythonContext::LoadExtension(ICaptureContext &ctx, const rdcstr &extensi
 
     PyModule_AddObject(ext, "_renderdoc_internal", current_global_handle);
   }
-
-  QString typeStr;
-  QString valueStr;
-  int finalLine = -1;
-  QList<QString> frames;
 
   if(ext)
   {
@@ -804,7 +814,8 @@ QString PythonContext::LoadExtension(ICaptureContext &ctx, const rdcstr &extensi
 
   if(!ext)
   {
-    FetchException(typeStr, valueStr, finalLine, frames);
+    if(typeStr.isEmpty())
+      FetchException(typeStr, valueStr, finalLine, frames);
 
     ret = ret.trimmed();
 
