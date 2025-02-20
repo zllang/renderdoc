@@ -2078,6 +2078,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                               (dxOpCode == DXOp::RawBufferLoad);
             const Type *baseType = NULL;
             uint32_t resultNumComps = 0;
+            ShaderVariable arg;
             if(load)
             {
               // DXIL will create a vector of a single type with total size of 16-bytes
@@ -2092,7 +2093,32 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               // Get the type from the first value to be stored
               baseType = inst.args[4]->type;
-              resultNumComps = 1;
+
+              // TextureStore(srv,coord0,coord1,coord2,value0,value1,value2,value3,mask)
+              // BufferStore(uav,coord0,coord1,value0,value1,value2,value3,mask)
+              // RawBufferStore(uav,index,elementOffset,value0,value1,value2,value3,mask,alignment)
+
+              // get the mask
+              int maskIndex = 0;
+              if(dxOpCode == DXOp::TextureStore)
+                maskIndex = 9;
+              else if(dxOpCode == DXOp::BufferStore)
+                maskIndex = 8;
+              else if(dxOpCode == DXOp::RawBufferStore)
+                maskIndex = 8;
+              else
+                RDCERR("Unexpected store opcode %u", dxOpCode);
+
+              uint32_t mask = 1;
+              if(GetShaderVariable(inst.args[maskIndex], opCode, dxOpCode, arg))
+                mask = arg.value.u32v[0];
+
+              if(mask == 0)
+                mask = 1;
+
+              resultNumComps = 32 - Bits::CountLeadingZeroes(mask);
+
+              RDCASSERTEQUAL(mask, (1U << resultNumComps) - 1U);
             }
             if(baseType)
             {
@@ -2201,7 +2227,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             uint64_t dataOffset = 0;
             uint32_t texCoords[3] = {0, 0, 0};
             uint32_t elemIdx = 0;
-            ShaderVariable arg;
             if((dxOpCode == DXOp::BufferLoad) || (dxOpCode == DXOp::RawBufferLoad) ||
                (dxOpCode == DXOp::RawBufferStore) || (dxOpCode == DXOp::BufferStore))
             {
@@ -2301,7 +2326,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 const uint32_t numArgs = RDCMIN(4, maxNumComps);
                 for(uint32_t c = 0; c < numArgs; ++c)
                 {
-                  if(GetShaderVariable(inst.args[c + valueStart], opCode, dxOpCode, arg))
+                  if(!isUndef(inst.args[c + valueStart]) &&
+                     GetShaderVariable(inst.args[c + valueStart], opCode, dxOpCode, arg))
                   {
                     const uint32_t dstComp = c;
                     const uint32_t srcComp = 0;
