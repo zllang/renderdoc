@@ -45,7 +45,7 @@ shared float tmp[64];
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-define GroupMemoryBarrierWithGroupSync() memoryBarrierShared();groupMemoryBarrier();barrier();
+#define GroupMemoryBarrierWithGroupSync() memoryBarrierShared();groupMemoryBarrier();barrier();
 
 void main()
 {
@@ -74,7 +74,7 @@ void main()
   outval.z = tmp[tid.x ^ 1];
 
   // do calculation with our neighbour
-  tmp[tid.x] = tmp[tid.x] * tmp[tid.x ^ 1];
+  tmp[tid.x] = (1.0f + tmp[tid.x]) * (1.0f + tmp[tid.x ^ 1]);
 
   GroupMemoryBarrierWithGroupSync();
 

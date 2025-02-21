@@ -61,7 +61,7 @@ void main(uint3 tid : SV_GroupThreadID)
   outval.z = tmp[tid.x ^ 1];
 
   // do calculation with our neighbour
-  tmp[tid.x] = tmp[tid.x] * tmp[tid.x ^ 1];
+  tmp[tid.x] = (1.0f + tmp[tid.x]) * (1.0f + tmp[tid.x ^ 1]);
 
   GroupMemoryBarrierWithGroupSync();
 
