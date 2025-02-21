@@ -2533,6 +2533,18 @@ QString RDDialog::getSaveFileName(QWidget *parent, const QString &caption, const
   return QString();
 }
 
+void RDDialog::closeEvent(QCloseEvent *e)
+{
+  emit(aboutToClose(e));
+  QDialog::closeEvent(e);
+}
+
+void RDDialog::keyPressEvent(QKeyEvent *e)
+{
+  emit(keyPress(e));
+  QDialog::keyPressEvent(e);
+}
+
 bool QFileFilterModel::filterAcceptsRow(int source_row, const QModelIndex &source_parent) const
 {
   QModelIndex idx = sourceModel()->index(source_row, 0, source_parent);

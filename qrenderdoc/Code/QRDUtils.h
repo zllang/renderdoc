@@ -917,8 +917,12 @@ public:
 class QMenu;
 
 // helper for doing a manual blocking invoke of a dialog
-struct RDDialog
+class RDDialog : public QDialog
 {
+private:
+  Q_OBJECT
+
+public:
   static const QMessageBox::StandardButtons YesNoCancel;
 
   static QString DefaultBrowsePath;
@@ -995,6 +999,14 @@ struct RDDialog
                                  const QString &dir = QString(), const QString &filter = QString(),
                                  QString *selectedFilter = NULL,
                                  QFileDialog::Options options = QFileDialog::Options());
+
+signals:
+  void aboutToClose(QCloseEvent *);
+  void keyPress(QKeyEvent *e);
+
+private:
+  void closeEvent(QCloseEvent *) override;
+  void keyPressEvent(QKeyEvent *e) override;
 };
 
 class QGridLayout;

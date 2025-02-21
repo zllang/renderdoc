@@ -2588,7 +2588,7 @@ void MainWindow::on_action_Start_Replay_Loop_triggered()
   if(!m_Ctx.IsCaptureLoaded())
     return;
 
-  QDialog popup;
+  RDDialog popup;
   popup.setWindowFlags(popup.windowFlags() & ~Qt::WindowContextHelpButtonHint);
   popup.setWindowIcon(windowIcon());
 
@@ -2650,6 +2650,13 @@ void MainWindow::on_action_Start_Replay_Loop_triggered()
   WindowingData winData = m_Ctx.CreateWindowingData(&popup);
 
   m_Ctx.Replay().AsyncInvoke([winData, id](IReplayController *r) { r->ReplayLoop(winData, id); });
+
+  QObject::connect(&popup, &RDDialog::aboutToClose,
+                   [this](QCloseEvent *) { m_Ctx.Replay().CancelReplayLoop(); });
+  QObject::connect(&popup, &RDDialog::keyPress, [this](QKeyEvent *e) {
+    if(e->matches(QKeySequence::Cancel))
+      m_Ctx.Replay().CancelReplayLoop();
+  });
 
   RDDialog::show(&popup);
 
