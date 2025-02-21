@@ -2174,6 +2174,13 @@ void ReplayController::RemoveReplacement(ResourceId id)
       m_Outputs[i]->Display();
 }
 
+void ReplayController::ClearReplayCache()
+{
+  CHECK_REPLAY_THREAD();
+
+  m_pDevice->ClearReplayCache();
+}
+
 RDResult ReplayController::CreateDevice(RDCFile *rdc, const ReplayOptions &opts)
 {
   CHECK_REPLAY_THREAD();

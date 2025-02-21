@@ -4914,6 +4914,12 @@ void VulkanReplay::FreeTargetResource(ResourceId id)
   m_pDriver->ReleaseResource(GetResourceManager()->GetCurrentResource(id));
 }
 
+void VulkanReplay::ClearReplayCache()
+{
+  ClearPostVSCache();
+  ClearFeedbackCache();
+}
+
 void VulkanReplay::ReplaceResource(ResourceId from, ResourceId to)
 {
   // remove existing shader replacement

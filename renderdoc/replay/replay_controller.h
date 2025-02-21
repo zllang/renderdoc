@@ -178,6 +178,7 @@ public:
   void ReplaceResource(ResourceId from, ResourceId to);
   void RemoveReplacement(ResourceId id);
   void FreeTargetResource(ResourceId id);
+  void ClearReplayCache();
 
   FrameDescription GetFrameInfo();
   const SDFile &GetStructuredFile();

@@ -3619,6 +3619,12 @@ void D3D12Replay::RemoveReplacement(ResourceId id)
   }
 }
 
+void D3D12Replay::ClearReplayCache()
+{
+  ClearPostVSCache();
+  ClearFeedbackCache();
+}
+
 void D3D12Replay::RefreshDerivedReplacements()
 {
   D3D12ResourceManager *rm = m_pDevice->GetResourceManager();

@@ -2264,6 +2264,11 @@ again, any previous connection will be closed.
 )");
   virtual bool OpenRGPProfile(const rdcstr &filename) = 0;
 
+  DOCUMENT(R"(Clear any cached data from previous replays and ensure subsequent replays fully
+re-initialise any data, including e.g. bindless feedback, printf results or mesh output data.
+)");
+  virtual void ClearReplayCache() = 0;
+
   DOCUMENT(R"(Returns the current interop handle for RGP.
 
 This may return ``None`` in several cases:

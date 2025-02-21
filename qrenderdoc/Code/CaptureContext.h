@@ -163,6 +163,7 @@ public:
   const ActionDescription *CurAction() override { return GetAction(CurEvent()); }
   const ActionDescription *GetFirstAction() override { return m_FirstAction; };
   const ActionDescription *GetLastAction() override { return m_LastAction; };
+  void ClearReplayCache() override;
   bool OpenRGPProfile(const rdcstr &filename) override;
   IRGPInterop *GetRGPInterop() override { return m_RGP; }
   const rdcarray<ActionDescription> &CurRootActions() override { return *m_Actions; }

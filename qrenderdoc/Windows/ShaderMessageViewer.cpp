@@ -621,7 +621,7 @@ void ShaderMessageViewer::OnCaptureClosed()
 void ShaderMessageViewer::OnEventChanged(uint32_t eventId)
 {
   ResourceId shaders[NumShaderStages];
-  bool editsChanged = false;
+  bool needRefresh = false;
   QString staleReason;
 
   for(ShaderStage s : values<ShaderStage>())
@@ -632,13 +632,24 @@ void ShaderMessageViewer::OnEventChanged(uint32_t eventId)
     // either an edit has been applied, updated, or removed if these don't match
     if(shaders[idx] != m_ReplacedShaders[idx])
     {
-      editsChanged = true;
-      staleReason += QFormatStr(", %1").arg(ToQStr(s, m_API));
+      needRefresh = true;
+      if(staleReason.isEmpty())
+        staleReason = tr("there are edits to shaders typed ");
+      else
+        staleReason += lit(", ");
+      staleReason += QFormatStr("%1").arg(ToQStr(s, m_API));
     }
   }
 
+  if(!needRefresh && m_ResourceCacheID != m_Ctx.ResourceNameCacheID())
+  {
+    staleReason = tr("The replay information is out of date");
+    m_ResourceCacheID = m_Ctx.ResourceNameCacheID();
+    needRefresh = true;
+  }
+
   // if the edits haven't changed, just skip
-  if(!editsChanged)
+  if(!needRefresh)
     return;
 
   // if it's the current event we can update with the latest
@@ -656,15 +667,12 @@ void ShaderMessageViewer::OnEventChanged(uint32_t eventId)
   }
   else
   {
-    staleReason.remove(0, 2);
-
     // otherwise we can't - just update the stale status
     ui->staleStatus->show();
-    ui->staleStatus->setText(
-        tr("Messages are stale because edits to %1 shaders have changed since they were fetched.\n"
-           "Select the event @%2 to refresh.")
-            .arg(staleReason)
-            .arg(m_EID));
+    ui->staleStatus->setText(tr("Messages are stale because %1 since the messages were fetched.\n"
+                                "Select the event @%2 to refresh.")
+                                 .arg(staleReason)
+                                 .arg(m_EID));
 
     ui->messages->beginUpdate();
 

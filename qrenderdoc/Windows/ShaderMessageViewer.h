@@ -71,6 +71,8 @@ private:
 
   bool m_Multiview = false, m_Multisampled = false;
 
+  int m_ResourceCacheID = -1;
+
   GraphicsAPI m_API;
   uint32_t m_EID;
   const ActionDescription *m_Action;

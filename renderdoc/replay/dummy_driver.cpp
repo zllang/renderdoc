@@ -261,6 +261,10 @@ void DummyDriver::FreeTargetResource(ResourceId id)
 {
 }
 
+void DummyDriver::ClearReplayCache()
+{
+}
+
 rdcarray<GPUCounter> DummyDriver::EnumerateCounters()
 {
   return {};

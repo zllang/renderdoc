@@ -2717,6 +2717,11 @@ void D3D11Replay::RemoveReplacement(ResourceId id)
   ClearPostVSCache();
 }
 
+void D3D11Replay::ClearReplayCache()
+{
+  ClearPostVSCache();
+}
+
 D3D11DebugManager *D3D11Replay::GetDebugManager()
 {
   return m_pDevice->GetDebugManager();

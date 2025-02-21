@@ -531,6 +531,7 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return m_Obj.GetAction(eventId);
   }
+  virtual void ClearReplayCache() override { return m_Obj.ClearReplayCache(); }
   virtual bool OpenRGPProfile(const rdcstr &filename) override
   {
     return m_Obj.OpenRGPProfile(filename);

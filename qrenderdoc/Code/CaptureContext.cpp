@@ -2005,6 +2005,13 @@ void CaptureContext::LoadEdits(const QString &data)
   }
 }
 
+void CaptureContext::ClearReplayCache()
+{
+  m_CustomNameCachedID++;
+
+  Replay().AsyncInvoke([](IReplayController *r) { r->ClearReplayCache(); });
+}
+
 bool CaptureContext::OpenRGPProfile(const rdcstr &filename)
 {
   delete m_RGP;

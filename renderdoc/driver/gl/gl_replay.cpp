@@ -3753,6 +3753,11 @@ void GLReplay::FreeTargetResource(ResourceId id)
   m_pDriver->FreeTargetResource(id);
 }
 
+void GLReplay::ClearReplayCache()
+{
+  ClearPostVSCache();
+}
+
 ResourceId GLReplay::CreateProxyTexture(const TextureDescription &templateTex)
 {
   WrappedOpenGL &drv = *m_pDriver;

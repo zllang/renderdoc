@@ -1392,6 +1392,31 @@ void ReplayProxy::FreeTargetResource(ResourceId id)
 }
 
 template <typename ParamSerialiser, typename ReturnSerialiser>
+void ReplayProxy::Proxied_ClearReplayCache(ParamSerialiser &paramser, ReturnSerialiser &retser)
+{
+  const ReplayProxyPacket expectedPacket = eReplayProxy_ClearReplayCache;
+  ReplayProxyPacket packet = eReplayProxy_ClearReplayCache;
+
+  {
+    BEGIN_PARAMS();
+    END_PARAMS();
+  }
+
+  {
+    REMOTE_EXECUTION();
+    if(paramser.IsReading() && !paramser.IsErrored() && !m_IsErrored)
+      m_Remote->ClearReplayCache();
+  }
+
+  SERIALISE_RETURN_VOID();
+}
+
+void ReplayProxy::ClearReplayCache()
+{
+  PROXY_FUNCTION(ClearReplayCache);
+}
+
+template <typename ParamSerialiser, typename ReturnSerialiser>
 rdcarray<ShaderEncoding> ReplayProxy::Proxied_GetTargetShaderEncodings(ParamSerialiser &paramser,
                                                                        ReturnSerialiser &retser)
 {
@@ -3169,6 +3194,7 @@ bool ReplayProxy::Tick(int type)
     }
     case eReplayProxy_ReplaceResource: ReplaceResource(ResourceId(), ResourceId()); break;
     case eReplayProxy_RemoveReplacement: RemoveReplacement(ResourceId()); break;
+    case eReplayProxy_ClearReplayCache: ClearReplayCache(); break;
     case eReplayProxy_DebugVertex: DebugVertex(0, 0, 0, 0, 0); break;
     case eReplayProxy_DebugPixel: DebugPixel(0, 0, 0, DebugPixelInputs()); break;
     case eReplayProxy_DebugThread:
