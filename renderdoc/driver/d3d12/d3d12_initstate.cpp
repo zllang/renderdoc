@@ -2087,6 +2087,9 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
               RDCMAX(4 * 1024 * 1024ULL, prebuild.ScratchDataSizeInBytes));
         }
 
+        if(m_Device->HasFatalError() || GetRTManager()->ASSerialiseBuffer == NULL)
+          return;
+
         desc.ScratchAccelerationStructureData = GetRTManager()->ASSerialiseBuffer->Address();
       }
 
@@ -2154,6 +2157,9 @@ void D3D12ResourceManager::Apply_InitialState(ID3D12DeviceChild *live, D3D12Init
         m_GPUBufferAllocator.Alloc(D3D12GpuBufferHeapType::AccStructDefaultHeap,
                                    D3D12GpuBufferHeapMemoryFlag::Default,
                                    prebuild.ResultDataMaxSizeInBytes, 256, &data.cachedBuiltAS);
+
+        if(!data.cachedBuiltAS)
+          return;
 
         ResourceId origId = GetOriginalID(as->GetResourceID());
 
