@@ -5666,19 +5666,37 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
 
 bool ThreadState::IsVariableAssigned(const Id id) const
 {
-  RDCASSERT(id < m_Assigned.size());
-  return m_Assigned[id];
+  if(id < m_Assigned.size())
+  {
+    return m_Assigned[id];
+  }
+  else
+  {
+    RDCERR("Variable Id %d is not in assigned list", id);
+    return false;
+  }
 }
 
 bool ThreadState::GetLiveVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
 {
-  RDCASSERT(id < m_Live.size());
-  RDCASSERT(m_Live[id]);
+  if(id < m_Live.size())
+  {
+    RDCASSERT(m_Live[id]);
+  }
+  else
+  {
+    RDCERR("Unknown Live Variable Id %d", id);
+  }
   RDCASSERT(IsVariableAssigned(id));
+
   auto it = m_Variables.find(id);
-  RDCASSERT(it != m_Variables.end());
-  var = it->second;
-  return GetVariableHelper(op, dxOpCode, var);
+  if(it != m_Variables.end())
+  {
+    var = it->second;
+    return GetVariableHelper(op, dxOpCode, var);
+  }
+  RDCERR("Unknown Variable %d", id);
+  return false;
 }
 
 bool ThreadState::GetPhiVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
