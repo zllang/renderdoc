@@ -2102,6 +2102,7 @@ void D3D12DebugManager::PrepareExecuteIndirectPatching(GPUAddressRangeTracker &o
     hr = m_pDevice->CreateCommittedResource(
         &heapProps, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, NULL,
         __uuidof(ID3D12Resource), (void **)&m_EIPatchScratchBuffer);
+    m_pDevice->RemoveReplayResource(GetResID(m_EIPatchScratchBuffer));
 
     m_EIPatchScratchBuffer->SetName(L"m_EIPatchScratchBuffer");
 
