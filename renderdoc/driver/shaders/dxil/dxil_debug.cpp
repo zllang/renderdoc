@@ -4938,7 +4938,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 #define _IMPL(I, S, U) comp<U>(result, c) = (U)x;
         IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, result.type);
       }
-      if(opCode == Operation::ZExt)
+      else if(opCode == Operation::ZExt)
       {
         // Result bit_width >= Value bit_width
         RDCASSERT(retType->bitWidth >= srcBitWidth);
