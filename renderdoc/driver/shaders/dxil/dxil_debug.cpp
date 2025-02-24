@@ -8070,6 +8070,22 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
                 scopeMD = NULL;
                 break;
               }
+              else if(dwarf->type == DIBase::CompositeType)
+              {
+                const DICompositeType *compType = dwarf->As<DICompositeType>();
+                // Detect a member function
+                if((compType->tag == DW_TAG_class_type) || (compType->tag == DW_TAG_structure_type))
+                {
+                  const rdcstr *typeName = compType->name;
+                  if(typeName && !typeName->empty())
+                  {
+                    if(!callstack.empty())
+                      callstack[0] = *typeName + "::" + callstack[0];
+                  }
+                }
+                scopeMD = compType->scope;
+                break;
+              }
               else
               {
                 RDCERR("Unhandled scope type %s", ToStr(dwarf->type).c_str());
