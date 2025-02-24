@@ -1587,6 +1587,11 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
           shaders[i] = pipeInfo.shaders[i];
           info.m_ShaderModule[shaders[i].module].m_PipeReferences[id] = pipeid;
         }
+        for(uint32_t i : {(uint32_t)ShaderStage::Task, (uint32_t)ShaderStage::Mesh})
+        {
+          shaders[i] = pipeInfo.shaders[i];
+          info.m_ShaderModule[shaders[i].module].m_PipeReferences[id] = pipeid;
+        }
 
         vertLayout = pipeInfo.vertLayout;
 
