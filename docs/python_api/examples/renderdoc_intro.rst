@@ -31,7 +31,7 @@ Once you have the module, either place the module within your python's default l
 
     sys.path.append('/path/to/renderdoc/module')
 
-Additionally, the renderdoc python module needs to be able to load the main renderdoc library - the module library it self just contains stubs and python wrappers for the C++ interfaces. You can either place the renderdoc library in the system library paths, or solve it in a platform specific way. For example on windows you can either place ``renderdoc.dll`` in the same directory as the python module, or append to ``PATH``. On Python 3.8 and above ``PATH`` is no longer searched by default so you need to explicitly add the DLL folder:
+Additionally, the renderdoc python module needs to be able to load the main renderdoc library (``renderdoc.dll`` or ``librenderdoc.so`` depending on your platform) - the module library itself just contains stubs and python wrappers for the C++ interfaces. You can either place the renderdoc library in the system library paths, or solve it in a platform specific way. For example on windows you can either place ``renderdoc.dll`` in the same directory as the python module, or append to ``PATH``. On Python 3.8 and above ``PATH`` is no longer searched by default so you need to explicitly add the DLL folder:
 
 .. highlight:: python
 .. code:: python

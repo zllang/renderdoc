@@ -17,8 +17,6 @@ Build instructions for your platform are available `on github <https://github.co
   
   RenderDoc requires pythonXY.lib, include files such as include/Python.h, as well as a .zip of the standard library. If you installed python with an installer you have the first two, and can generate the standard library zip by zipping the contents of the Lib folder. If you downloaded the embeddable zip distribution you will only have the standard library zip, you need to obtain the include files and ``.lib`` file separately.
 
-Once you have compiled RenderDoc copy the python module into the same folder as the main renderdoc library. On windows this means copying out of the ``pymodules`` subdirectory, on linux this will likely be the case already. We do this to keep things simple, so the python module can load the library without needing to change ``PATH``.
-
 Python Setup for VS Code
 ------------------------
 Using the same python version as the RenderDoc build used (Python 3.6 by default).
