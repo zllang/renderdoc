@@ -891,10 +891,15 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
           RDCERR("Constant GetElementPtr first member is not a GlobalVar");
           return false;
         }
-        const DXIL::Type *elementType = gv->type;
-        if(elementType->type != Type::TypeKind::Pointer)
+        if(gv->type->type != Type::TypeKind::Pointer)
         {
           RDCERR("Constant GetElementPtr global variable is not a Pointer");
+          return false;
+        }
+        const DXIL::Type *elementType = constant->type;
+        if(elementType->type != Type::TypeKind::Pointer)
+        {
+          RDCERR("Constant variable is not a Pointer");
           return false;
         }
         elementType = elementType->inner;
