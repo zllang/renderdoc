@@ -584,8 +584,62 @@ D3D12APIWrapper::~D3D12APIWrapper()
   }
 }
 
+void D3D12APIWrapper::FetchSRV(const D3D12Descriptor *resDescriptor, const BindingSlot &slot)
+{
+  if(resDescriptor)
+  {
+    D3D12ResourceManager *rm = m_Device->GetResourceManager();
+    DXILDebug::GlobalState::SRVData &srvData = m_GlobalState.srvs[slot];
+    ResourceId srvId = resDescriptor->GetResResourceId();
+    ID3D12Resource *pResource = rm->GetCurrentAs<ID3D12Resource>(srvId);
+    if(pResource)
+    {
+      D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = resDescriptor->GetSRV();
+      if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_UNKNOWN)
+        srvDesc = MakeSRVDesc(pResource->GetDesc());
+
+      if(srvDesc.Format != DXGI_FORMAT_UNKNOWN)
+      {
+        DXILDebug::FillViewFmtFromResourceFormat(srvDesc.Format, srvData.resInfo.format);
+      }
+      else
+      {
+        D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
+        if(resDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+          srvData.resInfo.format.stride = srvDesc.Buffer.StructureByteStride;
+      }
+
+      if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
+      {
+        srvData.resInfo.firstElement = (uint32_t)srvDesc.Buffer.FirstElement;
+        srvData.resInfo.numElements = srvDesc.Buffer.NumElements;
+        srvData.resInfo.isByteBuffer =
+            ((srvDesc.Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0) ? true : false;
+        // Get the buffer stride from the shader metadata (for StructuredBuffer, RawBuffer)
+        uint32_t mdStride =
+            DXILDebug::GetSRVBufferStrideFromShaderMetadata(m_EntryPointInterface, slot);
+        if(mdStride != 0)
+          srvData.resInfo.format.stride = mdStride;
+
+        m_Device->GetDebugManager()->GetBufferData(pResource, 0, 0, srvData.data);
+      }
+      // Textures are sampled via a pixel shader, so there's no need to copy their data
+    }
+  }
+}
+
 void D3D12APIWrapper::FetchSRV(const BindingSlot &slot)
 {
+  // Direct access resource
+  if(slot.heapType != DXDebug::HeapDescriptorType::NoHeap)
+  {
+    const HeapDescriptorType heapType = slot.heapType;
+    const uint32_t descriptorIndex = slot.descriptorIndex;
+    const D3D12Descriptor srvDesc =
+        D3D12ShaderDebug::FindDescriptor(m_Device, heapType, descriptorIndex);
+    return FetchSRV(&srvDesc, slot);
+  }
+
   const D3D12RenderState &rs = m_Device->GetQueue()->GetCommandData()->m_RenderState;
   D3D12ResourceManager *rm = m_Device->GetResourceManager();
 
@@ -602,8 +656,6 @@ void D3D12APIWrapper::FetchSRV(const BindingSlot &slot)
   {
     pRootSignature = &rs.graphics;
   }
-
-  DXILDebug::GlobalState::SRVData &srvData = m_GlobalState.srvs[slot];
 
   if(pRootSignature)
   {
@@ -626,6 +678,7 @@ void D3D12APIWrapper::FetchSRV(const BindingSlot &slot)
             ID3D12Resource *pResource = rm->GetCurrentAs<ID3D12Resource>(element.id);
             if(pResource)
             {
+              DXILDebug::GlobalState::SRVData &srvData = m_GlobalState.srvs[slot];
               D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
 
               // DXC allows root buffers to have a stride of up to 16 bytes in the shader, which
@@ -699,47 +752,7 @@ void D3D12APIWrapper::FetchSRV(const BindingSlot &slot)
                range.RegisterSpace == slot.registerSpace)
             {
               desc += slot.shaderRegister - range.BaseShaderRegister;
-              if(desc)
-              {
-                ResourceId srvId = desc->GetResResourceId();
-                ID3D12Resource *pResource = rm->GetCurrentAs<ID3D12Resource>(srvId);
-                if(pResource)
-                {
-                  D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = desc->GetSRV();
-                  if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_UNKNOWN)
-                    srvDesc = MakeSRVDesc(pResource->GetDesc());
-
-                  if(srvDesc.Format != DXGI_FORMAT_UNKNOWN)
-                  {
-                    DXILDebug::FillViewFmtFromResourceFormat(srvDesc.Format, srvData.resInfo.format);
-                  }
-                  else
-                  {
-                    D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
-                    if(resDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-                      srvData.resInfo.format.stride = srvDesc.Buffer.StructureByteStride;
-                  }
-
-                  if(srvDesc.ViewDimension == D3D12_SRV_DIMENSION_BUFFER)
-                  {
-                    srvData.resInfo.firstElement = (uint32_t)srvDesc.Buffer.FirstElement;
-                    srvData.resInfo.numElements = srvDesc.Buffer.NumElements;
-                    srvData.resInfo.isByteBuffer =
-                        ((srvDesc.Buffer.Flags & D3D12_BUFFER_SRV_FLAG_RAW) != 0) ? true : false;
-                    // Get the buffer stride from the shader metadata (for StructuredBuffer, RawBuffer)
-                    uint32_t mdStride =
-                        DXILDebug::GetSRVBufferStrideFromShaderMetadata(m_EntryPointInterface, slot);
-                    if(mdStride != 0)
-                      srvData.resInfo.format.stride = mdStride;
-
-                    m_Device->GetDebugManager()->GetBufferData(pResource, 0, 0, srvData.data);
-                  }
-
-                  // Textures are sampled via a pixel shader, so there's no need to copy their data
-                }
-
-                return;
-              }
+              return FetchSRV(desc, slot);
             }
           }
         }
@@ -755,6 +768,57 @@ void D3D12APIWrapper::FetchSRV(const BindingSlot &slot)
          slot.registerSpace);
 }
 
+void D3D12APIWrapper::FetchUAV(const D3D12Descriptor *resDescriptor, const BindingSlot &slot)
+{
+  if(resDescriptor)
+  {
+    D3D12ResourceManager *rm = m_Device->GetResourceManager();
+    DXILDebug::GlobalState::UAVData &uavData = m_GlobalState.uavs[slot];
+    ResourceId uavId = resDescriptor->GetResResourceId();
+    ID3D12Resource *pResource = rm->GetCurrentAs<ID3D12Resource>(uavId);
+
+    if(pResource)
+    {
+      // TODO: Need to fetch counter resource if applicable
+      D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = resDescriptor->GetUAV();
+
+      if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_UNKNOWN)
+        uavDesc = MakeUAVDesc(pResource->GetDesc());
+
+      if(uavDesc.Format != DXGI_FORMAT_UNKNOWN)
+      {
+        DXILDebug::FillViewFmtFromResourceFormat(uavDesc.Format, uavData.resInfo.format);
+      }
+
+      if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
+      {
+        uavData.resInfo.firstElement = (uint32_t)uavDesc.Buffer.FirstElement;
+        uavData.resInfo.numElements = uavDesc.Buffer.NumElements;
+        uavData.resInfo.isByteBuffer =
+            ((uavDesc.Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0) ? true : false;
+        // Get the buffer stride from the shader metadata (for StructuredBuffer, RawBuffer)
+        uint32_t mdStride =
+            DXILDebug::GetUAVBufferStrideFromShaderMetadata(m_EntryPointInterface, slot);
+        if(mdStride != 0)
+          uavData.resInfo.format.stride = mdStride;
+
+        m_Device->GetDebugManager()->GetBufferData(pResource, 0, 0, uavData.data);
+      }
+      else
+      {
+        uavData.tex = true;
+        m_Device->GetReplay()->GetTextureData(uavId, Subresource(), GetTextureDataParams(),
+                                              uavData.data);
+
+        D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
+        uavData.rowPitch = GetByteSize((int)resDesc.Width, 1, 1, uavDesc.Format, 0);
+        uavData.depthPitch =
+            GetByteSize((int)resDesc.Width, (int)(resDesc.Height), 1, uavDesc.Format, 0);
+      }
+    }
+  }
+}
+
 void D3D12APIWrapper::FetchUAV(const BindingSlot &slot)
 {
   // if the UAV might be dirty from side-effects from the action, replay back to right
@@ -764,6 +828,16 @@ void D3D12APIWrapper::FetchUAV(const BindingSlot &slot)
     D3D12MarkerRegion region(m_Device->GetQueue()->GetReal(), "un-dirtying resources");
     m_Device->ReplayLog(0, m_EventId, eReplay_WithoutDraw);
     m_DidReplay = true;
+  }
+
+  // Direct access resource
+  if(slot.heapType != DXDebug::HeapDescriptorType::NoHeap)
+  {
+    const HeapDescriptorType heapType = slot.heapType;
+    const uint32_t descriptorIndex = slot.descriptorIndex;
+    const D3D12Descriptor uavDesc =
+        D3D12ShaderDebug::FindDescriptor(m_Device, heapType, descriptorIndex);
+    return FetchUAV(&uavDesc, slot);
   }
 
   const D3D12RenderState &rs = m_Device->GetQueue()->GetCommandData()->m_RenderState;
@@ -782,8 +856,6 @@ void D3D12APIWrapper::FetchUAV(const BindingSlot &slot)
   {
     pRootSignature = &rs.graphics;
   }
-
-  DXILDebug::GlobalState::UAVData &uavData = m_GlobalState.uavs[slot];
 
   if(pRootSignature)
   {
@@ -807,6 +879,7 @@ void D3D12APIWrapper::FetchUAV(const BindingSlot &slot)
 
             if(pResource)
             {
+              DXILDebug::GlobalState::UAVData &uavData = m_GlobalState.uavs[slot];
               D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
               // DXC allows root buffers to have a stride of up to 16 bytes in the shader, which
               // means encoding the byte offset into the first element here is wrong without
@@ -882,54 +955,7 @@ void D3D12APIWrapper::FetchUAV(const BindingSlot &slot)
                range.RegisterSpace == slot.registerSpace)
             {
               desc += slot.shaderRegister - range.BaseShaderRegister;
-              if(desc)
-              {
-                ResourceId uavId = desc->GetResResourceId();
-                ID3D12Resource *pResource = rm->GetCurrentAs<ID3D12Resource>(uavId);
-
-                if(pResource)
-                {
-                  // TODO: Need to fetch counter resource if applicable
-
-                  D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = desc->GetUAV();
-
-                  if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_UNKNOWN)
-                    uavDesc = MakeUAVDesc(pResource->GetDesc());
-
-                  if(uavDesc.Format != DXGI_FORMAT_UNKNOWN)
-                  {
-                    DXILDebug::FillViewFmtFromResourceFormat(uavDesc.Format, uavData.resInfo.format);
-                  }
-
-                  if(uavDesc.ViewDimension == D3D12_UAV_DIMENSION_BUFFER)
-                  {
-                    uavData.resInfo.firstElement = (uint32_t)uavDesc.Buffer.FirstElement;
-                    uavData.resInfo.numElements = uavDesc.Buffer.NumElements;
-                    uavData.resInfo.isByteBuffer =
-                        ((uavDesc.Buffer.Flags & D3D12_BUFFER_UAV_FLAG_RAW) != 0) ? true : false;
-                    // Get the buffer stride from the shader metadata (for StructuredBuffer, RawBuffer)
-                    uint32_t mdStride =
-                        DXILDebug::GetUAVBufferStrideFromShaderMetadata(m_EntryPointInterface, slot);
-                    if(mdStride != 0)
-                      uavData.resInfo.format.stride = mdStride;
-
-                    m_Device->GetDebugManager()->GetBufferData(pResource, 0, 0, uavData.data);
-                  }
-                  else
-                  {
-                    uavData.tex = true;
-                    m_Device->GetReplay()->GetTextureData(uavId, Subresource(),
-                                                          GetTextureDataParams(), uavData.data);
-
-                    D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
-                    uavData.rowPitch = GetByteSize((int)resDesc.Width, 1, 1, uavDesc.Format, 0);
-                    uavData.depthPitch =
-                        GetByteSize((int)resDesc.Width, (int)(resDesc.Height), 1, uavDesc.Format, 0);
-                  }
-                }
-
-                return;
-              }
+              return FetchUAV(desc, slot);
             }
           }
         }
