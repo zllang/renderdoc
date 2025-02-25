@@ -1794,6 +1794,8 @@ void VulkanPipelineStateViewer::setState()
       raster = false;
     }
 
+    setOldMeshPipeFlow();
+
     if(state.geometryShader.resourceId == ResourceId() && xfbActive)
     {
       ui->pipeFlow->setStageName(4, lit("XFB"), tr("Transform Feedback"));
@@ -1803,7 +1805,6 @@ void VulkanPipelineStateViewer::setState()
       ui->pipeFlow->setStageName(4, lit("GS"), tr("Geometry Shader"));
     }
 
-    setOldMeshPipeFlow();
     ui->pipeFlow->setStagesEnabled(
         {true, true, state.tessControlShader.resourceId != ResourceId(),
          state.tessEvalShader.resourceId != ResourceId(),
