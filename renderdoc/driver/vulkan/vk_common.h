@@ -1149,6 +1149,7 @@ enum class VulkanChunk : uint32_t
   vkCmdSetRenderingAttachmentLocationsKHR,
   vkCmdSetRenderingInputAttachmentIndicesKHR,
   vkCmdTraceRaysIndirect2KHR,
+  vkCmdWriteAccelerationStructuresPropertiesKHR,
   Max,
 };
 

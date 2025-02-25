@@ -4520,6 +4520,33 @@ bool WrappedVulkan::Serialise_vkCmdCopyQueryPoolResults(
         commandBuffer = VK_NULL_HANDLE;
     }
 
+    VulkanCreationInfo::QueryPool &qpInfo = m_CreationInfo.m_QueryPool[GetResID(queryPool)];
+
+    // skip AS queries as we do not serialise them
+    if(qpInfo.queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR ||
+       qpInfo.queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR ||
+       qpInfo.queryType == VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR ||
+       qpInfo.queryType ==
+           VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR)
+    {
+      if(commandBuffer != VK_NULL_HANDLE)
+      {
+        const bool is64bit = (flags & VK_QUERY_RESULT_64_BIT) > 0;
+        const bool hasAvailability = (flags & VK_QUERY_RESULT_WITH_AVAILABILITY_BIT) > 0;
+        const VkDeviceSize resultSize = is64bit ? sizeof(uint64_t) : sizeof(uint32_t);
+        VkDeviceSize size = (queryCount - 1) * destStride + resultSize;
+        if(hasAvailability)
+        {
+          size += resultSize;
+        }
+
+        ObjDisp(commandBuffer)
+            ->CmdFillBuffer(Unwrap(commandBuffer), Unwrap(destBuffer), destOffset, size, 0);
+      }
+
+      return true;
+    }
+
     if(commandBuffer != VK_NULL_HANDLE)
     {
       ObjDisp(commandBuffer)
@@ -8256,6 +8283,31 @@ void WrappedVulkan::vkCmdCopyMemoryToAccelerationStructureKHR(
   }
 }
 
+template <typename SerialiserType>
+bool WrappedVulkan::Serialise_vkCmdWriteAccelerationStructuresPropertiesKHR(
+    SerialiserType &ser, VkCommandBuffer commandBuffer, uint32_t accelerationStructureCount,
+    const VkAccelerationStructureKHR *pAccelerationStructures, VkQueryType queryType,
+    VkQueryPool queryPool, uint32_t firstQuery)
+{
+  SERIALISE_ELEMENT(commandBuffer);
+  SERIALISE_ELEMENT(accelerationStructureCount);
+  SERIALISE_ELEMENT_ARRAY(pAccelerationStructures, accelerationStructureCount);
+  SERIALISE_ELEMENT(queryType).Important();
+  SERIALISE_ELEMENT(queryPool).Important();
+  SERIALISE_ELEMENT(firstQuery);
+
+  SERIALISE_CHECK_READ_ERRORS();
+
+  if(IsReplayingAndReading())
+  {
+    m_LastCmdBufferID = GetResourceManager()->GetOriginalID(GetResID(commandBuffer));
+
+    // don't actually replay - this is purely for user information
+  }
+
+  return true;
+}
+
 void WrappedVulkan::vkCmdWriteAccelerationStructuresPropertiesKHR(
     VkCommandBuffer commandBuffer, uint32_t accelerationStructureCount,
     const VkAccelerationStructureKHR *pAccelerationStructures, VkQueryType queryType,
@@ -8292,6 +8344,24 @@ void WrappedVulkan::vkCmdWriteAccelerationStructuresPropertiesKHR(
       ->CmdWriteAccelerationStructuresPropertiesKHR(Unwrap(commandBuffer),
                                                     accelerationStructureCount, unwrappedASes,
                                                     queryType, Unwrap(queryPool), firstQuery);
+
+  if(IsCaptureMode(m_State))
+  {
+    VkResourceRecord *record = GetRecord(commandBuffer);
+
+    CACHE_THREAD_SERIALISER();
+    SCOPED_SERIALISE_CHUNK(VulkanChunk::vkCmdWriteAccelerationStructuresPropertiesKHR);
+    Serialise_vkCmdWriteAccelerationStructuresPropertiesKHR(
+        ser, commandBuffer, accelerationStructureCount, pAccelerationStructures, queryType,
+        queryPool, firstQuery);
+
+    record->AddChunk(scope.Get(&record->cmdInfo->alloc));
+
+    GetResourceManager()->MarkResourceFrameReferenced(GetResID(queryPool), eFrameRef_Read);
+    for(uint32_t i = 0; i < accelerationStructureCount; i++)
+      GetResourceManager()->MarkResourceFrameReferenced(GetResID(pAccelerationStructures[i]),
+                                                        eFrameRef_Read);
+  }
 }
 
 // CPU-side VK_KHR_acceleration_structure calls are not supported for now
@@ -8622,10 +8692,14 @@ INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdCopyAccelerationStructureKHR,
                                 const VkCopyAccelerationStructureInfoKHR *pInfo);
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdCopyAccelerationStructureToMemoryKHR,
                                 VkCommandBuffer commandBuffer,
-                                const VkCopyAccelerationStructureToMemoryInfoKHR *pInfo)
+                                const VkCopyAccelerationStructureToMemoryInfoKHR *pInfo);
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdCopyMemoryToAccelerationStructureKHR,
                                 VkCommandBuffer commandBuffer,
-                                const VkCopyMemoryToAccelerationStructureInfoKHR *pInfo)
+                                const VkCopyMemoryToAccelerationStructureInfoKHR *pInfo);
+INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdWriteAccelerationStructuresPropertiesKHR,
+                                VkCommandBuffer commandBuffer, uint32_t accelerationStructureCount,
+                                const VkAccelerationStructureKHR *pAccelerationStructures,
+                                VkQueryType queryType, VkQueryPool queryPool, uint32_t firstQuery);
 
 INSTANTIATE_FUNCTION_SERIALISED(void, vkCmdBindShadersEXT, VkCommandBuffer commandBuffer,
                                 uint32_t stageCount, const VkShaderStageFlagBits *pStages,

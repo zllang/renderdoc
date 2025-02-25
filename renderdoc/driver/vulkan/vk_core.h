@@ -2941,10 +2941,10 @@ public:
   IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdCopyMemoryToAccelerationStructureKHR,
                                 VkCommandBuffer commandBuffer,
                                 const VkCopyMemoryToAccelerationStructureInfoKHR *pInfo);
-  void vkCmdWriteAccelerationStructuresPropertiesKHR(
-      VkCommandBuffer commandBuffer, uint32_t accelerationStructureCount,
-      const VkAccelerationStructureKHR *pAccelerationStructures, VkQueryType queryType,
-      VkQueryPool queryPool, uint32_t firstQuery);
+  IMPLEMENT_FUNCTION_SERIALISED(void, vkCmdWriteAccelerationStructuresPropertiesKHR,
+                                VkCommandBuffer commandBuffer, uint32_t accelerationStructureCount,
+                                const VkAccelerationStructureKHR *pAccelerationStructures,
+                                VkQueryType queryType, VkQueryPool queryPool, uint32_t firstQuery);
   VkResult vkCopyAccelerationStructureKHR(VkDevice device, VkDeferredOperationKHR deferredOperation,
                                           const VkCopyAccelerationStructureInfoKHR *pInfo);
   VkResult vkCopyAccelerationStructureToMemoryKHR(

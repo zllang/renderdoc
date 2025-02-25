@@ -4362,6 +4362,9 @@ bool WrappedVulkan::ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk)
                                                       VK_NULL_HANDLE, 0, NULL, NULL, NULL);
     case VulkanChunk::vkCmdTraceRaysIndirect2KHR:
       return Serialise_vkCmdTraceRaysIndirect2KHR(ser, VK_NULL_HANDLE, 0);
+    case VulkanChunk::vkCmdWriteAccelerationStructuresPropertiesKHR:
+      return Serialise_vkCmdWriteAccelerationStructuresPropertiesKHR(
+          ser, VK_NULL_HANDLE, 0, NULL, VK_QUERY_TYPE_MAX_ENUM, VK_NULL_HANDLE, 0);
 
     // chunks that are reserved but not yet serialised
     case VulkanChunk::vkResetCommandPool:

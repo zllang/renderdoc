@@ -200,7 +200,8 @@ void main(void)
     VkAccelerationStructureBuildGeometryInfoKHR blasBuildGeometryInfo = {
         VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
     blasBuildGeometryInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    blasBuildGeometryInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+    blasBuildGeometryInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+                                  VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
     blasBuildGeometryInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
     blasBuildGeometryInfo.geometryCount = (uint32_t)blasGeometries.size();
     blasBuildGeometryInfo.pGeometries = blasGeometries.data();
@@ -422,6 +423,20 @@ void main(void)
 
     vkh::updateDescriptorSets(device, {asWriteDescriptorSet}, {});
 
+    AllocatedBuffer queryBuffer(this, vkh::BufferCreateInfo(1024, VK_BUFFER_USAGE_TRANSFER_DST_BIT),
+                                VmaAllocationCreateInfo({0, VMA_MEMORY_USAGE_GPU_TO_CPU}));
+
+    VkQueryPool compactedPool;
+    VkQueryPool serialisedPool;
+
+    VkQueryPoolCreateInfo poolInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    poolInfo.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+    poolInfo.queryCount = 8;
+    vkCreateQueryPool(device, &poolInfo, NULL, &compactedPool);
+    poolInfo.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+    poolInfo.queryCount = 8;
+    vkCreateQueryPool(device, &poolInfo, NULL, &serialisedPool);
+
     while(Running())
     {
       {
@@ -436,6 +451,26 @@ void main(void)
         vkCmdCopyAccelerationStructureKHR(cmd, &copyInfo);
 
         popMarker(cmd);
+
+        pushMarker(cmd, "Query AS");
+
+        vkCmdResetQueryPool(cmd, compactedPool, 0, 8);
+        vkCmdResetQueryPool(cmd, serialisedPool, 0, 8);
+
+        vkCmdWriteAccelerationStructuresPropertiesKHR(
+            cmd, 1, &newBlas, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR,
+            compactedPool, 5);
+        vkCmdCopyQueryPoolResults(cmd, compactedPool, 5, 1, queryBuffer.buffer, 0, 8,
+                                  VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+
+        vkCmdWriteAccelerationStructuresPropertiesKHR(
+            cmd, 1, &newBlas, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
+            serialisedPool, 3);
+        vkCmdCopyQueryPoolResults(cmd, serialisedPool, 3, 1, queryBuffer.buffer, 16, 8,
+                                  VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+
+        popMarker(cmd);
+
         CHECK_VKR(vkEndCommandBuffer(cmd));
 
         Submit(0, 2, {cmd});
