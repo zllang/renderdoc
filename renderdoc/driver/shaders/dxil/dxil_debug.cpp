@@ -3394,7 +3394,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               RDCERR("Unhandled dxOpCode %s", ToStr(dxOpCode).c_str());
             }
 
-            TypedUAVStore(fmt, (byte *)data, res.value);
+            // NULL resource or out of bounds
+            if((!texData && elemIdx >= numElems) || (texData && dataOffset >= dataSize))
+            {
+              RDCERR("Ignoring store to unbound resource %s", GetArgumentName(1).c_str());
+            }
+            else
+            {
+              TypedUAVStore(fmt, (byte *)data, res.value);
+            }
 
             // result is the original value
             result.value = a.value;
@@ -5733,7 +5741,7 @@ void ThreadState::SetResult(const Id &id, ShaderVariable &result, Operation op, 
                             ShaderEvents flags)
 {
   RDCASSERT((result.rows > 0 && result.columns > 0) || !result.members.empty());
-  RDCASSERT(result.columns <= 4);
+  RDCASSERT(result.columns <= 16);
   RDCASSERTNOTEQUAL(result.type, VarType::Unknown);
 
   // Can only flush denorms for float types
