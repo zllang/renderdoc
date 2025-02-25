@@ -3510,9 +3510,10 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
             fmt.numComps = 4;
 
           // clamp to out of bounds based on numElems
-          fmt.numComps = RDCMIN(fmt.numComps, int(numElems - elemIdx) / 4);
+          int boundsClampedComps = int(numElems - elemIdx) / 4;
+          fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
-          for(int c = 0; c < 4; c++)
+          for(int c = 0; c < boundsClampedComps; c++)
           {
             if(c < fmt.numComps)
               RDCASSERTEQUAL(op.operands[0].comps[c], c);
@@ -3530,7 +3531,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           // apply the swizzle on the resource operand
           ShaderVariable fetch("", 0U, 0U, 0U, 0U);
 
-          for(int c = 0; c < 4; c++)
+          for(int c = 0; c < fmt.numComps; c++)
           {
             uint8_t comp = resComps[c];
             if(comp == 0xff)
