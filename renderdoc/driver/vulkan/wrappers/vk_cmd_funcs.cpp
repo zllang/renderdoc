@@ -4642,7 +4642,7 @@ void WrappedVulkan::vkCmdCopyQueryPoolResults(VkCommandBuffer commandBuffer, VkQ
         for(size_t i = 0; i < queryCount; ++i)
           ObjDisp(commandBuffer)
               ->CmdUpdateBuffer(Unwrap(commandBuffer), qpInfo->m_Buffer.UnwrappedBuffer(),
-                                destOffset + (queryCount * resultSize) + resultSize, resultSize,
+                                destOffset + (i * resultSize) + resultSize, resultSize,
                                 (uint32_t *)&availability);
       }
     }
