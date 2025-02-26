@@ -459,6 +459,11 @@ class Iter_Test(rdtest.TestCase):
                     else:
                         c -= chance
 
+                fatal = self.controller.GetFatalErrorStatus()
+                if fatal.code != rd.ResultCode.Succeeded:
+                    rdtest.log.error(f"Fatal error detected: {fatal.Message()}")
+                    break
+
             action = action.next
 
         self.texout.Shutdown()
