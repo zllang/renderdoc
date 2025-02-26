@@ -6257,8 +6257,15 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
       std::unordered_map<ShaderBuiltin, ShaderVariable> &thread_builtins =
           apiWrapper->thread_builtins[0];
 
-      thread_builtins[ShaderBuiltin::GroupIndex] =
-          ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
+      thread_builtins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
+          rdcstr(), groupid[0] * threadDim[0] + threadid[0],
+          groupid[1] * threadDim[1] + threadid[1], groupid[2] * threadDim[2] + threadid[2], 0U);
+      thread_builtins[ShaderBuiltin::GroupThreadIndex] =
+          ShaderVariable(rdcstr(), threadid[0], threadid[1], threadid[2], 0U);
+      thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+          rdcstr(),
+          threadid[2] * threadDim[0] * threadDim[1] + threadid[1] * threadDim[0] + threadid[0], 0U,
+          0U, 0U);
     }
 
     rdcspv::Debugger *debugger = new rdcspv::Debugger;
