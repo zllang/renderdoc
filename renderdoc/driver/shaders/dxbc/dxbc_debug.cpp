@@ -3440,6 +3440,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       {
         data += dataOffset;
 
+        int boundsClampedComps = 4;
+
         uint32_t srcIdx = 1;
         if(op.operation == OPCODE_LD_STRUCTURED)
         {
@@ -3447,6 +3449,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           fmt.byteWidth = 4;
 
           fmt.numComps = 4;
+          boundsClampedComps = int((stride - structOffset) / sizeof(uint32_t));
+          fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           if(op.operands[0].comps[0] != 0xff && op.operands[0].comps[1] == 0xff &&
              op.operands[0].comps[2] == 0xff && op.operands[0].comps[3] == 0xff)
@@ -3468,7 +3472,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
             fmt.numComps = 4;
 
           // do not allow writing beyond the stride (we don't expect fxc to emit writes like this anyway)
-          fmt.numComps = RDCMIN(fmt.numComps, int((stride - structOffset) / sizeof(uint32_t)));
+          boundsClampedComps = int((stride - structOffset) / sizeof(uint32_t));
+          fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           for(int c = 0; c < 4; c++)
           {
@@ -3489,7 +3494,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           fmt.numComps = 4;
 
           // clamp to out of bounds based on numElems
-          fmt.numComps = RDCMIN(fmt.numComps, int(numElems - elemIdx) / 4);
+          boundsClampedComps = int(numElems - elemIdx) / 4;
+          fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           if(op.operands[0].comps[0] != 0xff && op.operands[0].comps[1] == 0xff &&
              op.operands[0].comps[2] == 0xff && op.operands[0].comps[3] == 0xff)
@@ -3510,7 +3516,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
             fmt.numComps = 4;
 
           // clamp to out of bounds based on numElems
-          int boundsClampedComps = int(numElems - elemIdx) / 4;
+          boundsClampedComps = int(numElems - elemIdx) / 4;
           fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           for(int c = 0; c < boundsClampedComps; c++)
@@ -3528,10 +3534,17 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
         {
           ShaderVariable result = TypedUAVLoad(fmt, data);
 
+          // clamp the result to any out of bounds loads so that we don't fill in with w=1
+          for(int c = boundsClampedComps; c < 4; c++)
+            result.value.u32v[c] = 0;
+
           // apply the swizzle on the resource operand
           ShaderVariable fetch("", 0U, 0U, 0U, 0U);
 
-          for(int c = 0; c < fmt.numComps; c++)
+          // always process all 4 components, as this is applying a swizzle to the returned resource
+          // data, and we could swizzle a 1-component texture result into .y with .yxzw if we then
+          // go on to scalar-assign it to .y of the output
+          for(int c = 0; c < 4; c++)
           {
             uint8_t comp = resComps[c];
             if(comp == 0xff)
