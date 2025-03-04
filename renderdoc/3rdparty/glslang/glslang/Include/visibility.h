@@ -52,3 +52,15 @@
 // and do not appear in publicly installed headers. They are not considered to be
 // part of the glslang library ABI.
 #define GLSLANG_EXPORT_FOR_TESTS GLSLANG_EXPORT
+
+#ifndef DELIBERATE_FALLTHROUGH
+
+#if (__cplusplus >= 201703L) || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
+#define DELIBERATE_FALLTHROUGH [[fallthrough]]
+#define MAYBE_UNUSED [[maybe_unused]]
+#else
+#define DELIBERATE_FALLTHROUGH 
+#define MAYBE_UNUSED
+#endif
+
+#endif

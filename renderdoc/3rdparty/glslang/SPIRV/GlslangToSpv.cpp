@@ -3090,7 +3090,7 @@ bool TGlslangToSpvTraverser::visitAggregate(glslang::TVisit visit, glslang::TInt
     case glslang::EOpConstructF16Mat4x3:
     case glslang::EOpConstructF16Mat4x4:
         isMatrix = true;
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case glslang::EOpConstructFloat:
     case glslang::EOpConstructVec2:
     case glslang::EOpConstructVec3:
@@ -3266,7 +3266,7 @@ bool TGlslangToSpvTraverser::visitAggregate(glslang::TVisit visit, glslang::TInt
 
     case glslang::EOpAtomicStore:
         noReturnValue = true;
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case glslang::EOpAtomicLoad:
         atomic = true;
         break;
@@ -3374,7 +3374,7 @@ bool TGlslangToSpvTraverser::visitAggregate(glslang::TVisit visit, glslang::TInt
     case glslang::EOpHitObjectRecordHitWithIndexMotionNV:
     case glslang::EOpReorderThreadNV:
         noReturnValue = true;
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case glslang::EOpHitObjectIsEmptyNV:
     case glslang::EOpHitObjectIsMissNV:
     case glslang::EOpHitObjectIsHitNV:
@@ -8367,7 +8367,7 @@ spv::Id TGlslangToSpvTraverser::createSubgroupOperation(glslang::TOperator op, s
     case glslang::EOpSubgroupQuadAny:
         builder.addExtension(spv::E_SPV_KHR_quad_control);
         builder.addCapability(spv::CapabilityQuadControlKHR);
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case glslang::EOpSubgroupAll:
     case glslang::EOpSubgroupAny:
     case glslang::EOpSubgroupAllEqual:

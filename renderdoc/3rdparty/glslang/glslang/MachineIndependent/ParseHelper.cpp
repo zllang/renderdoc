@@ -6535,7 +6535,7 @@ void TParseContext::setLayoutQualifier(const TSourceLoc& loc, TPublicType& publi
                 error(loc, "needs a literal integer", "max_primitives", "");
             return;
         }
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
 
     case EShLangTask:
         // Fall through
@@ -8810,7 +8810,7 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
                 intermediate.addBuiltInFunctionCall(node->getLoc(), EOpConstructUVec2, false, newSrcNode, type);
             return newNode;
         }
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case EOpConstructUVec3:
     case EOpConstructUVec4:
     case EOpConstructUint:
@@ -8832,7 +8832,7 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
                 intermediate.addBuiltInFunctionCall(node->getLoc(), EOpPackUint2x32, true, node, type);
             return newNode;
         }
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case EOpConstructDVec2:
     case EOpConstructDVec3:
     case EOpConstructDVec4:
@@ -8990,7 +8990,7 @@ TIntermTyped* TParseContext::constructBuiltIn(const TType& type, TOperator op, T
             TIntermTyped* newNode = intermediate.addBuiltInFunctionCall(node->getLoc(), EOpConvPtrToUint64, true, node, type);
             return newNode;
         }
-        [[fallthrough]];
+        DELIBERATE_FALLTHROUGH;
     case EOpConstructU64Vec2:
     case EOpConstructU64Vec3:
     case EOpConstructU64Vec4:
@@ -9966,7 +9966,7 @@ void TParseContext::updateStandaloneQualifierDefaults(const TSourceLoc& loc, con
                     error(loc, "cannot apply to 'out'", TQualifier::getGeometryString(publicType.shaderQualifiers.geometry), "");
                     break;
                 }
-                [[fallthrough]];
+                DELIBERATE_FALLTHROUGH;
             case ElgPoints:
             case ElgLineStrip:
             case ElgTriangleStrip:
