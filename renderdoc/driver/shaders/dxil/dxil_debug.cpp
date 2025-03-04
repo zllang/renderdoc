@@ -729,7 +729,7 @@ static void ConvertDXILTypeToShaderVariable(const Type *type, ShaderVariable &va
     }
     case Type::TypeKind::Array:
     {
-      var.rows = (uint8_t)type->elemCount;
+      var.rows = 1;
       var.columns = 1;
       var.type = ConvertDXILTypeToVarType(type->inner);
       var.members.resize(type->elemCount);
