@@ -3863,6 +3863,9 @@ QString RowString(const ShaderVariable &v, uint32_t row, VarType type)
   if(v.type == VarType::Struct)
     return lit("{ ... }");
 
+  if(!v.members.empty())
+    return lit("{ ... }");
+
   switch(type)
   {
     case VarType::Float:
