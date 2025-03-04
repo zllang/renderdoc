@@ -47,6 +47,7 @@
 
 #include <cfloat>
 #include <utility>
+#include <limits>
 #include <tuple>
 
 namespace glslang {
