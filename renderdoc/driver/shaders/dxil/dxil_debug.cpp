@@ -4290,7 +4290,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
       const MemoryTracking::Allocation &allocation = itAlloc->second;
       ShaderVariable arg;
-      if(allocation.global)
+      if(allocation.global && !IsVariableAssigned(ptrId))
       {
         RDCASSERT(IsVariableAssigned(baseMemoryId));
         arg = m_Variables[baseMemoryId];
