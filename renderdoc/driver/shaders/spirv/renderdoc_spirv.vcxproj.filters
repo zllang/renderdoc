@@ -15,9 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\3rdparty\glslang\OGLCompilersDLL\InitializeDll.cpp">
-      <Filter>3rdparty\glslang</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\3rdparty\glslang\SPIRV\GlslangToSpv.cpp">
       <Filter>3rdparty\glslang</Filter>
     </ClCompile>
@@ -154,9 +151,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\3rdparty\glslang\OGLCompilersDLL\InitializeDll.h">
-      <Filter>3rdparty\glslang</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\3rdparty\glslang\SPIRV\GLSL.std.450.h">
       <Filter>3rdparty\glslang</Filter>
     </ClInclude>
@@ -318,6 +312,15 @@
       <Filter>3rdparty\glslang</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\3rdparty\glslang\glslang\Public\ResourceLimits.h">
+      <Filter>3rdparty\glslang</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\3rdparty\glslang\glslang\Include\visibility.h">
+      <Filter>3rdparty\glslang</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\3rdparty\glslang\glslang\MachineIndependent\span.h">
+      <Filter>3rdparty\glslang</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\3rdparty\glslang\SPIRV\GLSL.ext.QCOM.h">
       <Filter>3rdparty\glslang</Filter>
     </ClInclude>
   </ItemGroup>
