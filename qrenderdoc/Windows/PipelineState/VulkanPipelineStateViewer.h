@@ -136,7 +136,8 @@ private:
                       const QString &hiddenCombinedSampler, bool includeSampleLocations = false,
                       bool includeOffsets = false);
 
-  bool setViewDetails(RDTreeWidgetItem *node, const Descriptor &descriptor, BufferDescription *buf);
+  bool setViewDetails(RDTreeWidgetItem *node, const Descriptor &descriptor, BufferDescription *buf,
+                      uint32_t dynamicOffset);
 
   bool showNode(bool usedSlot, bool filledSlot);
 

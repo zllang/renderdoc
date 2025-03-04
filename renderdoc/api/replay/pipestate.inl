@@ -1042,7 +1042,7 @@ rdcarray<UsedDescriptor> PipeState::GetSamplers(ShaderStage stage, bool onlyUsed
     if(m_Access[i].stage == stage && IsSamplerDescriptor(m_Access[i].type) &&
        (onlyUsed == false || !m_Access[i].staticallyUnused))
     {
-      if(i < m_Descriptors.size())
+      if(i < m_SamplerDescriptors.size())
       {
         ret.push_back({m_Access[i], Descriptor(), m_SamplerDescriptors[i]});
         ApplyVulkanDynamicOffsets(ret.back());
@@ -1062,8 +1062,11 @@ rdcarray<UsedDescriptor> PipeState::GetReadWriteResources(ShaderStage stage, boo
     if(m_Access[i].stage == stage && IsReadWriteDescriptor(m_Access[i].type) &&
        (onlyUsed == false || !m_Access[i].staticallyUnused))
     {
-      if(i < m_SamplerDescriptors.size())
+      if(i < m_Descriptors.size())
+      {
         ret.push_back({m_Access[i], m_Descriptors[i], SamplerDescriptor()});
+        ApplyVulkanDynamicOffsets(ret.back());
+      }
     }
   }
 
