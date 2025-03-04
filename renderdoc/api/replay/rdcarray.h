@@ -453,7 +453,7 @@ public:
       for(size_t i = 0; i < count; i++)
       {
         // if this was one used previously, destruct it
-        if(i < oldSize)
+        if(offs + i < oldSize)
           ItemDestroyHelper<T>::destroyRange(elems + offs + i, 1);
 
         // then copy construct the new value
