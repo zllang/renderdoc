@@ -2453,7 +2453,9 @@ void Builder::enterFunction(Function const* function)
         addInstruction(std::unique_ptr<Instruction>(defInst));
     }
 
-    if (auto linkType = function->getLinkType(); linkType != LinkageTypeMax) {
+    // RD Modification - remove use of new declaration-inside-if
+    auto linkType = function->getLinkType();
+    if (linkType != LinkageTypeMax) {
         Id funcId = function->getFuncId();
         addCapability(CapabilityLinkage);
         addLinkageDecoration(funcId, function->getExportName(), linkType);

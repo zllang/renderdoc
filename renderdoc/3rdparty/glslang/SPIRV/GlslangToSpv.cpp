@@ -67,7 +67,8 @@ namespace spv {
 #include <iomanip>
 #include <list>
 #include <map>
-#include <optional>
+// RD Modification - remove use of std::optional
+//#include <optional>
 #include <stack>
 #include <string>
 #include <vector>
@@ -166,7 +167,8 @@ protected:
     spv::Id convertGlslangToSpvType(const glslang::TType& type, bool forwardReferenceOnly = false);
     spv::Id convertGlslangToSpvType(const glslang::TType& type, glslang::TLayoutPacking, const glslang::TQualifier&,
         bool lastBufferBlockMember, bool forwardReferenceOnly = false);
-    void applySpirvDecorate(const glslang::TType& type, spv::Id id, std::optional<int> member);
+    // RD Modification - remove use of std::optional
+    void applySpirvDecorate(const glslang::TType& type, spv::Id id, int* member);
     bool filterMember(const glslang::TType& member);
     spv::Id convertGlslangStructToSpvType(const glslang::TType&, const glslang::TTypeList* glslangStruct,
                                           glslang::TLayoutPacking, const glslang::TQualifier&);
@@ -4967,7 +4969,8 @@ spv::Id TGlslangToSpvTraverser::convertGlslangToSpvType(const glslang::TType& ty
 
 // Apply SPIR-V decorations to the SPIR-V object (provided by SPIR-V ID). If member index is provided, the
 // decorations are applied to this member.
-void TGlslangToSpvTraverser::applySpirvDecorate(const glslang::TType& type, spv::Id id, std::optional<int> member)
+// RD Modification - remove use of std::optional
+void TGlslangToSpvTraverser::applySpirvDecorate(const glslang::TType& type, spv::Id id, int* member)
 {
     assert(type.getQualifier().hasSpirvDecorate());
 
@@ -4978,12 +4981,12 @@ void TGlslangToSpvTraverser::applySpirvDecorate(const glslang::TType& type, spv:
         if (!decorate.second.empty()) {
             std::vector<unsigned> literals;
             TranslateLiterals(decorate.second, literals);
-            if (member.has_value())
+            if (member)
                 builder.addMemberDecoration(id, *member, static_cast<spv::Decoration>(decorate.first), literals);
             else
                 builder.addDecoration(id, static_cast<spv::Decoration>(decorate.first), literals);
         } else {
-            if (member.has_value())
+            if (member)
                 builder.addMemberDecoration(id, *member, static_cast<spv::Decoration>(decorate.first));
             else
                 builder.addDecoration(id, static_cast<spv::Decoration>(decorate.first));
@@ -4991,7 +4994,7 @@ void TGlslangToSpvTraverser::applySpirvDecorate(const glslang::TType& type, spv:
     }
 
     // Add spirv_decorate_id
-    if (member.has_value()) {
+    if (member) {
         // spirv_decorate_id not applied to members
         assert(spirvDecorate.decorateIds.empty());
     } else {
@@ -5016,7 +5019,7 @@ void TGlslangToSpvTraverser::applySpirvDecorate(const glslang::TType& type, spv:
             const char* string = extraOperand->getConstArray()[0].getSConst()->c_str();
             strings.push_back(string);
         }
-        if (member.has_value())
+        if (member)
             builder.addMemberDecoration(id, *member, static_cast<spv::Decoration>(decorateString.first), strings);
         else
             builder.addDecoration(id, static_cast<spv::Decoration>(decorateString.first), strings);
@@ -5262,8 +5265,9 @@ void TGlslangToSpvTraverser::decorateStructType(const glslang::TType& type,
         }
 
         // Add SPIR-V decorations (GL_EXT_spirv_intrinsics)
+        // RD Modification - remove use of std::optional
         if (glslangMember.getQualifier().hasSpirvDecorate())
-            applySpirvDecorate(glslangMember, spvType, member);
+            applySpirvDecorate(glslangMember, spvType, &member);
     }
 
     // Decorate the structure
@@ -9808,8 +9812,9 @@ spv::Id TGlslangToSpvTraverser::getSymbolId(const glslang::TIntermSymbol* symbol
     }
 
     // Add SPIR-V decorations (GL_EXT_spirv_intrinsics)
+    // RD Modification - remove use of std::optional
     if (symbol->getType().getQualifier().hasSpirvDecorate())
-        applySpirvDecorate(symbol->getType(), id, {});
+        applySpirvDecorate(symbol->getType(), id, NULL);
 
     return id;
 }
