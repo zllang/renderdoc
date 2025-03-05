@@ -507,7 +507,10 @@ bool operator<(const GPUAddressRange &a, const GPUAddressRange &b)
   if(a.start != b.start)
     return a.start < b.start;
 
-  return !(a.realEnd < b.realEnd);
+  if(a.realEnd != b.realEnd)
+    return !(a.realEnd < b.realEnd);
+
+  return false;
 }
 
 static GPUAddressRange MakeRange(ResourceId id, GPUAddressRange::Address addr, uint64_t size,
