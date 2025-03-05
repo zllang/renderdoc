@@ -279,6 +279,11 @@ int main(int argc, char *argv[])
       }
     }
 
+    GlobalEnvironment env;
+    env.enumerateGPUs = false;
+    rdcarray<rdcstr> coreargs;
+    RENDERDOC_InitialiseReplay(env, coreargs);
+
     {
       QCoreApplication application(argc, mod_argv);
       PythonContext::GlobalInit();
@@ -302,7 +307,11 @@ int main(int argc, char *argv[])
       {
         logstream << "Python bindings are consistent.\n";
       }
+
+      PythonContext::GlobalShutdown();
     }
+
+    RENDERDOC_ShutdownReplay();
 
     logbuf.finish();
 
