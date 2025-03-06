@@ -1835,6 +1835,27 @@ QString GetComponentString(byte mask)
   return ret;
 }
 
+QIcon MakeSwatchIcon(QWidget *parentWidget, QColor swatchColor)
+{
+  int h = parentWidget->fontMetrics().height();
+  QPixmap pm(1, 1);
+  pm.fill(swatchColor);
+  pm = pm.scaled(QSize(h, h));
+
+  {
+    QPainter painter(&pm);
+
+    QPen pen(parentWidget->palette().foreground(), 1.0);
+    painter.setPen(pen);
+    painter.drawLine(QPoint(0, 0), QPoint(h - 1, 0));
+    painter.drawLine(QPoint(h - 1, 0), QPoint(h - 1, h - 1));
+    painter.drawLine(QPoint(h - 1, h - 1), QPoint(0, h - 1));
+    painter.drawLine(QPoint(0, h - 1), QPoint(0, 0));
+  }
+
+  return QIcon(pm);
+}
+
 float ConvertLinearToSRGB(float linear)
 {
   if(linear <= 0.0031308f)

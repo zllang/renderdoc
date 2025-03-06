@@ -4618,23 +4618,7 @@ bool ShaderViewer::updateWatchVariable(RDTreeWidgetItem *watchItem, const RDTree
   }
   else
   {
-    int h = ui->watch->fontMetrics().height();
-    QPixmap pm(1, 1);
-    pm.fill(swatchColor);
-    pm = pm.scaled(QSize(h, h));
-
-    {
-      QPainter painter(&pm);
-
-      QPen pen(ui->watch->palette().foreground(), 1.0);
-      painter.setPen(pen);
-      painter.drawLine(QPoint(0, 0), QPoint(h - 1, 0));
-      painter.drawLine(QPoint(h - 1, 0), QPoint(h - 1, h - 1));
-      painter.drawLine(QPoint(h - 1, h - 1), QPoint(0, h - 1));
-      painter.drawLine(QPoint(0, h - 1), QPoint(0, 0));
-    }
-
-    watchItem->setIcon(3, QIcon(pm));
+    watchItem->setIcon(3, MakeSwatchIcon(ui->watch, swatchColor));
   }
 
   watchItem->setText(3, val);

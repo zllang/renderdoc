@@ -267,6 +267,7 @@ QString TypeString(const SigParameter &sig);
 QString D3DSemanticString(const SigParameter &sig);
 QString GetComponentString(byte mask);
 
+QIcon MakeSwatchIcon(QWidget *parentWidget, QColor swatchColor);
 float ConvertLinearToSRGB(float linear);
 void CombineUsageEvents(
     ICaptureContext &ctx, const rdcarray<EventUsage> &usage,

@@ -4264,6 +4264,27 @@ void BufferViewer::UI_AddFixedVariables(RDTreeWidgetItem *root, uint32_t baseOff
     RDTreeWidgetItem *n =
         new RDTreeWidgetItem({v.name, VarString(v, c), offsetStr, TypeString(v, c)});
 
+    // display colour swatch for floats with RGB display
+    if((v.flags & ShaderVariableFlags::RGBDisplay) && VarTypeCompType(v.type) == CompType::Float &&
+       v.rows == 1 && v.columns >= 1 && v.members.empty())
+    {
+      QColor swatchColor(0, 0, 0, 255);
+      float rgb[3] = {0.0f, 0.0f, 0.0f};
+      for(uint8_t col = 0; col < v.columns && col < 4; col++)
+      {
+        float fval = 0.0f;
+        if(v.type == VarType::Float)
+          fval = v.value.f32v[col];
+        else if(v.type == VarType::Double)
+          fval = float(v.value.f64v[col]);
+        else if(v.type == VarType::Half)
+          fval = float(v.value.f16v[col]);
+        rgb[col] = ConvertLinearToSRGB(fval);
+      }
+      swatchColor.setRgbF(rgb[0], rgb[1], rgb[2], 1.0f);
+      n->setIcon(1, MakeSwatchIcon(ui->fixedVars, swatchColor));
+    }
+
     n->setTag(QVariant::fromValue(FixedVarTag(v.name, baseOffset + c.byteOffset)));
 
     root->addChild(n);
