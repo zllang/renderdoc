@@ -3094,19 +3094,13 @@ struct ComputeLaneData
   uint32_t subIdxInGroup;
 };
 
-// We make the assumption that the coarse derivatives are generated from (0,0) in the quad, and
-// fine derivatives are generated between the current lane and its neighbours in X and Y.
-// This isn't spec'd but we must assume something and this will hopefully get us closest to
-// reproducing actual results.
+// we use the message passing method from the quadoverdraw to swap data between quad neighbours
+// using fine derivatives. This is based on "Shader Amortization using Pixel Quad Message Passing",
+// Eric Penner, GPU Pro 2.
 //
-// For debugging, we need members of the quad to be able to generate coarse and fine
-// derivatives.
-//
-// For (0,0) we only need the coarse derivatives to get our neighbours (1,0) and (0,1) which
-// will give us coarse and fine derivatives being identical.
-//
-// For the others we will need to use a combination of coarse and fine derivatives to get the
-// diagonal element in the quad. In the examples below, remember that the quad indices are:
+// broadly, if we take ddx_fine and either add or subtract it we can swap horizontal information,
+// and similarly vertical for ddy_fine. To swap across the diagonal we perform one fine derivative
+// swap, and then use the other fine derivative on the result of that swap.
 //
 // +---+---+
 // | 0 | 1 |
@@ -3114,38 +3108,35 @@ struct ComputeLaneData
 // | 2 | 3 |
 // +---+---+
 //
-// And that we have definitions of the derivatives:
+// fine derivatives are obtained by subtracting the right-most neighbour from left-most in each row,
+// and the bottom-most neighbour from top-most in each column.
 //
-// ddx_coarse = (1,0) - (0,0)
-// ddy_coarse = (0,1) - (0,0)
+// the pseudocode is as follows (following the quad overdraw closely) where X is the type of our value:
 //
-// i.e. the same for all members of the quad
 //
-// ddx_fine   = (x,y) - (1-x,y)
-// ddy_fine   = (x,y) - (x,1-y)
+// bool quadX = (quadLaneIndex & 1) != 0;
+// bool quadY = (quadLaneIndex & 2) != 0;
 //
-// i.e. the difference to the neighbour of our desired invocation (the one we have the actual
-// inputs for, from gathering above).
+// bool readX = (readIndex & 1) != 0;
+// bool readY = (readIndex & 2) != 0;
 //
-// So e.g. if our thread is at (1,1) destIdx = 3
+// float sign_x = quadX ? -1 : 1;
+// float sign_y = quadY ? -1 : 1;
 //
-// (1,0) = (1,1) - ddx_fine
-// (0,1) = (1,1) - ddy_fine
-// (0,0) = (1,1) - ddy_fine - ddx_coarse
+// X c1 = c0 + sign_x * ddx_fine(c0);
+// X c2 = c0 + sign_y * ddy_fine(c0);
+// X c3 = c2 + sign_x * ddx_fine(c2);
 //
-// and ddy_coarse is unused. For (1,0) destIdx = 1:
+// if(readIndex == quadLaneIndex) // identity, handle gracefully
+//   return c0;
+// else if(readY == quadY) // horizontal neighbour
+//   return c1;
+// else if(readX == quadX) // vertical neighbour
+//	return c2;
+// else
+//   return c3; // diagonal neighbour
 //
-// (1,1) = (1,0) + ddy_fine
-// (0,1) = (1,0) - ddx_coarse + ddy_coarse
-// (0,0) = (1,0) - ddx_coarse
-//
-// and ddx_fine is unused (it's identical to ddx_coarse anyway)
 
-// in the diagrams below * marks the active lane index.
-//
-// To get the full quad worth of information we first use derivatives to move from our current lane
-// to the top-left, then walk from there as needed. This becomes somewhat redundant (we recalculate
-// our own lane) but that isn't a big deal
 static rdcspv::Id AddQuadSwizzleHelper(rdcspv::Editor &editor, uint32_t count)
 {
   rdcspv::Id func = editor.MakeId();
@@ -3163,156 +3154,135 @@ static rdcspv::Id AddQuadSwizzleHelper(rdcspv::Editor &editor, uint32_t count)
   rdcspv::Id funcType = editor.DeclareType(rdcspv::FunctionType(type, {type, u32, u32}));
 
   ops.add(rdcspv::OpFunction(type, func, rdcspv::FunctionControl::None, funcType));
-  rdcspv::Id base = ops.add(rdcspv::OpFunctionParameter(type, editor.MakeId()));
+  rdcspv::Id c0 = ops.add(rdcspv::OpFunctionParameter(type, editor.MakeId()));
   rdcspv::Id quadLaneIndex = ops.add(rdcspv::OpFunctionParameter(u32, editor.MakeId()));
   rdcspv::Id readIndex = ops.add(rdcspv::OpFunctionParameter(u32, editor.MakeId()));
   ops.add(rdcspv::OpLabel(editor.MakeId()));
 
-  editor.SetName(base, "base");
+  editor.SetName(c0, "c0");
   editor.SetName(quadLaneIndex, "quadLaneIndex");
   editor.SetName(readIndex, "readIndex");
 
-  rdcspv::Id ddxCoarse = ops.add(rdcspv::OpDPdxCoarse(type, editor.MakeId(), base));
-  rdcspv::Id ddyCoarse = ops.add(rdcspv::OpDPdyCoarse(type, editor.MakeId(), base));
-  rdcspv::Id ddxFine = ops.add(rdcspv::OpDPdxFine(type, editor.MakeId(), base));
-  rdcspv::Id ddyFine = ops.add(rdcspv::OpDPdyFine(type, editor.MakeId(), base));
+  rdcspv::Id zero = editor.AddConstantImmediate<uint32_t>(0U);
+  rdcspv::Id one = editor.AddConstantImmediate<uint32_t>(1U);
+  rdcspv::Id two = editor.AddConstantImmediate<uint32_t>(2U);
 
-  editor.SetName(ddxCoarse, "ddxCoarse");
-  editor.SetName(ddyCoarse, "ddyCoarse");
-  editor.SetName(ddxFine, "ddxFine");
-  editor.SetName(ddyFine, "ddyFine");
-
-  rdcspv::Id zeroFloat = editor.AddConstant(rdcspv::OpConstantNull(type, editor.MakeId()));
+  rdcspv::Id posOne = editor.AddConstantImmediate<float>(1.0f);
+  rdcspv::Id negOne = editor.AddConstantImmediate<float>(-1.0f);
 
   rdcspv::Id boolType = editor.DeclareType(rdcspv::scalar<bool>());
 
-  rdcspv::Id lane0 = editor.AddConstantImmediate<uint32_t>(0U);
-  rdcspv::Id lane1 = editor.AddConstantImmediate<uint32_t>(1U);
-  rdcspv::Id lane2 = editor.AddConstantImmediate<uint32_t>(2U);
-  rdcspv::Id lane3 = editor.AddConstantImmediate<uint32_t>(3U);
+  rdcspv::Id quadX = ops.add(rdcspv::OpBitwiseAnd(u32, editor.MakeId(), quadLaneIndex, one));
+  quadX = ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), quadX, zero));
+  rdcspv::Id quadY = ops.add(rdcspv::OpBitwiseAnd(u32, editor.MakeId(), quadLaneIndex, two));
+  quadY = ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), quadY, zero));
 
-  // to avoid adding loads of control flow, we do ternaries for conditional things
-  rdcspv::Id isLane[4] = {
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane0)),
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane1)),
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane2)),
-      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, lane3)),
-  };
+  rdcspv::Id readX = ops.add(rdcspv::OpBitwiseAnd(u32, editor.MakeId(), readIndex, one));
+  readX = ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), readX, zero));
+  rdcspv::Id readY = ops.add(rdcspv::OpBitwiseAnd(u32, editor.MakeId(), readIndex, two));
+  readY = ops.add(rdcspv::OpINotEqual(boolType, editor.MakeId(), readY, zero));
 
-  // broadcast to number of components in the input type
+  rdcspv::Id horizNeighbour =
+      ops.add(rdcspv::OpLogicalEqual(boolType, editor.MakeId(), readY, quadY));
+  rdcspv::Id vertNeighbour = ops.add(rdcspv::OpLogicalEqual(boolType, editor.MakeId(), readX, quadX));
+  rdcspv::Id isIdentity =
+      ops.add(rdcspv::OpIEqual(boolType, editor.MakeId(), quadLaneIndex, readIndex));
+
+  editor.SetName(quadX, "quadX");
+  editor.SetName(quadY, "quadY");
+  editor.SetName(readX, "readX");
+  editor.SetName(readY, "readY");
 
   if(count >= 2)
   {
+    rdcspv::Id floatNtype = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<float>(), count));
     rdcspv::Id boolNtype = editor.DeclareType(rdcspv::Vector(rdcspv::scalar<bool>(), count));
 
     rdcarray<rdcspv::Id> bcast;
 
-    for(size_t i = 0; i < 4; i++)
-    {
-      bcast.fill(count, isLane[i]);
-      isLane[i] = ops.add(rdcspv::OpCompositeConstruct(boolNtype, editor.MakeId(), bcast));
-    }
+    bcast.fill(count, posOne);
+    posOne = ops.add(rdcspv::OpCompositeConstruct(floatNtype, editor.MakeId(), bcast));
+    bcast.fill(count, negOne);
+    negOne = ops.add(rdcspv::OpCompositeConstruct(floatNtype, editor.MakeId(), bcast));
+
+    bcast.fill(count, quadX);
+    quadX = ops.add(rdcspv::OpCompositeConstruct(boolNtype, editor.MakeId(), bcast));
+    bcast.fill(count, quadY);
+    quadY = ops.add(rdcspv::OpCompositeConstruct(boolNtype, editor.MakeId(), bcast));
   }
 
-  editor.SetName(isLane[0], "isLane0");
-  editor.SetName(isLane[1], "isLane1");
-  editor.SetName(isLane[2], "isLane2");
-  editor.SetName(isLane[3], "isLane3");
+  rdcspv::Id sign_x = ops.add(rdcspv::OpSelect(type, editor.MakeId(), quadX, negOne, posOne));
+  rdcspv::Id sign_y = ops.add(rdcspv::OpSelect(type, editor.MakeId(), quadY, negOne, posOne));
+  editor.SetName(sign_x, "sign_x");
+  editor.SetName(sign_y, "sign_y");
 
-  rdcspv::Id baseTL = base;
-  rdcspv::Id motion;
+  rdcspv::Id ddxFine = ops.add(rdcspv::OpDPdxFine(type, editor.MakeId(), c0));
+  rdcspv::Id ddyFine = ops.add(rdcspv::OpDPdyFine(type, editor.MakeId(), c0));
 
-  // +---+---+
-  // | 0 < 1*|
-  // +---+---+
-  // | 2 | 3 |
-  // +---+---+
-  motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[1], ddxCoarse, zeroFloat));
-  baseTL = ops.add(rdcspv::OpFSub(type, editor.MakeId(), baseTL, motion));
+  rdcspv::Id c1 = ops.add(rdcspv::OpFMul(type, editor.MakeId(), sign_x, ddxFine));
+  c1 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), c0, c1));
+  editor.SetName(c1, "c1");
 
-  // +---+---+
-  // | 0 | 1 |
-  // +-^-+---+
-  // |*2 | 3 |
-  // +---+---+
-  motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[2], ddyCoarse, zeroFloat));
-  baseTL = ops.add(rdcspv::OpFSub(type, editor.MakeId(), baseTL, motion));
+  rdcspv::Id c2 = ops.add(rdcspv::OpFMul(type, editor.MakeId(), sign_y, ddyFine));
+  c2 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), c0, c2));
+  editor.SetName(c2, "c2");
 
-  // two ways to get from 3 to 0, pick one arbitrarily
-  // +---+---+
-  // | 0 < 1 |
-  // +---+-^-+
-  // | 2 | 3*|
-  // +---+---+
-  motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[3], ddyFine, zeroFloat));
-  baseTL = ops.add(rdcspv::OpFSub(type, editor.MakeId(), baseTL, motion));
-  motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[3], ddxCoarse, zeroFloat));
-  baseTL = ops.add(rdcspv::OpFSub(type, editor.MakeId(), baseTL, motion));
+  rdcspv::Id ddxC2 = ops.add(rdcspv::OpDPdxFine(type, editor.MakeId(), c2));
 
-  editor.SetName(baseTL, "baseTL");
+  rdcspv::Id c3 = ops.add(rdcspv::OpFMul(type, editor.MakeId(), sign_x, ddxC2));
+  c3 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), c2, c3));
+  editor.SetName(c3, "c3");
 
-  // baseTL is now the value for quad lane 0
-  rdcspv::Id value0 = baseTL;
+  rdcspv::Id trueBranch = editor.MakeId(), falseBranch = editor.MakeId(),
+             mergeBranch = editor.MakeId();
 
-  // lanes 1 and 2 are easy from here with coarse derivatives
-  rdcspv::Id value1 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), value0, ddxCoarse));
-  rdcspv::Id value2 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), value0, ddyCoarse));
+  // we'll want to read lane 0 on all lanes for the quadId, so handle that specially
+  ops.add(rdcspv::OpSelectionMerge(mergeBranch, rdcspv::SelectionControl::None));
+  ops.add(rdcspv::OpBranchConditional(isIdentity, trueBranch, falseBranch));
 
-  // 3 is unreachable from 0 if we started there, but that's fine because the same is true in
-  // reverse and we don't actually need 3's contents ever if we're processing lane 0.
-  // otherwise we start from our starting value and add fine derivatives as needed.
-  // if we were already lane 0 or 3, we just re-use base.
-  rdcspv::Id value3 = base;
+  ops.add(rdcspv::OpLabel(trueBranch));
+  ops.add(rdcspv::OpReturnValue(c0));
+  ops.add(rdcspv::OpLabel(falseBranch));
+  ops.add(rdcspv::OpBranch(mergeBranch));
+  ops.add(rdcspv::OpLabel(mergeBranch));
 
-  // +---+---+
-  // | 0 | 1 |
-  // +---+---+
-  // |*2 > 3 |
-  // +---+---+
-  motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[2], ddxFine, zeroFloat));
-  value3 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), value3, motion));
+  // expanded flow control. Impossible labels happen after returns on both branches
+  //
+  // if(isIdentity) {
+  //   ident;
+  // }
+  // notident;
+  //
+  // if(horizNeighbour) {
+  //   horiz;
+  // } else {
+  //   notHoriz;
+  //   if(vertNeighbour) { vert; } else { diagonal; }
+  //   impossible1;
+  // }
+  // impossible2;
+  rdcspv::Id horiz = editor.MakeId(), notHoriz = editor.MakeId(), vert = editor.MakeId(),
+             diagonal = editor.MakeId(), imposs1 = editor.MakeId(), imposs2 = editor.MakeId();
 
-  // +---+---+
-  // | 0 | 1*|
-  // +---+-v-+
-  // | 2 | 3 |
-  // +---+---+
-  motion = ops.add(rdcspv::OpSelect(type, editor.MakeId(), isLane[1], ddyFine, zeroFloat));
-  value3 = ops.add(rdcspv::OpFAdd(type, editor.MakeId(), value3, motion));
+  ops.add(rdcspv::OpSelectionMerge(imposs2, rdcspv::SelectionControl::None));
+  ops.add(rdcspv::OpBranchConditional(horizNeighbour, horiz, notHoriz));
 
-  rdcspv::Id breakLabel = editor.MakeId(), defaultLabel = editor.MakeId();
+  ops.add(rdcspv::OpLabel(horiz));
+  ops.add(rdcspv::OpReturnValue(c1));
+  ops.add(rdcspv::OpLabel(notHoriz));
 
-  rdcspv::Id laneCases[] = {
-      editor.MakeId(),
-      editor.MakeId(),
-      editor.MakeId(),
-      editor.MakeId(),
-  };
+  ops.add(rdcspv::OpSelectionMerge(imposs1, rdcspv::SelectionControl::None));
+  ops.add(rdcspv::OpBranchConditional(vertNeighbour, vert, diagonal));
 
-  ops.add(rdcspv::OpSelectionMerge(breakLabel, rdcspv::SelectionControl::None));
-  ops.add(rdcspv::OpSwitch32(readIndex, defaultLabel,
-                             {
-                                 {0U, laneCases[0]},
-                                 {1U, laneCases[1]},
-                                 {2U, laneCases[2]},
-                                 {3U, laneCases[3]},
-                             }));
+  ops.add(rdcspv::OpLabel(vert));
+  ops.add(rdcspv::OpReturnValue(c2));
+  ops.add(rdcspv::OpLabel(diagonal));
+  ops.add(rdcspv::OpReturnValue(c3));
 
-  ops.add(rdcspv::OpLabel(laneCases[0]));
-  ops.add(rdcspv::OpReturnValue(value0));
-  ops.add(rdcspv::OpLabel(laneCases[1]));
-  ops.add(rdcspv::OpReturnValue(value1));
-  ops.add(rdcspv::OpLabel(laneCases[2]));
-  ops.add(rdcspv::OpReturnValue(value2));
-  ops.add(rdcspv::OpLabel(laneCases[3]));
-  ops.add(rdcspv::OpReturnValue(value3));
-
-  ops.add(rdcspv::OpLabel(defaultLabel));
-  ops.add(rdcspv::OpBranch(breakLabel));
-
-  ops.add(rdcspv::OpLabel(breakLabel));
-
-  ops.add(rdcspv::OpReturnValue(base));
+  ops.add(rdcspv::OpLabel(imposs1));
+  ops.add(rdcspv::OpUnreachable());
+  ops.add(rdcspv::OpLabel(imposs2));
+  ops.add(rdcspv::OpUnreachable());
 
   ops.add(rdcspv::OpFunctionEnd());
 

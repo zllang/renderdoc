@@ -1625,7 +1625,15 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
       // now swizzle the threads to know each other
       for(uint32_t src = 0; src < 4; src++)
       {
-        uint32_t lane = workgroup[threads[src]].quadLaneIndex;
+        const uint32_t thread = threads[src];
+
+        if(thread >= workgroup.size())
+        {
+          RDCERR("Unexpected incomplete quad missing a thread");
+          continue;
+        }
+
+        const uint32_t lane = workgroup[thread].quadLaneIndex;
 
         if(lane >= 4)
           continue;
