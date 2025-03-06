@@ -1,38 +1,9 @@
 import renderdoc as rd
-from typing import List
 import rdtest
 import struct
 
 class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
     demos_test_name = 'D3D12_Shader_Debug_Zoo'
-
-    def parse_var_type(self, varType):
-        scalarType = varType
-        countElems = 1
-        if str(varType[-1]).isdigit():
-            if str(varType[-2]).isdigit():
-                scalarType = varType[:-2]
-                countElems = int(varType[-2:])
-            else:
-                scalarType = varType[:-1]
-                countElems = int(varType[-1:])
-        return (scalarType, countElems)
-        
-    def get_source_var_value(self, sourceVars: List[rd.SourceVariableMapping], name, varType, debuggerVars):
-        sourceVar = [v for v in sourceVars if v.name == name]
-        if len(sourceVar) != 1:
-            raise rdtest.TestFailureException(f"Couldn't find source variable {name} {varType}")
-
-        scalarType, countElems = self.parse_var_type(varType)
-
-        debugged = self.evaluate_source_var(sourceVar[0], debuggerVars)
-        if scalarType == 'float':
-            return list(debugged.value.f32v[0:countElems])
-        elif scalarType == 'int':
-            return list(debugged.value.s32v[0:countElems])
-        else:
-            raise rdtest.TestFailureException(f"Unhandled scalarType {scalarType} {varType}")
-        return None
 
     def check_capture(self):
         if not self.controller.GetAPIProperties().shaderDebugging:
@@ -273,6 +244,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                     failed = True
                     continue
 
+                # Result is stored in RWStructuredBuffer<uint4> bufOut : register(u1);
                 bufOut = pipe.GetReadWriteResources(rd.ShaderStage.Compute)[1].descriptor.resource
                 bufdata = self.controller.GetBufferData(bufOut, testIndex*16, 16)
                 expectedValue = struct.unpack_from("4i", bufdata, 0)
@@ -280,7 +252,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                 name = 'testResult'
                 varType = 'int4'
                 try:
-                    debuggedValue = self.get_source_var_value(trace.instInfo[-1].sourceVars, name, varType, variables)
+                    debuggedValue = self.get_source_shader_var_value(trace.instInfo[-1].sourceVars, name, varType, variables)
                     if not rdtest.value_compare(expectedValue, debuggedValue):
                         raise rdtest.TestFailureException(f"'{name}' debugger {debuggedValue} doesn't match expected {expectedValue}")
 

@@ -8,6 +8,7 @@ from . import util
 from . import analyse
 from . import capture
 from .logging import log, TestFailureException
+from typing import List
 
 
 class ShaderVariableCheck:
@@ -383,6 +384,34 @@ class TestCase:
         attrs = analyse.get_postvs_attrs(self.controller, mesh, data_stage)
 
         return analyse.decode_mesh_data(self.controller, indices, in_indices, attrs, 0, mesh.baseVertex)
+
+    def parse_shader_var_type(self, varType):
+        scalarType = varType
+        countElems = 1
+        if str(varType[-1]).isdigit():
+            if str(varType[-2]).isdigit():
+                scalarType = varType[:-2]
+                countElems = int(varType[-2:])
+            else:
+                scalarType = varType[:-1]
+                countElems = int(varType[-1:])
+        return (scalarType, countElems)
+        
+    def get_source_shader_var_value(self, sourceVars: List[rd.SourceVariableMapping], name, varType, debuggerVars):
+        sourceVar = [v for v in sourceVars if v.name == name]
+        if len(sourceVar) != 1:
+            raise TestFailureException(f"Couldn't find source variable {name} {varType}")
+
+        scalarType, countElems = self.parse_shader_var_type(varType)
+
+        debugged = self.evaluate_source_var(sourceVar[0], debuggerVars)
+        if scalarType == 'float':
+            return list(debugged.value.f32v[0:countElems])
+        elif scalarType == 'int':
+            return list(debugged.value.s32v[0:countElems])
+        else:
+            raise TestFailureException(f"Unhandled scalarType {scalarType} {varType}")
+        return None
 
     def check_task_data(self, task_ref, task_data):
         for idx in task_ref:
