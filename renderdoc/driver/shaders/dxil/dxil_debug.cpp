@@ -7750,28 +7750,25 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     globalVar.var.name = n;
     globalVar.id = gv->ssaId;
     globalMemory.AllocateMemoryForType(gv->type, globalVar.id, true, globalVar.var);
-    if(gv->flags & GlobalFlags::IsConst)
+    if(gv->initialiser)
     {
-      if(gv->initialiser)
+      const Constant *initialData = gv->initialiser;
+      if(!initialData->isNULL())
       {
-        const Constant *initialData = gv->initialiser;
-        if(!initialData->isNULL())
+        RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
+        // Write ShaderVariable data back to memory
+        auto itAlloc = globalMemory.m_Allocations.find(globalVar.id);
+        if(itAlloc != globalMemory.m_Allocations.end())
         {
-          RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
-          // Write ShaderVariable data back to memory
-          auto itAlloc = globalMemory.m_Allocations.find(globalVar.id);
-          if(itAlloc != globalMemory.m_Allocations.end())
-          {
-            const MemoryTracking::Allocation &allocation = itAlloc->second;
-            void *allocMemoryBackingPtr = allocation.backingMemory;
-            uint64_t allocSize = allocation.size;
-            state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
-            RDCASSERTEQUAL(allocSize, 0);
-          }
-          else
-          {
-            RDCERR("Unknown memory allocation for GlobalVariable Id %u", globalVar.id);
-          }
+          const MemoryTracking::Allocation &allocation = itAlloc->second;
+          void *allocMemoryBackingPtr = allocation.backingMemory;
+          uint64_t allocSize = allocation.size;
+          state.UpdateBackingMemoryFromVariable(allocMemoryBackingPtr, allocSize, globalVar.var);
+          RDCASSERTEQUAL(allocSize, 0);
+        }
+        else
+        {
+          RDCERR("Unknown memory allocation for GlobalVariable Id %u", globalVar.id);
         }
       }
     }
