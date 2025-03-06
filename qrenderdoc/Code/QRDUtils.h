@@ -267,6 +267,7 @@ QString TypeString(const SigParameter &sig);
 QString D3DSemanticString(const SigParameter &sig);
 QString GetComponentString(byte mask);
 
+float ConvertLinearToSRGB(float linear);
 void CombineUsageEvents(
     ICaptureContext &ctx, const rdcarray<EventUsage> &usage,
     std::function<void(uint32_t startEID, uint32_t endEID, ResourceUsage use)> callback);

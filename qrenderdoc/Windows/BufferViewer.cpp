@@ -1075,7 +1075,8 @@ public:
                 double g = list.size() > 1 ? qBound(0.0, list[1].toDouble(), 1.0) : 0.0;
                 double b = list.size() > 2 ? qBound(0.0, list[2].toDouble(), 1.0) : 0.0;
 
-                rgb = QColor::fromRgbF(r, g, b);
+                rgb = QColor::fromRgbF(ConvertLinearToSRGB(float(r)), ConvertLinearToSRGB(float(g)),
+                                       ConvertLinearToSRGB(float(b)));
               }
               else if(vt == QMetaType::Float)
               {
@@ -1083,7 +1084,8 @@ public:
                 float g = list.size() > 1 ? qBound(0.0f, list[1].toFloat(), 1.0f) : 0.0;
                 float b = list.size() > 2 ? qBound(0.0f, list[2].toFloat(), 1.0f) : 0.0;
 
-                rgb = QColor::fromRgbF(r, g, b);
+                rgb = QColor::fromRgbF(ConvertLinearToSRGB(float(r)), ConvertLinearToSRGB(float(g)),
+                                       ConvertLinearToSRGB(float(b)));
               }
               else if(vt == QMetaType::UInt || vt == QMetaType::UShort || vt == QMetaType::UChar)
               {
@@ -1091,6 +1093,8 @@ public:
                 uint g = list.size() > 1 ? qBound(0U, list[1].toUInt(), 255U) : 0.0;
                 uint b = list.size() > 2 ? qBound(0U, list[2].toUInt(), 255U) : 0.0;
 
+                // we leave this as assuming it's in sRGB space since most commonly this will be an
+                // 8-bit texture being viewed as a buffer
                 rgb = QColor::fromRgb(r, g, b);
               }
               else if(vt == QMetaType::Int || vt == QMetaType::Short || vt == QMetaType::SChar)

@@ -1835,6 +1835,19 @@ QString GetComponentString(byte mask)
   return ret;
 }
 
+float ConvertLinearToSRGB(float linear)
+{
+  if(linear <= 0.0031308f)
+    return 12.92f * linear;
+
+  if(linear < 0.0f)
+    linear = 0.0f;
+  else if(linear > 1.0f)
+    linear = 1.0f;
+
+  return 1.055f * powf(linear, 1.0f / 2.4f) - 0.055f;
+}
+
 void CombineUsageEvents(ICaptureContext &ctx, const rdcarray<EventUsage> &usage,
                         std::function<void(uint32_t startEID, uint32_t endEID, ResourceUsage use)> callback)
 {

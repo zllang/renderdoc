@@ -4569,15 +4569,15 @@ bool ShaderViewer::updateWatchVariable(RDTreeWidgetItem *watchItem, const RDTree
         if(i == 0)
         {
           swatchColor = QColor(0, 0, 0, 255);
-          swatchColor.setRedF(f);
+          swatchColor.setRedF(ConvertLinearToSRGB(f));
         }
         else if(i == 1)
         {
-          swatchColor.setGreenF(f);
+          swatchColor.setGreenF(ConvertLinearToSRGB(f));
         }
         else
         {
-          swatchColor.setBlueF(f);
+          swatchColor.setBlueF(ConvertLinearToSRGB(f));
         }
       }
     }
