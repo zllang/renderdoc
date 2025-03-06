@@ -1,10 +1,38 @@
 import renderdoc as rd
 from typing import List
 import rdtest
-
+import struct
 
 class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
     demos_test_name = 'D3D12_Shader_Debug_Zoo'
+
+    def parse_var_type(self, varType):
+        scalarType = varType
+        countElems = 1
+        if str(varType[-1]).isdigit():
+            if str(varType[-2]).isdigit():
+                scalarType = varType[:-2]
+                countElems = int(varType[-2:])
+            else:
+                scalarType = varType[:-1]
+                countElems = int(varType[-1:])
+        return (scalarType, countElems)
+        
+    def get_source_var_value(self, sourceVars: List[rd.SourceVariableMapping], name, varType, debuggerVars):
+        sourceVar = [v for v in sourceVars if v.name == name]
+        if len(sourceVar) != 1:
+            raise rdtest.TestFailureException(f"Couldn't find source variable {name} {varType}")
+
+        scalarType, countElems = self.parse_var_type(varType)
+
+        debugged = self.evaluate_source_var(sourceVar[0], debuggerVars)
+        if scalarType == 'float':
+            return list(debugged.value.f32v[0:countElems])
+        elif scalarType == 'int':
+            return list(debugged.value.s32v[0:countElems])
+        else:
+            raise rdtest.TestFailureException(f"Unhandled scalarType {scalarType} {varType}")
+        return None
 
     def check_capture(self):
         if not self.controller.GetAPIProperties().shaderDebugging:
@@ -166,9 +194,6 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
             else:
                 rdtest.log.print(f"Skipping undebuggable Pixel shader at {action.eventId} for {shaderModels[sm]}.")
 
-            if failed:
-                raise rdtest.TestFailureException("Some tests were not as expected")
-
         rdtest.log.end_section("VertexSample tests")
 
         test_marker: rd.ActionDescription = self.find_action("Banned")
@@ -235,17 +260,38 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                 continue
 
             # Debug the shader
-            trace: rd.ShaderDebugTrace = self.controller.DebugThread([0,0,0], [0,0,0])
-            cycles, variables = self.process_trace(trace)
-            # Check for non-zero cycles
-            # TODO: Check source variables have expected values (bit like output variables in Vertex and Pixel Shaders)
-            self.controller.FreeTrace(trace)
-            if cycles == 0:
-                rdtest.log.error("Shader debug cycle count was zero")
-                failed = True
-                continue
+            for groupX in range(action.dispatchDimension[0]):
+                groupid = (groupX, 0, 0)
+                threadid = (0, 0, 0)
+                testIndex = groupX
+                trace: rd.ShaderDebugTrace = self.controller.DebugThread(groupid, threadid)
+                cycles, variables = self.process_trace(trace)
+                # Check for non-zero cycles
+                if cycles == 0:
+                    rdtest.log.error("Shader debug cycle count was zero")
+                    self.controller.FreeTrace(trace)
+                    failed = True
+                    continue
 
-            rdtest.log.success("Test {} matched as expected".format(test))
+                bufOut = pipe.GetReadWriteResources(rd.ShaderStage.Compute)[1].descriptor.resource
+                bufdata = self.controller.GetBufferData(bufOut, testIndex*16, 16)
+                expectedValue = struct.unpack_from("4i", bufdata, 0)
+                # Test result is in variable called "int4 testResult"
+                name = 'testResult'
+                varType = 'int4'
+                try:
+                    debuggedValue = self.get_source_var_value(trace.instInfo[-1].sourceVars, name, varType, variables)
+                    if not rdtest.value_compare(expectedValue, debuggedValue):
+                        raise rdtest.TestFailureException(f"'{name}' debugger {debuggedValue} doesn't match expected {expectedValue}")
+
+                except rdtest.TestFailureException as ex:
+                    rdtest.log.error(f"Test {test} Group:{groupid} Thread:{threadid} Index:{testIndex} failed {ex}")
+                    failed = True
+                    continue
+                finally:
+                    self.controller.FreeTrace(trace)
+
+                rdtest.log.success(f"Test {test} Group:{groupid} Thread:{threadid} as expected")
             rdtest.log.end_section(section)
 
         if failed:

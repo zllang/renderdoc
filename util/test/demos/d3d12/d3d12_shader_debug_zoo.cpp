@@ -191,6 +191,11 @@ StructuredBuffer<int16_t> int16srv : register(t42);
 Buffer<int> int16srv : register(t43);
 #endif
 
+static const int gConstInt = 10;
+static const int gConstIntArray[6] = { 1, 2, 3, 4, 5, 6 };
+static int gInt = 3;
+static int gIntArray[2] = { 5, 6 };
+
 float4 main(v2f IN) : SV_Target0
 {
   float  posinf = IN.oneVal/IN.zeroVal.x;
@@ -968,6 +973,21 @@ float4 main(v2f IN) : SV_Target0
 
     return structrwtest[z2+5].b;
   }
+  if(IN.tri == 105)
+  {
+    // idx = 0
+    int idx = intval - IN.tri - 7;
+    return float4(gConstInt, gConstIntArray[idx+5], gConstIntArray[idx+1], gConstIntArray[idx+4]);
+  }
+  if(IN.tri == 106)
+  {
+    // idx = 0
+    int idx = intval - IN.tri - 7;
+    int prev = gInt;
+    gInt += (idx+1);
+    gIntArray[idx] = gInt;
+    return float4(prev, gInt, gIntArray[idx], gIntArray[idx+1]);
+  }
 
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
@@ -1017,13 +1037,32 @@ cbuffer consts : register(b0)
 RWStructuredBuffer<uint4> bufIn : register(u0);
 RWStructuredBuffer<uint4> bufOut : register(u1);
 
+groupshared int gsmInt[128];
+
 [numthreads(1,1,1)]
-void main()
+void main(int3 inTestIndex : SV_GroupID)
 {
-  bufOut[0].x += bufIn[0].x * (uint)boolX;
-  bufOut[0].y += bufIn[0].y * (uint)intY;
-  bufOut[0].z += bufIn[0].z * (uint)floatZ;
-  bufOut[0].w += bufIn[0].w * (uint)doubleX;
+  int testIndex = inTestIndex.x;
+  int4 testResult = 123;
+  if (testIndex == 0)
+  {
+    testResult = bufOut[0];
+    testResult.x += bufIn[0].x * (uint)boolX;
+    testResult.y += bufIn[0].y * (uint)intY;
+    testResult.z += bufIn[0].z * (uint)floatZ;
+    testResult.w += bufIn[0].w * (uint)doubleX;
+  }
+  else if (testIndex == 1)
+  {
+    gsmInt[testIndex-1] = testIndex;
+    testResult.x = gsmInt[testIndex-1];
+    testResult.y = testIndex;
+  }
+  else
+  {
+    testResult.x = inTestIndex.x;
+  }
+  bufOut[testIndex] = testResult;
 }
 
 )EOSHADER";
