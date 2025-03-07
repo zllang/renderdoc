@@ -4598,7 +4598,19 @@ void VulkanReplay::FetchVSOut(uint32_t eventId, VulkanRenderState &state)
 
         offs += action->vertexOffset * stride;
       }
+      // Handle the case of vertex attribute offset larger than the stride
+      uint64_t extraAttributeLen = 0;
+      for(uint32_t va = 0; va < state.vertexAttributes.size(); va++)
+      {
+        if(state.vertexAttributes[va].binding == binding)
+        {
+          uint64_t vaOffset = state.vertexAttributes[va].offset;
+          if(vaOffset > stride)
+            extraAttributeLen = RDCMAX(extraAttributeLen, vaOffset);
+        }
+      }
 
+      len += extraAttributeLen;
       len = RDCMIN(len, state.vbuffers[binding].size);
 
       origVBs.push_back(bytebuf());
