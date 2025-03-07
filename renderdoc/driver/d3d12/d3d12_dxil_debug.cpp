@@ -810,6 +810,8 @@ void D3D12APIWrapper::FetchUAV(const D3D12Descriptor *resDescriptor, const Bindi
         m_Device->GetReplay()->GetTextureData(uavId, Subresource(), GetTextureDataParams(),
                                               uavData.data);
 
+        uavDesc.Format = D3D12ShaderDebug::GetUAVResourceFormat(uavDesc, pResource);
+        DXILDebug::FillViewFmtFromResourceFormat(uavDesc.Format, uavData.resInfo.format);
         D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
         uavData.rowPitch = GetByteSize((int)resDesc.Width, 1, 1, uavDesc.Format, 0);
         uavData.depthPitch =

@@ -68,4 +68,7 @@ ShaderVariable GetSampleInfo(WrappedID3D12Device *device, D3D12_DESCRIPTOR_RANGE
 
 ShaderVariable GetRenderTargetSampleInfo(WrappedID3D12Device *device,
                                          const DXBC::ShaderType shaderType, const char *opString);
+
+DXGI_FORMAT GetUAVResourceFormat(const D3D12_UNORDERED_ACCESS_VIEW_DESC &uavDesc,
+                                 ID3D12Resource *pResource);
 };

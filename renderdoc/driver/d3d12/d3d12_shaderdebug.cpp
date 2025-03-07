@@ -975,6 +975,18 @@ ShaderVariable D3D12ShaderDebug::GetRenderTargetSampleInfo(WrappedID3D12Device *
   return result;
 }
 
+DXGI_FORMAT D3D12ShaderDebug::GetUAVResourceFormat(const D3D12_UNORDERED_ACCESS_VIEW_DESC &uavDesc,
+                                                   ID3D12Resource *pResource)
+{
+  // Typed UAV (underlying resource is typeless)
+  if(uavDesc.Format != DXGI_FORMAT_UNKNOWN)
+    return uavDesc.Format;
+
+  // Typeless UAV get format from the underlying resource
+  D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
+  return resDesc.Format;
+}
+
 class D3D12DebugAPIWrapper : public DXBCDebug::DebugAPIWrapper
 {
 public:
@@ -1371,6 +1383,8 @@ void D3D12DebugAPIWrapper::FetchUAV(const DXBCDebug::BindingSlot &slot)
                     m_pDevice->GetReplay()->GetTextureData(uavId, Subresource(),
                                                            GetTextureDataParams(), uavData.data);
 
+                    uavDesc.Format = D3D12ShaderDebug::GetUAVResourceFormat(uavDesc, pResource);
+                    DXBCDebug::FillViewFmt(uavDesc.Format, uavData.format);
                     D3D12_RESOURCE_DESC resDesc = pResource->GetDesc();
                     uavData.rowPitch = GetByteSize((int)resDesc.Width, 1, 1, uavDesc.Format, 0);
                   }
