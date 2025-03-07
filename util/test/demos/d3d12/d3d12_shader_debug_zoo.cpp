@@ -175,6 +175,7 @@ RWTexture2D<float4> floattexrwtest : register(u7);
 RWBuffer<int> intbufrwtest : register(u8);
 RWBuffer<int> oneintbufrwtest : register(u9);
 RWBuffer<float4> typedrwtest : register(u10);
+RWTexture2D<float4> floattex2rwtest : register(u11);
 
 Buffer<float> narrowtypedsrv : register(t102);
 
@@ -988,6 +989,13 @@ float4 main(v2f IN) : SV_Target0
     gIntArray[idx] = gInt;
     return float4(prev, gInt, gIntArray[idx], gIntArray[idx+1]);
   }
+  if(IN.tri == 107)
+  {
+    float4 value = float4(posone, posone/3, posone/4, posone/5);
+    int2 uv = int2(31,37);
+    floattex2rwtest[uv] = value;
+    return floattex2rwtest[uv];
+  }
 
   return float4(0.4f, 0.4f, 0.4f, 0.4f);
 }
@@ -1199,7 +1207,7 @@ void main(int3 inTestIndex : SV_GroupID)
             multiRangeParam,
             uavParam(D3D12_SHADER_VISIBILITY_PIXEL, 0, 21),
             srvParam(D3D12_SHADER_VISIBILITY_PIXEL, 0, 20),
-            tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 9, 2, 100),
+            tableParam(D3D12_SHADER_VISIBILITY_PIXEL, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 9, 3, 100),
         },
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, 1, &staticSamp);
 
@@ -1501,6 +1509,14 @@ void main(int3 inTestIndex : SV_GroupID)
     ID3D12ResourcePtr typedBuffer = MakeBuffer().Size(1024).UAV();
     typedBuffer->SetName(L"typedBuffer");
     MakeUAV(typedBuffer).Format(DXGI_FORMAT_R32G32B32A32_FLOAT).CreateGPU(101);
+
+    // Typed texture with UAV of UNKNOWN format
+    ID3D12ResourcePtr typedTexture = MakeTexture(DXGI_FORMAT_R8G8B8A8_UNORM, 48, 48)
+                                         .Mips(1)
+                                         .InitialState(D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+                                         .UAV();
+    typedTexture->SetName(L"typedTexture");
+    MakeUAV(typedTexture).Format(DXGI_FORMAT_UNKNOWN).CreateGPU(102);
 
     float structdata[220];
     for(int i = 0; i < 220; i++)
