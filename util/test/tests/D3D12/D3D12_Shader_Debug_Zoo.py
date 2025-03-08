@@ -39,6 +39,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                 cycles, variables = self.process_trace(trace)
                 output = self.find_output_source_var(trace, rd.ShaderBuiltin.Undefined, 3)
                 debugged = self.evaluate_source_var(output, variables)
+                self.controller.FreeTrace(trace)
                 actual = debugged.value.u32v[0]
                 expected = instId
                 if not rdtest.value_compare(actual, expected):
@@ -65,6 +66,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                 output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
 
                 debugged = self.evaluate_source_var(output, variables)
+                self.controller.FreeTrace(trace)
 
                 try:
                     self.check_pixel_value(pipe.GetOutputTargets()[0].resource, 4 * test, 0, debugged.value.f32v[0:4])
@@ -75,8 +77,6 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                         rdtest.log.error("Test {} did not match. {}".format(test, str(ex)))
                         failed = True
                     continue
-                finally:
-                    self.controller.FreeTrace(trace)
 
                 rdtest.log.success("Test {} matched as expected".format(test))
                 
@@ -104,6 +104,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
             output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
 
             debugged = self.evaluate_source_var(output, variables)
+            self.controller.FreeTrace(trace)
 
             # Validate the debug output result
             try:
@@ -132,6 +133,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                 cycles, variables = self.process_trace(trace)
                 output = self.find_output_source_var(trace, rd.ShaderBuiltin.Undefined, 1)
                 debugged = self.evaluate_source_var(output, variables)
+                self.controller.FreeTrace(trace)
 
                 actual = debugged.value.f32v[0:4]
                 expected = [0.3, 0.5, 0.8, 1.0]
@@ -153,6 +155,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
                 cycles, variables = self.process_trace(trace)
                 output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
                 debugged = self.evaluate_source_var(output, variables)
+                self.controller.FreeTrace(trace)
 
                 # Validate the debug output result
                 try:
@@ -180,6 +183,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
         output = self.find_output_source_var(trace, rd.ShaderBuiltin.Position, 0)
 
         debugged = self.evaluate_source_var(output, variables)
+        self.controller.FreeTrace(trace)
 
         actual = debugged.value.f32v[0:4]
         expected = [-0.5, -0.5, 0.0, 1.0]
@@ -200,6 +204,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
         output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
 
         debugged = self.evaluate_source_var(output, variables)
+        self.controller.FreeTrace(trace)
 
         # Validate the debug output result
         try:
