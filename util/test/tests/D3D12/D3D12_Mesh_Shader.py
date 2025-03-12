@@ -6,6 +6,30 @@ class D3D12_Mesh_Shader(rdtest.TestCase):
     demos_test_name = 'D3D12_Mesh_Shader'
     demos_frame_cap = 5
 
+    def check_pixel(self, x: int, y: int):
+        pipe: rd.PipeState = self.controller.GetPipelineState()
+        if not pipe.GetShaderReflection(rd.ShaderStage.Pixel).debugInfo.debuggable:
+            rdtest.log.print("Skipping undebuggable shader.")
+            return 
+
+        # Debug the shader
+        trace = self.controller.DebugPixel(x, y, rd.DebugPixelInputs())
+        if trace.debugger is None:
+            self.controller.FreeTrace(trace)
+            raise rdtest.TestFailureException(f"Pixel shader could not be debugged.")
+
+        _, variables = self.process_trace(trace)
+        output = self.find_output_source_var(trace, rd.ShaderBuiltin.ColorOutput, 0)
+        debugged = self.evaluate_source_var(output, variables)
+        self.controller.FreeTrace(trace)
+
+        try:
+            self.check_pixel_value(pipe.GetOutputTargets()[0].resource, x, y, debugged.value.f32v[0:4])
+        except rdtest.TestFailureException as ex:
+            raise rdtest.TestFailureException(f"Pixel shader did not debug correctly. {ex}")
+
+        rdtest.log.success(f"Pixel shader debugging at {x},{y} was successful")
+
     def decode_task_data(self, controller: rd.ReplayController, mesh: rd.MeshFormat, payload: rd.ConstantBlock, task: int = 0):
 
         begin = mesh.vertexByteOffset + mesh.vertexByteStride * task
@@ -108,18 +132,26 @@ class D3D12_Mesh_Shader(rdtest.TestCase):
         action = self.find_action("Mesh Shaders")
 
         action = action.next
+        name = f"Pure Mesh Shader Test EID:{action.eventId}"
+        rdtest.log.begin_section(name)
         self.controller.SetFrameEvent(action.eventId, False)
-        rdtest.log.print(f"Pure Mesh Shader Test EID:{action.eventId}")
+
+        x = 70
+        y = 70
         
         orgY = 0.65
         color = [1.0, 0.0, 0.0, 1.0]
         postms_ref = self.build_meshout_reference(orgY, color)
         postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
         self.check_mesh_data(postms_ref, postms_data)
+        self.check_pixel(x, y)
+        rdtest.log.end_section(name)
 
+        y += 100
         action = action.next
+        name = f"Amplification Shader with Global Payload EID:{action.eventId}"
+        rdtest.log.begin_section(name)
         self.controller.SetFrameEvent(action.eventId, False)
-        rdtest.log.print(f"Amplification Shader with Global Payload EID:{action.eventId}")
 
         postts_ref = self.build_global_taskout_reference()
         postts_data = self.get_task_data(action)
@@ -130,10 +162,14 @@ class D3D12_Mesh_Shader(rdtest.TestCase):
         postms_ref = self.build_meshout_reference(orgY, color)
         postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
         self.check_mesh_data(postms_ref, postms_data)
+        self.check_pixel(x, y)
+        rdtest.log.end_section(name)
 
+        y += 100
         action = action.next
+        name = f"Amplification Shader with Local Payload EID:{action.eventId}"
+        rdtest.log.begin_section(name)
         self.controller.SetFrameEvent(action.eventId, False)
-        rdtest.log.print(f"Amplification Shader with Local Payload EID:{action.eventId}")
 
         postts_ref = self.build_local_taskout_reference()
         postts_data = self.get_task_data(action)
@@ -144,3 +180,5 @@ class D3D12_Mesh_Shader(rdtest.TestCase):
         postms_ref = self.build_meshout_reference(orgY, color)
         postms_data = self.get_postvs(action, rd.MeshDataStage.MeshOut, 0, action.numIndices)
         self.check_mesh_data(postms_ref, postms_data)
+        self.check_pixel(x, y)
+        rdtest.log.end_section(name)
