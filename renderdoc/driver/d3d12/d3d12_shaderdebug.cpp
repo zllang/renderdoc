@@ -2350,6 +2350,13 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     if(ds)
       prevDxbc = ds->GetDXBC();
   }
+  // Check for mesh shader next
+  if(prevDxbc == NULL)
+  {
+    WrappedID3D12Shader *ms = (WrappedID3D12Shader *)pso->graphics->MS.pShaderBytecode;
+    if(ms)
+      prevDxbc = ms->GetDXBC();
+  }
   // Check for vertex shader last
   if(prevDxbc == NULL)
   {
@@ -2378,10 +2385,11 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
   uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
 
-  // If the pipe contains a geometry shader, then SV_PrimitiveID cannot be used in the pixel shader
-  // without being emitted from the geometry shader. For now, check if this semantic will succeed in
-  // a new pixel shader with the rest of the pipe unchanged
-  bool usePrimitiveID = (prevDxbc->m_Type != ShaderType::Geometry);
+  // If the pipe contains a mesh/geometry shader, then SV_PrimitiveID cannot be used in the pixel
+  // shader without being emitted from the mesh/geometry shader. For now, check if this semantic
+  // will succeed in a new pixel shader with the rest of the pipe unchanged
+  bool usePrimitiveID =
+      ((prevDxbc->m_Type != ShaderType::Geometry) && (prevDxbc->m_Type != ShaderType::Mesh));
   for(const PSInputElement &e : initialValues)
   {
     if(e.sysattribute == ShaderBuiltin::PrimitiveIndex)
