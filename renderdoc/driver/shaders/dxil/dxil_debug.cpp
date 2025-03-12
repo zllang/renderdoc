@@ -7615,9 +7615,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   m_Steps = 0;
   m_Stage = shaderStage;
 
-  // Ensure the DXIL reflection data is built
-  DXIL::Program *program = ((DXIL::Program *)m_Program);
-  program->BuildReflection();
   uint32_t outputSSAId = m_Program->m_NextSSAId;
   uint32_t nextSSAId = outputSSAId + 1;
 
