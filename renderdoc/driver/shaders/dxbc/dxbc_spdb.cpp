@@ -867,44 +867,51 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
             ldata->name, ldata->typind, ToStr(mapping.regType).c_str(), ldata->dataslot,
             ldata->dataoff, ldata->texslot, ldata->sampslot, ldata->uavslot);
 
-        // range valid for the whole program
-        mapping.range.endRange = ~0U;
-
-        const rdcstr basename = (char *)ldata->name;
-        mapping.varOffset = 0;
-
-        const TypeDesc *vartype = &typeInfo[ldata->typind];
-
-        uint32_t groupsharedCount = (vartype->byteSize + vartype->matArrayStride - 1) /
-                                    RDCMAX(4U, (uint32_t)vartype->matArrayStride);
-
-        if(vartype->members.empty())
+        if(mapping.regType == DXBCBytecode::OperandType::TYPE_THREAD_GROUP_SHARED_MEMORY)
         {
-          // if it has a 'simple' type with no members we can do one mapping to the whole groupshared
-          mapping.var.name = basename;
-          mapping.varFirstComp = 0;
-          mapping.numComps = vartype->vecSize;
-          mapping.var.baseType = vartype->baseType;
-          mapping.var.rows = 1;
-          mapping.var.columns = uint8_t(vartype->vecSize);
-          mapping.var.elements = groupsharedCount;
+          // range valid for the whole program
+          mapping.range.endRange = ~0U;
 
-          m_Locals.push_back(mapping);
-        }
-        else
-        {
-          mapping.numComps = 1;
-          // otherwise we need to explode the mappings and do it componentwise to be able to map things correctly
-          for(uint32_t g = 0; g < groupsharedCount; g++)
+          const rdcstr basename = (char *)ldata->name;
+          mapping.varOffset = 0;
+
+          const TypeDesc *vartype = &typeInfo[ldata->typind];
+
+          uint32_t groupsharedCount = (vartype->byteSize + vartype->matArrayStride - 1) /
+                                      RDCMAX(4U, (uint32_t)vartype->matArrayStride);
+
+          if(vartype->matArrayStride == 0)
+            groupsharedCount = 1;
+
+          if(vartype->members.empty())
           {
+            // if it has a 'simple' type with no members we can do one mapping to the whole groupshared
             mapping.var.name = basename;
-            mapping.regSuffix = StringFormat::Fmt("[%u]", g);
-            mapping.var.name += mapping.regSuffix;
-            mapping.varOffset = g * vartype->byteSize / RDCMAX(1U, (uint32_t)vartype->matArrayStride);
+            mapping.varFirstComp = 0;
+            mapping.numComps = vartype->vecSize;
+            mapping.var.baseType = vartype->baseType;
+            mapping.var.rows = 1;
+            mapping.var.columns = uint8_t(vartype->vecSize);
+            mapping.var.elements = groupsharedCount;
 
-            // recursively linearise the members and apply mappings
-            uint32_t comp = 0;
-            UnrollGroupsharedMappings(typeInfo, vartype->members, mapping, comp);
+            m_Locals.push_back(mapping);
+          }
+          else
+          {
+            mapping.numComps = 1;
+            // otherwise we need to explode the mappings and do it componentwise to be able to map things correctly
+            for(uint32_t g = 0; g < groupsharedCount; g++)
+            {
+              mapping.var.name = basename;
+              mapping.regSuffix = StringFormat::Fmt("[%u]", g);
+              mapping.var.name += mapping.regSuffix;
+              mapping.varOffset =
+                  g * vartype->byteSize / RDCMAX(1U, (uint32_t)vartype->matArrayStride);
+
+              // recursively linearise the members and apply mappings
+              uint32_t comp = 0;
+              UnrollGroupsharedMappings(typeInfo, vartype->members, mapping, comp);
+            }
           }
         }
       }
