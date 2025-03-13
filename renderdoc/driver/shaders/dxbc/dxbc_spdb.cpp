@@ -53,10 +53,12 @@ struct TypeDesc
   VarType baseType;
   uint32_t byteSize;
   uint16_t vecSize;
+  uint16_t matSize;
   uint16_t matArrayStride : 15;
   uint16_t colMajorMatrix : 1;
   LEAF_ENUM_e leafType;
   rdcarray<TypeMember> members;
+  CV_builtin_e builtin;
 };
 
 bool IsPDBFile(void *data, size_t length)
@@ -71,6 +73,65 @@ bool IsPDBFile(void *data, size_t length)
     return false;
 
   return true;
+}
+
+CBufferVariableType MakeCBufferVariableType(std::map<uint32_t, TypeDesc> &typeInfo,
+                                            const TypeDesc &vartype)
+{
+  CBufferVariableType ret = {};
+
+  if(!vartype.members.empty())
+  {
+    ret.varType = VarType::Unknown;
+    ret.varClass = CLASS_STRUCT;
+    ret.elements = 1;
+    if(vartype.matArrayStride > 0)
+      ret.elements = vartype.byteSize / (uint32_t)vartype.matArrayStride;
+    for(const TypeMember &m : vartype.members)
+    {
+      ret.members.push_back({});
+      ret.members.back().type = MakeCBufferVariableType(typeInfo, typeInfo[m.typeIndex]);
+      ret.members.back().name = m.name;
+      ret.members.back().offset = m.byteOffset;
+    }
+    RecalculateScalarOffsetsSizes(ret);
+    ret.bytesize = ret.members.back().offset + ret.members.back().type.bytesize;
+    return ret;
+  }
+
+  ret.bytesize = vartype.byteSize;
+  ret.varType = vartype.baseType;
+  ret.rows = vartype.matSize == 0 ? 1 : uint8_t(vartype.matSize);
+  ret.cols = uint8_t(vartype.vecSize);
+  ret.elements = 1;
+
+  ret.varClass = ret.cols > 1 ? CLASS_VECTOR : CLASS_SCALAR;
+
+  // if it's an array or matrix, figure out the index
+  if(vartype.matArrayStride)
+  {
+    if(vartype.colMajorMatrix)
+      std::swap(ret.rows, ret.cols);
+
+    if(vartype.leafType != LF_MATRIX)
+      ret.elements =
+          uint8_t((vartype.byteSize + vartype.matArrayStride - 1) / vartype.matArrayStride);
+
+    if(vartype.leafType == LF_MATRIX)
+    {
+      ret.varClass = vartype.colMajorMatrix ? CLASS_MATRIX_COLUMNS : CLASS_MATRIX_ROWS;
+    }
+    else
+    {
+      ret.elements = ret.rows;
+      ret.rows = 1;
+    }
+  }
+
+  if(VarTypeCompType(ret.varType) != CompType::Typeless)
+    ret.name = TypeName(ret);
+
+  return ret;
 }
 
 SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
@@ -273,8 +334,9 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
           typeInfo[id] = {
               name,        typeInfo[vector->elemtype].baseType,
               *bytelength, (uint16_t)vector->count,
-              0,           0,
-              type,        {},
+              1,           0,
+              0,           type,
+              {},
           };
 
           break;
@@ -291,21 +353,23 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
               id, name, matrix->elemtype, matrix->rows, matrix->cols, *bytelength,
               matrix->majorStride, matrix->matattr.row_major ? "row" : "column");
 
-          uint16_t vecSize = 0, matStride = 0;
+          uint16_t vecSize = 0, matSize = 0, matStride = 0;
 
           if(matrix->matattr.row_major)
           {
             vecSize = uint16_t(matrix->cols);
+            matSize = uint16_t(matrix->rows);
             matStride = uint16_t(*bytelength / matrix->rows);
           }
           else
           {
             vecSize = uint16_t(matrix->rows);
+            matSize = uint16_t(matrix->cols);
             matStride = uint16_t(*bytelength / matrix->cols);
           }
 
           typeInfo[id] = {
-              name,      typeInfo[matrix->elemtype].baseType, *bytelength, vecSize,
+              name,      typeInfo[matrix->elemtype].baseType, *bytelength, vecSize, matSize,
               matStride, matrix->matattr.row_major == 0,      type,        {},
           };
 
@@ -318,6 +382,7 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
           // that
 
           const char *hlslTypeName = "";
+          VarType varType = VarType::Unknown;
           switch((CV_builtin_e)hlsl->kind)
           {
             case CV_BI_HLSL_INTERFACE_POINTER: hlslTypeName = "INTERFACE_POINTER"; break;
@@ -363,8 +428,63 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
             default: hlslTypeName = "Unknown type";
           }
 
+          switch((CV_builtin_e)hlsl->kind)
+          {
+            case CV_BI_HLSL_SAMPLER:
+            case CV_BI_HLSL_SAMPLERCOMPARISON: varType = VarType::Sampler; break;
+            case CV_BI_HLSL_TEXTURE1D:
+            case CV_BI_HLSL_TEXTURE1D_ARRAY:
+            case CV_BI_HLSL_TEXTURE2D:
+            case CV_BI_HLSL_TEXTURE2D_ARRAY:
+            case CV_BI_HLSL_TEXTURE3D:
+            case CV_BI_HLSL_TEXTURECUBE:
+            case CV_BI_HLSL_TEXTURECUBE_ARRAY:
+            case CV_BI_HLSL_TEXTURE2DMS:
+            case CV_BI_HLSL_TEXTURE2DMS_ARRAY:
+            case CV_BI_HLSL_BUFFER:
+            case CV_BI_HLSL_BYTEADDRESS_BUFFER:
+            case CV_BI_HLSL_STRUCTURED_BUFFER: varType = VarType::ReadOnlyResource; break;
+            case CV_BI_HLSL_RWTEXTURE1D:
+            case CV_BI_HLSL_RWTEXTURE1D_ARRAY:
+            case CV_BI_HLSL_RWTEXTURE2D:
+            case CV_BI_HLSL_RWTEXTURE2D_ARRAY:
+            case CV_BI_HLSL_RWTEXTURE3D:
+            case CV_BI_HLSL_RWBUFFER:
+            case CV_BI_HLSL_RWBYTEADDRESS_BUFFER:
+            case CV_BI_HLSL_RWSTRUCTURED_BUFFER:
+            case CV_BI_HLSL_APPEND_STRUCTURED_BUFFER:
+            case CV_BI_HLSL_CONSUME_STRUCTURED_BUFFER: varType = VarType::ReadWriteResource; break;
+            case CV_BI_HLSL_MIN8FLOAT:
+            case CV_BI_HLSL_MIN10FLOAT:
+            case CV_BI_HLSL_MIN16FLOAT: varType = VarType::Float; break;
+            case CV_BI_HLSL_MIN12INT:
+            case CV_BI_HLSL_MIN16INT: varType = VarType::SInt; break;
+            case CV_BI_HLSL_MIN16UINT: varType = VarType::UInt; break;
+            default: break;
+          }
+
           SPDBLOG("Type %x is an hlsl %s[%u] (subtype %x)", id, hlslTypeName, hlsl->numprops,
                   hlsl->subtype);
+
+          if(hlsl->kind == 0x224)    // constant buffer CV_BI_HLSL_CONSTANT_BUFFER
+          {
+            typeInfo[id] = typeInfo[hlsl->subtype];
+          }
+          else
+          {
+            typeInfo[id] = {
+                hlslTypeName,
+                varType,
+                0,
+                1,
+                1,
+                1,
+                0,
+                (LEAF_ENUM_e)hlsl->subtype,
+                {},
+                (CV_builtin_e)hlsl->kind,
+            };
+          }
           break;
         }
         case LF_ALIAS:
@@ -382,8 +502,8 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
           lfModifierEx *modifier = (lfModifierEx *)leaf;
           SPDBLOG("Type %x is %x modified with:", id, modifier->type);
 
+          // treat as basically an alias
           typeInfo[id] = typeInfo[modifier->type];
-          typeInfo[id].name = "modif " + typeInfo[id].name;
 
           uint16_t *mods = (uint16_t *)modifier->mods;
           for(unsigned short i = 0; i < modifier->count; i++)
@@ -564,7 +684,15 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
             structType = "class";
 
           typeInfo[id] = {
-              name, VarType::Float, *bytelength, 1, 0, 0, type, typeInfo[structure->field].members,
+              name,
+              VarType::Float,
+              *bytelength,
+              1,
+              1,
+              0,
+              0,
+              type,
+              typeInfo[structure->field].members,
           };
 
           SPDBLOG(
@@ -616,8 +744,17 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
               bytelength);
 
           typeInfo[id] = {
-              "",   typeInfo[stridedArray->elemtype].baseType, bytelength, 1, stride, 0,
-              type, typeInfo[stridedArray->elemtype].members,
+              "",
+              typeInfo[stridedArray->elemtype].baseType,
+              bytelength,
+              1,
+              1,
+              stride,
+              0,
+              LEAF_ENUM_e(VarTypeCompType(typeInfo[stridedArray->elemtype].baseType) == CompType::Typeless
+                              ? stridedArray->elemtype
+                              : type),
+              typeInfo[stridedArray->elemtype].members,
           };
 
           break;
@@ -756,6 +893,384 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
 
     RDCASSERT(dbi->sig == 0xffffffff);
     RDCASSERT(dbi->ver == 19990903);
+
+    // we don't use this lookup, we just process all symbols
+#if 0
+    if(dbi->gssymStream >= 0 && dbi->gssymStream < streams.count())
+    {
+      PDBStream &s = streams[dbi->gssymStream];
+      PageMapping modMapping(pages, header->PageSize, &s.pageIndices[0],
+                             (uint32_t)s.pageIndices.size());
+
+      byte *cur = (byte *)modMapping.Data();
+
+      HashHeader *hashHead = (HashHeader *)cur;
+      cur = (byte *)(hashHead + 1);
+
+      HashRecord *records = (HashRecord *)cur;
+      uint32_t numRecords = hashHead->size / sizeof(HashRecord);
+
+      for(uint32_t i = 0; i < numRecords; i++)
+      {
+        SPDBLOG("global symbol %u at %x", i, records[i].offset - 1);
+      }
+    }
+
+    if(dbi->pssymStream >= 0 && dbi->pssymStream < streams.count())
+    {
+      PDBStream &s = streams[dbi->pssymStream];
+      PageMapping modMapping(pages, header->PageSize, &s.pageIndices[0],
+                             (uint32_t)s.pageIndices.size());
+
+      byte *cur = (byte *)modMapping.Data();
+
+      PublicStreamHeader *pubHead = (PublicStreamHeader *)cur;
+      cur = (byte *)(pubHead + 1);
+
+      HashHeader *hashHead = (HashHeader *)cur;
+      cur = (byte *)(hashHead + 1);
+
+      HashRecord *records = (HashRecord *)cur;
+      uint32_t numRecords = hashHead->size / sizeof(HashRecord);
+
+      for(uint32_t i = 0; i < numRecords; i++)
+      {
+        SPDBLOG("public symbol %u at %x", i, records[i].offset - 1);
+      }
+    }
+#endif
+
+    if(dbi->symrecStream >= 0 && dbi->symrecStream < streams.count())
+    {
+      PDBStream &s = streams[dbi->symrecStream];
+      PageMapping modMapping(pages, header->PageSize, &s.pageIndices[0],
+                             (uint32_t)s.pageIndices.size());
+
+      byte *cur = (byte *)modMapping.Data();
+      byte *end = cur + s.byteLength;
+
+      while(cur < end)
+      {
+        uint16_t *sym = (uint16_t *)cur;
+
+        uint16_t len = sym[0];
+        SYM_ENUM_e type = (SYM_ENUM_e)sym[1];
+        cur += len + sizeof(uint16_t);    // len does not include itself
+
+        const TypeDesc *vartype = NULL;
+
+        DXBCBytecode::OperandType regType = DXBCBytecode::TYPE_TEMP;
+        uint32_t space = 0, reg = 0, regID = 0;
+        uint32_t cbufByteOffset = 0;
+        rdcstr name;
+
+        if(type == S_PROCREF)
+        {
+          SPDBLOG("Ingoring proc ref, unused");
+          continue;
+        }
+        else if(type == S_GDATA_HLSL)
+        {
+          DATASYMHLSL *gdata = (DATASYMHLSL *)sym;
+
+          // CV_HLSLREG_e == OperandType
+
+          name = (char *)gdata->name;
+          regType = (DXBCBytecode::OperandType)gdata->regType;
+          vartype = &typeInfo[gdata->typind];
+
+          if(regType == DXBCBytecode::TYPE_RESOURCE)
+            reg = gdata->texslot;
+          else if(regType == DXBCBytecode::TYPE_SAMPLER)
+            reg = gdata->sampslot;
+          else if(regType == DXBCBytecode::TYPE_UNORDERED_ACCESS_VIEW)
+            reg = gdata->uavslot;
+          else
+            reg = gdata->dataslot;
+
+          regID = reg;
+          cbufByteOffset = gdata->dataoff;
+
+          SPDBLOG(
+              "S_GDATA_HLSL: %s is type %x in register type %s data slot %hu data offset %hu, "
+              "tex/samp/uav slots %hu/%hu/%hu",
+              gdata->name, gdata->typind, ToStr(regType).c_str(), gdata->dataslot, gdata->dataoff,
+              gdata->texslot, gdata->sampslot, gdata->uavslot);
+        }
+        else if(type == S_GDATA_HLSL32)
+        {
+          DATASYMHLSL32 *gdata = (DATASYMHLSL32 *)sym;
+
+          // CV_HLSLREG_e == OperandType
+
+          name = (char *)gdata->name;
+          regType = (DXBCBytecode::OperandType)gdata->regType;
+          vartype = &typeInfo[gdata->typind];
+
+          if(regType == DXBCBytecode::TYPE_RESOURCE)
+            reg = gdata->texslot;
+          else if(regType == DXBCBytecode::TYPE_SAMPLER)
+            reg = gdata->sampslot;
+          else if(regType == DXBCBytecode::TYPE_UNORDERED_ACCESS_VIEW)
+            reg = gdata->uavslot;
+          else
+            reg = gdata->dataslot;
+
+          regID = reg;
+          cbufByteOffset = gdata->dataoff;
+
+          SPDBLOG(
+              "S_GDATA_HLSL: %s is type %x in register type %s data slot %hu data offset %hu, "
+              "tex/samp/uav slots %hu/%hu/%hu",
+              gdata->name, gdata->typind, ToStr(regType).c_str(), gdata->dataslot, gdata->dataoff,
+              gdata->texslot, gdata->sampslot, gdata->uavslot);
+        }
+        else if(type == S_GDATA_HLSL32_EX)
+        {
+          DATASYMHLSL32_EX *gdata = (DATASYMHLSL32_EX *)sym;
+
+          // CV_HLSLREG_e == OperandType
+
+          name = (char *)gdata->name;
+          regType = (DXBCBytecode::OperandType)gdata->regType;
+          vartype = &typeInfo[gdata->typind];
+          space = gdata->bindSpace;
+          reg = gdata->bindSlot;
+          regID = gdata->regID;
+
+          cbufByteOffset = gdata->dataoff;
+
+          SPDBLOG(
+              "S_GDATA_HLSL: %s is type %x in register type %s regID %u data offs %u space %u "
+              "register lower %u",
+              gdata->name, gdata->typind, ToStr(regType).c_str(), gdata->regID, gdata->dataoff,
+              gdata->bindSpace, gdata->bindSlot);
+        }
+        else
+        {
+          SPDBLOG("Unexpected type of global symbol %x", type);
+          continue;
+        }
+
+        if(regType == DXBCBytecode::TYPE_CONSTANT_BUFFER)
+        {
+          size_t idx = 0;
+          for(idx = 0; idx < CBuffers.size(); idx++)
+            if(CBuffers[idx].reg == reg && CBuffers[idx].space == space)
+              break;
+
+          if(idx == CBuffers.size())
+          {
+            CBuffers.push_back({});
+            CBuffers.back().descriptor.type = CBuffer::Descriptor::TYPE_CBUFFER;
+            CBuffers.back().descriptor.byteSize = 0;
+            CBuffers.back().bindCount = 1;
+            CBuffers.back().hasReflectionData = false;
+            CBuffers.back().name = StringFormat::Fmt("cbuffer_%u", regID);
+            CBuffers.back().reg = reg;
+            CBuffers.back().space = space;
+            CBuffers.back().identifier = regID;
+          }
+
+          // skip any modifiers or hlsl dummy entries
+          if(vartype->baseType == VarType::Unknown)
+            vartype = &typeInfo[vartype->leafType];
+
+          CBufferVariable var;
+          var.name = name;
+          var.offset = cbufByteOffset;
+          var.type = MakeCBufferVariableType(typeInfo, *vartype);
+          CBuffers[idx].variables.push_back(var);
+        }
+        else
+        {
+          ShaderInputBind desc;
+
+          desc.name = name;
+          desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+          desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2D;
+          desc.space = space;
+          desc.reg = reg;
+          desc.bindCount = 1;
+          desc.numComps = 4;
+
+          if(vartype)
+          {
+            // skip any modifier
+            if(vartype->baseType == VarType::Unknown)
+              vartype = &typeInfo[vartype->leafType];
+
+            // handle resource arrays
+            if(vartype->builtin == 0)
+            {
+              desc.bindCount = vartype->byteSize;
+              vartype = &typeInfo[vartype->leafType];
+            }
+
+            if(vartype->builtin == 0)
+            {
+              RDCERR("Expected HLSL builtin for resource type");
+            }
+            else
+            {
+              switch(vartype->builtin)
+              {
+                case CV_BI_HLSL_SAMPLER:
+                case CV_BI_HLSL_SAMPLERCOMPARISON:
+                  desc.type = DXBC::ShaderInputBind::TYPE_SAMPLER;
+                  break;
+
+                case CV_BI_HLSL_TEXTURE1D:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE1D;
+                  break;
+                case CV_BI_HLSL_TEXTURE1D_ARRAY:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE1DARRAY;
+                  break;
+                case CV_BI_HLSL_TEXTURE2D:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2D;
+                  break;
+                case CV_BI_HLSL_TEXTURE2D_ARRAY:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2DARRAY;
+                  break;
+                case CV_BI_HLSL_TEXTURE3D:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE3D;
+                  break;
+                case CV_BI_HLSL_TEXTURECUBE:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURECUBE;
+                  break;
+                case CV_BI_HLSL_TEXTURECUBE_ARRAY:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURECUBEARRAY;
+                  break;
+                case CV_BI_HLSL_TEXTURE2DMS:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2DMS;
+                  break;
+                case CV_BI_HLSL_TEXTURE2DMS_ARRAY:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TEXTURE;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2DMSARRAY;
+                  break;
+
+                case CV_BI_HLSL_BUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_TBUFFER;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFER;
+                  break;
+                case CV_BI_HLSL_BYTEADDRESS_BUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_BYTEADDRESS;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFEREX;
+                  break;
+                case CV_BI_HLSL_STRUCTURED_BUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_STRUCTURED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFER;
+                  break;
+
+                case CV_BI_HLSL_RWTEXTURE1D:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWTYPED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE1D;
+                  break;
+                case CV_BI_HLSL_RWTEXTURE1D_ARRAY:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWTYPED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE1DARRAY;
+                  break;
+                case CV_BI_HLSL_RWTEXTURE2D:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWTYPED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2D;
+                  break;
+                case CV_BI_HLSL_RWTEXTURE2D_ARRAY:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWTYPED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE2DARRAY;
+                  break;
+                case CV_BI_HLSL_RWTEXTURE3D:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWTYPED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_TEXTURE3D;
+                  break;
+                case CV_BI_HLSL_RWBUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWTYPED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFER;
+                  break;
+                case CV_BI_HLSL_RWBYTEADDRESS_BUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWBYTEADDRESS;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFEREX;
+                  break;
+                case CV_BI_HLSL_RWSTRUCTURED_BUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWSTRUCTURED;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFER;
+                  break;
+                case CV_BI_HLSL_APPEND_STRUCTURED_BUFFER:
+                case CV_BI_HLSL_CONSUME_STRUCTURED_BUFFER:
+                  desc.type = DXBC::ShaderInputBind::TYPE_UAV_RWSTRUCTURED_WITH_COUNTER;
+                  desc.dimension = DXBC::ShaderInputBind::DIM_BUFFER;
+                  break;
+                default:
+                  RDCERR("Unexpected buitin type for reflection resource: %d", vartype->builtin);
+                  break;
+              }
+
+              // for non-samplers, examine the underlying type
+              if(desc.type != DXBC::ShaderInputBind::TYPE_SAMPLER)
+              {
+                vartype = &typeInfo[vartype->leafType];
+
+                // skip any modifier/hlsl intermdiary
+                while(vartype->baseType == VarType::Unknown && vartype->members.empty())
+                  vartype = &typeInfo[vartype->leafType];
+
+                ResourceBinds[desc.name] = MakeCBufferVariableType(typeInfo, *vartype);
+                ResourceBinds[desc.name].name = name;
+
+                if(!vartype->members.empty())
+                  desc.retType = DXBC::RETURN_TYPE_MIXED;
+                else if(VarTypeCompType(vartype->baseType) == CompType::Float)
+                  desc.retType = DXBC::RETURN_TYPE_FLOAT;
+                else if(VarTypeCompType(vartype->baseType) == CompType::UInt)
+                  desc.retType = DXBC::RETURN_TYPE_UINT;
+                else if(VarTypeCompType(vartype->baseType) == CompType::SInt)
+                  desc.retType = DXBC::RETURN_TYPE_SINT;
+                else
+                  desc.retType = DXBC::RETURN_TYPE_MIXED;
+
+                if(VarTypeCompType(vartype->baseType) != CompType::Typeless)
+                  desc.numComps = ResourceBinds[desc.name].cols;
+              }
+            }
+          }
+
+          if(regType == DXBCBytecode::TYPE_RESOURCE)
+          {
+            SRVs.push_back(desc);
+          }
+          else if(regType == DXBCBytecode::TYPE_SAMPLER)
+          {
+            desc.retType = DXBC::RETURN_TYPE_UNKNOWN;
+            desc.dimension = DXBC::ShaderInputBind::DIM_UNKNOWN;
+            desc.numComps = 0;
+
+            Samplers.push_back(desc);
+          }
+          else if(regType == DXBCBytecode::TYPE_UNORDERED_ACCESS_VIEW)
+          {
+            UAVs.push_back(desc);
+          }
+          else
+          {
+            SPDBLOG("Ignoring global mapped to register %s", ToStr(regType).c_str());
+          }
+        }
+      }
+
+      for(size_t idx = 0; idx < CBuffers.size(); idx++)
+      {
+        std::sort(
+            CBuffers[idx].variables.begin(), CBuffers[idx].variables.end(),
+            [](const CBufferVariable &a, const CBufferVariable &b) { return a.offset < b.offset; });
+      }
+    }
 
     byte *cur = (byte *)(dbi + 1);
     byte *end = cur + dbi->gpmodiSize;
@@ -1053,7 +1568,6 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
 
         Inlinee inlinee;
 
-        inlinee.ptr = ptr;
         inlinee.parentPtr = inlinesite->pParent;
         inlinee.id = inlinesite->inlinee;
 
@@ -1334,7 +1848,7 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
         }
 
         mapping.var.baseType = vartype->baseType;
-        mapping.var.rows = 1;
+        mapping.var.rows = uint8_t(vartype->matSize);
         mapping.var.columns = uint8_t(vartype->vecSize);
         mapping.var.elements = 1;
 
@@ -1343,8 +1857,9 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
         {
           // number of rows is the number of vectors in the matrix's total byte size (each vector is
           // a row)
-          mapping.var.rows =
-              uint8_t((varTypeByteSize + vartype->matArrayStride - 1) / vartype->matArrayStride);
+          if(mapping.var.rows == 1)
+            mapping.var.rows =
+                uint8_t((varTypeByteSize + vartype->matArrayStride - 1) / vartype->matArrayStride);
 
           // unless this is a column major matrix, in which case each vector is a column so swap the
           // rows/columns (the number of ROWS is the vector size, when each vector is a column)
@@ -1929,6 +2444,17 @@ void SPDBChunk::GetLocals(const DXBC::DXBCContainer *dxbc, size_t, uintptr_t off
       }
     }
   }
+}
+
+void SPDBChunk::FillReflection(DXBC::Reflection &refl)
+{
+  for(auto it = ResourceBinds.begin(); it != ResourceBinds.end(); ++it)
+    refl.ResourceBinds[it->first] = it->second;
+
+  refl.SRVs = SRVs;
+  refl.UAVs = UAVs;
+  refl.Samplers = Samplers;
+  refl.CBuffers = CBuffers;
 }
 
 void SPDBChunk::UnrollGroupsharedMappings(const std::map<uint32_t, TypeDesc> &typeInfo,

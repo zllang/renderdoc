@@ -2065,6 +2065,7 @@ DXBCContainer::DXBCContainer(const bytebuf &ByteCode, const rdcstr &debugInfoPat
 
   // if reflection information was stripped (or never emitted with DXIL), attempt to reverse
   // engineer basic info from declarations or read it from the DXIL
+  bool guessedReflection = false;
   if(m_Reflection == NULL)
   {
     // need to disassemble now to guess resources
@@ -2074,6 +2075,7 @@ DXBCContainer::DXBCContainer(const bytebuf &ByteCode, const rdcstr &debugInfoPat
       m_Reflection = dxilReflectProgram->BuildReflection();
     else
       m_Reflection = new Reflection;
+    guessedReflection = true;
   }
 
   if(dxilReflectProgram)
@@ -2353,7 +2355,11 @@ DXBCContainer::DXBCContainer(const bytebuf &ByteCode, const rdcstr &debugInfoPat
   }
 
   if(m_DXBCByteCode && m_DebugInfo == NULL && !m_DebugShaderBlob.empty())
+  {
     m_DebugInfo = ProcessPDB(m_DebugShaderBlob.data(), (uint32_t)m_DebugShaderBlob.size());
+    if(m_DebugInfo && guessedReflection)
+      m_DebugInfo->FillReflection(*m_Reflection);
+  }
 
   if(m_DXILByteCode)
     m_DebugInfo = m_DXILByteCode;
