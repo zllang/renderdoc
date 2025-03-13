@@ -3797,16 +3797,18 @@ void VulkanReplay::FetchMeshOut(uint32_t eventId, VulkanRenderState &state)
 
       if(numVerts > layout.vertArrayLength)
       {
-        RDCERR("Meshlet returned invalid vertex count %u with declared max %u", numVerts,
-               layout.vertArrayLength);
-        ret.meshout.status = "Got corrupted mesh output data from GPU";
+        ret.meshout.status =
+            StringFormat::Fmt("Meshlet returned invalid vertex count %u with declared max %u",
+                              numVerts, layout.vertArrayLength);
+        RDCERR("%s", ret.meshout.status.c_str());
       }
 
       if(numPrims > layout.primArrayLength)
       {
-        RDCERR("Meshlet returned invalid primitive count %u with declared max %u", numPrims,
-               layout.primArrayLength);
-        ret.meshout.status = "Got corrupted mesh output data from GPU";
+        ret.meshout.status =
+            StringFormat::Fmt("Meshlet returned invalid primitive count %u with declared max %u",
+                              numPrims, layout.primArrayLength);
+        RDCERR("%s", ret.meshout.status.c_str());
       }
 
       if(!ret.meshout.status.empty())
