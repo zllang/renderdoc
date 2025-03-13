@@ -434,6 +434,7 @@ struct CBufferVariableType
   rdcarray<CBufferVariable> members;
 };
 
+void RecalculateScalarOffsetsSizes(CBufferVariableType &type);
 rdcstr TypeName(CBufferVariableType desc);
 
 struct CBufferVariable

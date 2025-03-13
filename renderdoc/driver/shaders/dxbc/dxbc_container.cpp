@@ -386,6 +386,38 @@ ShaderStage GetShaderStage(ShaderType type)
   }
 }
 
+// DXIL wonderfully provides us with offsets that are completely useless/pointless for structured
+// buffers. We need to recalculate them now based on tight packing
+void RecalculateScalarOffsetsSizes(CBufferVariableType &type)
+{
+  uint32_t offset = 0;
+  uint32_t pendingOffsetIncr = 0;
+  uint32_t lastBitfieldOffset = 0;
+  for(DXBC::CBufferVariable &var : type.members)
+  {
+    // if we encounter a non-bitfield, or the offset goes backwards, apply the 'real' offset now
+    if(var.bitFieldSize == 0 || var.bitFieldOffset < lastBitfieldOffset)
+    {
+      offset += pendingOffsetIncr;
+      pendingOffsetIncr = 0;
+    }
+
+    var.offset = offset;
+
+    // all bitfields share the same offset, which will be incremented at the next bitfield boundary (above)
+    if(var.bitFieldSize > 0)
+    {
+      pendingOffsetIncr = var.type.bytesize;
+      lastBitfieldOffset = var.bitFieldOffset + var.bitFieldSize;
+      continue;
+    }
+
+    offset += var.type.rows * var.type.cols * VarTypeByteSize(var.type.varType) * var.type.elements;
+
+    RecalculateScalarOffsetsSizes(var.type);
+  }
+}
+
 rdcstr TypeName(CBufferVariableType desc)
 {
   rdcstr ret;
