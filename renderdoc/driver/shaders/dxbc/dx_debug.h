@@ -25,11 +25,13 @@
 #pragma once
 
 #include <map>
+#include "maths/vec.h"
 
 namespace DXBC
 {
 enum ResourceRetType;
 enum class InterpolationMode : uint8_t;
+class DXBCContainer;
 };
 
 namespace DXBCBytecode
@@ -43,6 +45,41 @@ namespace DXDebug
 typedef DXBC::ResourceRetType ResourceRetType;
 typedef DXBCBytecode::ResourceDimension ResourceDimension;
 typedef DXBCBytecode::SamplerMode SamplerMode;
+
+struct LaneData
+{
+  Vec4f pixelPos;
+
+  uint32_t isHelper;
+  uint32_t quadId;
+  uint32_t quadLane;
+  uint32_t coverage;
+
+  // user data PSInput below here
+};
+
+struct PixelDebugHit
+{
+  // only used in the first instance
+  uint32_t numHits;
+  // below here are per-hit properties
+  float posx;
+  float posy;
+  float depth;
+
+  float derivValid;
+  uint32_t primitive;
+  uint32_t isFrontFace;
+  uint32_t sample;
+
+  uint32_t quadLaneIndex;
+  uint32_t pad[3];
+
+  // LaneData quad[4] below here
+};
+
+// maximum number of overdraw levels before we start losing potential pixel hits
+static const uint32_t maxPixelHits = 100;
 
 struct PSInputElement
 {
@@ -64,13 +101,64 @@ struct PSInputElement
   bool included;
 };
 
-void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputSig,
-                                       const rdcarray<SigParameter> &prevStageOutputSig,
-                                       const rdcarray<DXBC::InterpolationMode> &interpModes,
-                                       rdcarray<PSInputElement> &initialValues,
-                                       rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &inputVarNames,
-                                       rdcstr &psInputDefinition, int &structureStride,
-                                       std::map<ShaderBuiltin, rdcstr> &usedInputs);
+struct SampleEvalCacheKey
+{
+  int32_t quadIndex = -1;              // index of this thread in the quad
+  int32_t inputRegisterIndex = -1;     // index of the input register
+  int32_t firstComponent = 0;          // the first component in the register
+  int32_t numComponents = 0;           // how many components in the register
+  int32_t sample = -1;                 // -1 for offset-from-centroid lookups
+  int32_t offsetx = 0, offsety = 0;    // integer offset from centroid
+
+  bool operator<(const SampleEvalCacheKey &o) const
+  {
+    if(quadIndex != o.quadIndex)
+      return quadIndex < o.quadIndex;
+
+    if(inputRegisterIndex != o.inputRegisterIndex)
+      return inputRegisterIndex < o.inputRegisterIndex;
+
+    if(firstComponent != o.firstComponent)
+      return firstComponent < o.firstComponent;
+
+    if(numComponents != o.numComponents)
+      return numComponents < o.numComponents;
+
+    if(sample != o.sample)
+      return sample < o.sample;
+
+    if(offsetx != o.offsetx)
+      return offsetx < o.offsetx;
+
+    return offsety < o.offsety;
+  }
+  bool operator==(const SampleEvalCacheKey &o) const { return !(*this < o) && !(o < *this); }
+};
+
+struct PSInputFetcherConfig
+{
+  uint32_t x = 0, y = 0;
+  uint32_t uavslot = 0;
+  uint32_t uavspace = 0;
+  uint32_t outputSampleCount = 1;
+};
+
+struct PSInputFetcher
+{
+  // stride of the generated PSInput struct
+  uint32_t stride = 0;
+  // members of the PSInput struct
+  rdcarray<PSInputElement> inputs;
+
+  // per-sample evaluation cache
+  rdcarray<SampleEvalCacheKey> evalSampleCacheData;
+  uint64_t sampleEvalRegisterMask = 0;
+
+  rdcstr hlsl;
+};
+
+void CreatePSInputFetcher(const DXBC::DXBCContainer *dxbc, const DXBC::DXBCContainer *prevdxbc,
+                          const PSInputFetcherConfig &cfg, PSInputFetcher &fetcher);
 
 enum class GatherChannel : uint8_t
 {

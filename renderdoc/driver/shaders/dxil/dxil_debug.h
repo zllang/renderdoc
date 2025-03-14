@@ -85,9 +85,6 @@ struct PSInputData
   bool included;
 };
 
-void ApplyAllDerivatives(GlobalState &global, rdcarray<ThreadState> &quad, int destIdx,
-                         const rdcarray<PSInputData> &psInputs, float *data);
-
 struct FunctionInfo
 {
   typedef std::set<Id> ReferencedIds;

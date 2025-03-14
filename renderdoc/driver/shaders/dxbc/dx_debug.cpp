@@ -24,18 +24,30 @@
 
 #include "dx_debug.h"
 #include "common/formatting.h"
+#include "driver/shaders/dxil/dxil_debug.h"
+#include "dxbc_bytecode.h"
 #include "dxbc_common.h"
+#include "dxbc_container.h"
+#include "dxbc_debug.h"
 
 namespace DXDebug
 {
-void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputSig,
-                                       const rdcarray<SigParameter> &prevStageOutputSig,
-                                       const rdcarray<DXBC::InterpolationMode> &interpModes,
-                                       rdcarray<PSInputElement> &initialValues,
-                                       rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &inputVarNames,
-                                       rdcstr &psInputDefinition, int &structureStride,
-                                       std::map<ShaderBuiltin, rdcstr> &usedInputs)
+void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
+                                       const DXBC::DXBCContainer *prevdxbc, PSInputFetcher &fetcher,
+                                       rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &inputVarNames)
 {
+  rdcarray<DXBC::InterpolationMode> interpModes;
+
+  const rdcarray<SigParameter> &stageInputSig = dxbc->GetReflection()->InputSig;
+  const rdcarray<SigParameter> &prevStageOutputSig = prevdxbc->GetReflection()->OutputSig;
+
+  if(dxbc->GetDXBCByteCode())
+    DXBCDebug::GetInterpolationModeForInputParams(stageInputSig, dxbc->GetDXBCByteCode(),
+                                                  interpModes);
+  else
+    DXILDebug::GetInterpolationModeForInputParams(stageInputSig, dxbc->GetDXILByteCode(),
+                                                  interpModes);
+
   // When debugging a pixel shader, we need to get the initial values of each pixel shader
   // input for the pixel that we are debugging, from whichever the previous shader stage was
   // configured in the pipeline. This function returns the input element definitions, other
@@ -46,20 +58,21 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
   // needed for gathering initial values, such as primitive ID, and also does not provide the
   // shader function body.
 
-  initialValues.clear();
+  fetcher.inputs.clear();
   floatInputs.clear();
   inputVarNames.clear();
-  psInputDefinition = "struct PSInput\n{\n";
-  structureStride = 0;
+  fetcher.hlsl += "struct PSInput\n{\n";
+  rdcstr defines;
+  fetcher.stride = 0;
 
   if(stageInputSig.empty())
   {
-    psInputDefinition += "float4 input_dummy : SV_Position;\n";
-    usedInputs[ShaderBuiltin::Position] = "input_dummy";
+    fetcher.hlsl += "float4 input_dummy : SV_Position;\n";
+    fetcher.hlsl += "#define POSITION_VAR input_dummy\n";
 
-    initialValues.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
+    fetcher.inputs.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
 
-    structureStride += 4;
+    fetcher.stride += 4;
   }
 
   // name, pair<start semantic index, end semantic index>
@@ -74,7 +87,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
   {
     const SigParameter &sig = stageInputSig[i];
 
-    psInputDefinition += "  ";
+    fetcher.hlsl += "  ";
 
     bool included = true;
 
@@ -83,7 +96,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
        sig.systemValue == ShaderBuiltin::IsFrontFace ||
        sig.systemValue == ShaderBuiltin::MSAASampleIndex)
     {
-      psInputDefinition += "//";
+      fetcher.hlsl += "//";
       included = false;
     }
 
@@ -92,7 +105,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
     // an interpolant. Only comment it out if it's the last input.
     if(i + 1 == numInputs && sig.systemValue == ShaderBuiltin::PrimitiveIndex)
     {
-      psInputDefinition += "//";
+      fetcher.hlsl += "//";
       included = false;
     }
 
@@ -103,7 +116,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
       if(sig.semanticName == arrays[a].first && arrays[a].second.first <= sig.semanticIndex &&
          arrays[a].second.second >= sig.semanticIndex)
       {
-        psInputDefinition += "//";
+        fetcher.hlsl += "//";
         included = false;
         arrayIndex = sig.semanticIndex - arrays[a].second.first;
       }
@@ -127,13 +140,13 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
           uint32_t bytesPerColumn = (varType != VarType::Half) ? 4 : 2;
 
           if(varType == VarType::Float)
-            psInputDefinition += "float";
+            fetcher.hlsl += "float";
           else if(varType == VarType::Half)
-            psInputDefinition += "half";
+            fetcher.hlsl += "half";
           else if(varType == VarType::SInt)
-            psInputDefinition += "int";
+            fetcher.hlsl += "int";
           else if(varType == VarType::UInt)
-            psInputDefinition += "uint";
+            fetcher.hlsl += "uint";
           else
             RDCERR("Unexpected input signature type: %s",
                    ToStr(prevStageOutputSig[os].varType).c_str());
@@ -144,12 +157,13 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
                         (prevStageOutputSig[os].regChannelMask & 0x8 ? 1 : 0);
 
           rdcstr name = prevStageOutputSig[os].semanticIdxName;
-          psInputDefinition += ToStr((uint32_t)numCols) + " input_" + name + " : " + name + ";\n";
+          fetcher.hlsl += ToStr((uint32_t)numCols) + " input_" + name + " : " + name + ";\n";
 
           uint32_t byteSize = AlignUp4(numCols * bytesPerColumn);
-          structureStride += byteSize;
+          fetcher.stride += byteSize;
 
-          initialValues.push_back(PSInputElement(-1, 0, byteSize / 4, ShaderBuiltin::Undefined, true));
+          fetcher.inputs.push_back(
+              PSInputElement(-1, 0, byteSize / 4, ShaderBuiltin::Undefined, true));
         }
       }
 
@@ -157,11 +171,11 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
       {
         rdcstr dummy_reg = "dummy_register";
         dummy_reg += ToStr((uint32_t)nextreg + dummy);
-        psInputDefinition += "float4 var_" + dummy_reg + " : semantic_" + dummy_reg + ";\n";
+        fetcher.hlsl += "float4 var_" + dummy_reg + " : semantic_" + dummy_reg + ";\n";
 
-        initialValues.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
+        fetcher.inputs.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
 
-        structureStride += 4 * sizeof(float);
+        fetcher.stride += 4 * sizeof(float);
       }
     }
 
@@ -169,8 +183,8 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
 
     DXBC::InterpolationMode interpolation = interpModes[i];
     if(interpolation != DXBC::InterpolationMode::INTERPOLATION_UNDEFINED)
-      psInputDefinition += ToStr(interpolation) + " ";
-    psInputDefinition += ToStr(sig.varType);
+      fetcher.hlsl += ToStr(interpolation) + " ";
+    fetcher.hlsl += ToStr(sig.varType);
 
     int numCols = (sig.regChannelMask & 0x1 ? 1 : 0) + (sig.regChannelMask & 0x2 ? 1 : 0) +
                   (sig.regChannelMask & 0x4 ? 1 : 0) + (sig.regChannelMask & 0x8 ? 1 : 0);
@@ -240,7 +254,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
     if(included)
     {
       // in UAV structs, arrays are packed tightly, so just multiply by arrayLength
-      structureStride += 4 * numCols * RDCMAX(1, arrayLength);
+      fetcher.stride += 4 * numCols * RDCMAX(1, arrayLength);
     }
 
     // as another side effect of the above, an element declared as a 1-length array won't be
@@ -283,12 +297,16 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
     }
 
     rdcstr inputName = "input_" + name;
-    psInputDefinition += ToStr((uint32_t)numCols) + " " + inputName;
+    fetcher.hlsl += ToStr((uint32_t)numCols) + " " + inputName;
     if(arrayLength > 0)
-      psInputDefinition += "[" + ToStr(arrayLength) + "]";
-    psInputDefinition += " : " + name;
-    if(sig.systemValue != ShaderBuiltin::Undefined)
-      usedInputs[sig.systemValue] = inputName;
+      fetcher.hlsl += "[" + ToStr(arrayLength) + "]";
+    fetcher.hlsl += " : " + name;
+    // DXIL does not allow redeclaring SV_ variables, any that we might need which could already be
+    // in PSInput must be obtained from there and not redeclared in our entry point
+    if(sig.systemValue == ShaderBuiltin::Position)
+      defines += "#define POSITION_VAR " + inputName + "\n";
+    else if(sig.systemValue == ShaderBuiltin::PrimitiveIndex)
+      defines += "#define PRIM_VAR " + inputName + "\n";
 
     inputVarNames[i] = inputName;
     if(arrayLength > 0)
@@ -307,7 +325,7 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
       }
     }
 
-    psInputDefinition += ";\n";
+    fetcher.hlsl += ";\n";
 
     int firstElem = sig.regChannelMask & 0x1   ? 0
                     : sig.regChannelMask & 0x2 ? 1
@@ -323,21 +341,303 @@ void GatherPSInputDataForInitialValues(const rdcarray<SigParameter> &stageInputS
     {
       if(arrayLength == 0)
       {
-        initialValues.push_back(
+        fetcher.inputs.push_back(
             PSInputElement(sig.regIndex, firstElem, byteSize / 4, sig.systemValue, included));
       }
       else
       {
         for(int a = 0; a < arrayLength; a++)
         {
-          initialValues.push_back(
+          fetcher.inputs.push_back(
               PSInputElement(sig.regIndex + a, firstElem, byteSize / 4, sig.systemValue, included));
         }
       }
     }
   }
 
-  psInputDefinition += "};\n\n";
+  fetcher.hlsl += "};\n\n" + defines;
+}
+
+void CreatePSInputFetcher(const DXBC::DXBCContainer *dxbc, const DXBC::DXBCContainer *prevdxbc,
+                          const PSInputFetcherConfig &cfg, PSInputFetcher &fetcher)
+{
+  // If the pipe contains a geometry/mesh shader, then SV_PrimitiveID cannot be used in the pixel
+  // shader without being emitted from the geometry shader. For now, check if this semantic
+  // will succeed in a new pixel shader with the rest of the pipe unchanged
+  bool usePrimitiveID = ((prevdxbc->m_Type != DXBC::ShaderType::Geometry) &&
+                         (prevdxbc->m_Type != DXBC::ShaderType::Mesh));
+
+  rdcarray<rdcstr> floatInputs;
+  rdcarray<rdcstr> inputVarNames;
+  DXDebug::GatherPSInputDataForInitialValues(dxbc, prevdxbc, fetcher, floatInputs, inputVarNames);
+
+  for(const PSInputElement &e : fetcher.inputs)
+  {
+    if(e.sysattribute == ShaderBuiltin::PrimitiveIndex)
+    {
+      usePrimitiveID = true;
+      break;
+    }
+  }
+
+  fetcher.hlsl += StringFormat::Fmt(
+      "#define DESTX %u.5\n"
+      "#define DESTY %u.5\n"
+      "#define USEPRIM %u\n"
+      "#define MAXHIT %u\n",
+      cfg.x, cfg.y, usePrimitiveID ? 1 : 0, DXDebug::maxPixelHits);
+
+  if(cfg.uavspace == 0)
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define HITBUFFER u%u\n"
+        "#define EVALCACHEBUFFER u%u\n",
+        cfg.uavslot, cfg.uavslot + 1);
+  else
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define HITBUFFER u%u, space%u\n"
+        "#define EVALCACHEBUFFER u%u, space%u\n",
+        cfg.uavslot, cfg.uavspace, cfg.uavslot + 1, cfg.uavspace);
+
+  fetcher.hlsl += "\n";
+
+  fetcher.hlsl += GetEmbeddedResource(quadswizzle_hlsl);
+
+  fetcher.hlsl += R"(
+struct LaneData
+{
+  float4 pixelPos;
+
+  uint isHelper;
+  uint quadId;
+  uint quadLane;
+  uint coverage;
+
+  PSInput IN;
+};
+
+struct PixelDebugHit
+{
+  // only used in the first instance
+  uint numHits;
+  float3 pos_depth; // xy position and depth
+
+  float derivValid;
+  uint primitive;
+  uint isFrontFace;
+  uint sample;
+
+  uint quadLaneIndex;
+  uint3 pad;
+
+  // input values
+  LaneData quad[4];
+};
+
+RWStructuredBuffer<PixelDebugHit> HitBuffer : register(HITBUFFER);
+
+// float4 is wasteful in some cases but it's easier than using ByteAddressBuffer and manual
+// packing
+RWBuffer<float4> EvalCacheBuffer : register(EVALCACHEBUFFER);
+
+void ExtractInputsPS(PSInput IN,
+#ifndef POSITION_VAR
+                     float4 debug_pixelPos : SV_Position,
+#endif
+#if USEPRIM && !defined(PRIM_VAR)
+                     uint primitive : SV_PrimitiveID,
+#endif
+                     // sample, coverage and isFrontFace are deliberately omittted from the
+                     // IN struct for SV_ ordering reasons
+                     uint sample : SV_SampleIndex,
+                     uint coverage : SV_Coverage,
+                     bool isFrontFace : SV_IsFrontFace)
+{
+#ifdef POSITION_VAR
+  float4 debug_pixelPos = IN.POSITION_VAR;
+#endif
+
+#if USEPRIM && defined(PRIM_VAR)
+  uint primitive = IN.PRIM_VAR;
+#elif !USEPRIM
+  uint primitive = 0;
+#endif
+
+  const uint quadLaneIndex = (2u * (uint(debug_pixelPos.y) & 1u)) + (uint(debug_pixelPos.x) & 1u);
+
+  // grab our output slot
+  uint idx = MAXHIT;
+  if(abs(debug_pixelPos.x - DESTX) < 0.5f && abs(debug_pixelPos.y - DESTY) < 0.5f)
+    InterlockedAdd(HitBuffer[0].numHits, 1, idx);
+  idx = min(idx, MAXHIT);
+
+  HitBuffer[idx].pos_depth = debug_pixelPos.xyz;
+
+  HitBuffer[idx].derivValid = ddx(debug_pixelPos.x);
+
+  HitBuffer[idx].primitive = primitive;
+
+  HitBuffer[idx].isFrontFace = isFrontFace;
+  HitBuffer[idx].sample = sample;
+
+  HitBuffer[idx].quadLaneIndex = quadLaneIndex;
+
+  // quad pixelPos will be set with other derivatives for float inputs
+
+  // for the simple quad case, only the desired thread is considered non-helper
+  HitBuffer[idx].quad[0].isHelper = 1u;
+  HitBuffer[idx].quad[1].isHelper = 1u;
+  HitBuffer[idx].quad[2].isHelper = 1u;
+  HitBuffer[idx].quad[3].isHelper = 1u;
+  HitBuffer[idx].quad[quadLaneIndex].isHelper = 0u;
+
+  // quadId is a single value that's unique for this quad and uniform across the quad. Degenerate
+  // for the simple quad case
+  uint quadId = quadSwizzleHelper(quadLaneIndex, quadLaneIndex, 0u);
+  HitBuffer[idx].quad[0].quadId = quadId;
+  HitBuffer[idx].quad[1].quadId = quadId;
+  HitBuffer[idx].quad[2].quadId = quadId;
+  HitBuffer[idx].quad[3].quadId = quadId;
+
+  // per-quad lane identifier, degenerate for the simple quad case
+  HitBuffer[idx].quad[0].quadLane = 0;
+  HitBuffer[idx].quad[1].quadLane = 1;
+  HitBuffer[idx].quad[2].quadLane = 2;
+  HitBuffer[idx].quad[3].quadLane = 3;
+
+  // coverage is handled with pixelPos as it can vary per-thread
+
+  // start off with just copying all the inputs to all the quad. For float inputs or uints that may
+  // vary across the quad we will quadSwizzle them
+  HitBuffer[idx].quad[0].IN = IN;
+  HitBuffer[idx].quad[1].IN = IN;
+  HitBuffer[idx].quad[2].IN = IN;
+  HitBuffer[idx].quad[3].IN = IN;
+)";
+
+  for(int q = 0; q < 4; q++)
+  {
+    fetcher.hlsl += StringFormat::Fmt(
+        "  HitBuffer[idx].quad[%i].pixelPos = "
+        "quadSwizzleHelper(debug_pixelPos, quadLaneIndex, %i);\n",
+        q, q);
+    fetcher.hlsl += StringFormat::Fmt(
+        "  HitBuffer[idx].quad[%i].coverage = "
+        "quadSwizzleHelper(coverage, quadLaneIndex, %i);\n",
+        q, q);
+  }
+
+  for(size_t i = 0; i < floatInputs.size(); i++)
+  {
+    const rdcstr &name = floatInputs[i];
+    for(int q = 0; q < 4; q++)
+    {
+      fetcher.hlsl += StringFormat::Fmt(
+          "  HitBuffer[idx].quad[%i].IN.%s = quadSwizzleHelper(IN.%s, quadLaneIndex, %i);\n", q,
+          name.c_str(), name.c_str(), q);
+    }
+  }
+
+  // if we're not rendering at MSAA, no need to fill the cache because evaluates will all return the
+  // plain input anyway.
+  if(cfg.outputSampleCount > 1)
+  {
+    if(dxbc->GetDXBCByteCode())
+    {
+      dxbc->GetDXBCByteCode()->CalculateEvalSampleCache(cfg, fetcher);
+    }
+    else
+    {
+      RDCWARN("TODO DXIL Pixel Shader Debugging support for MSAA Evaluate");
+    }
+  }
+
+  if(!fetcher.evalSampleCacheData.empty())
+  {
+    fetcher.hlsl += StringFormat::Fmt("  uint stride = %zu;\n", fetcher.evalSampleCacheData.size());
+    fetcher.hlsl += StringFormat::Fmt("  uint evalIdx = idx * stride * 4;\n");
+    fetcher.hlsl += StringFormat::Fmt("  float4 evalCacheVal;\n");
+
+    uint32_t evalIdx = 0;
+    for(const SampleEvalCacheKey &key : fetcher.evalSampleCacheData)
+    {
+      uint32_t keyMask = 0;
+
+      for(int32_t i = 0; i < key.numComponents; i++)
+        keyMask |= (1 << (key.firstComponent + i));
+
+      // find the name of the variable matching the operand, in the case of merged input variables.
+      rdcstr name, swizzle = "xyzw";
+      for(size_t i = 0; i < dxbc->GetReflection()->InputSig.size(); i++)
+      {
+        if(dxbc->GetReflection()->InputSig[i].regIndex == (uint32_t)key.inputRegisterIndex &&
+           dxbc->GetReflection()->InputSig[i].systemValue == ShaderBuiltin::Undefined &&
+           (dxbc->GetReflection()->InputSig[i].regChannelMask & keyMask) == keyMask)
+        {
+          name = inputVarNames[i];
+
+          if(!name.empty())
+            break;
+        }
+      }
+
+      swizzle.resize(key.numComponents);
+
+      if(name.empty())
+      {
+        RDCERR("Couldn't find matching input variable for v%d [%d:%d]", key.inputRegisterIndex,
+               key.firstComponent, key.numComponents);
+        fetcher.hlsl += StringFormat::Fmt("  EvalCacheBuffer[evalIdx+stride*0+%u] = 0;\n", evalIdx);
+        fetcher.hlsl += StringFormat::Fmt("  EvalCacheBuffer[evalIdx+stride*1+%u] = 0;\n", evalIdx);
+        fetcher.hlsl += StringFormat::Fmt("  EvalCacheBuffer[evalIdx+stride*2+%u] = 0;\n", evalIdx);
+        fetcher.hlsl += StringFormat::Fmt("  EvalCacheBuffer[evalIdx+stride*3+%u] = 0;\n", evalIdx);
+        evalIdx++;
+        continue;
+      }
+
+      name = StringFormat::Fmt("IN.%s.%s", name.c_str(), swizzle.c_str());
+
+      // we must write all components, so just swizzle the values - they'll be ignored later.
+      rdcstr expandSwizzle = swizzle;
+      while(expandSwizzle.size() < 4)
+        expandSwizzle.push_back('x');
+
+      if(key.sample >= 0)
+      {
+        fetcher.hlsl +=
+            StringFormat::Fmt("  evalCacheVal = EvaluateAttributeAtSample(%s, %d).%s;\n",
+                              name.c_str(), key.sample, expandSwizzle.c_str());
+      }
+      else
+      {
+        // we don't need to special-case EvaluateAttributeAtCentroid, since it's just a case with
+        // 0,0
+        fetcher.hlsl +=
+            StringFormat::Fmt("  evalCacheVal = EvaluateAttributeSnapped(%s, int2(%d, %d)).%s;\n",
+                              name.c_str(), key.offsetx, key.offsety, expandSwizzle.c_str());
+      }
+
+      fetcher.hlsl += StringFormat::Fmt(
+          "  EvalCacheBuffer[evalIdx+stride*0+%u] = "
+          "quadSwizzleHelper(evalCacheVal, quadLaneIndex, 0);\n",
+          evalIdx);
+      fetcher.hlsl += StringFormat::Fmt(
+          "  EvalCacheBuffer[evalIdx+stride*1+%u] = "
+          "quadSwizzleHelper(evalCacheVal, quadLaneIndex, 1);\n",
+          evalIdx);
+      fetcher.hlsl += StringFormat::Fmt(
+          "  EvalCacheBuffer[evalIdx+stride*2+%u] = "
+          "quadSwizzleHelper(evalCacheVal, quadLaneIndex, 2);\n",
+          evalIdx);
+      fetcher.hlsl += StringFormat::Fmt(
+          "  EvalCacheBuffer[evalIdx+stride*3+%u] = "
+          "quadSwizzleHelper(evalCacheVal, quadLaneIndex, 3);\n",
+          evalIdx);
+
+      evalIdx++;
+    }
+  }
+
+  fetcher.hlsl += "\n}\n";
 }
 
 // "NaN has special handling. If one source operand is NaN, then the other source operand is

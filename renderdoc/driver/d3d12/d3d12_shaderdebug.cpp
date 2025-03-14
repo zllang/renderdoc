@@ -44,19 +44,6 @@ RDOC_EXTERN_CONFIG(bool, D3D_Hack_EnableGroups);
 
 using namespace DXBCBytecode;
 
-struct DebugHit
-{
-  uint32_t numHits;
-  float posx;
-  float posy;
-  float depth;
-  uint32_t primitive;
-  uint32_t isFrontFace;
-  uint32_t sample;
-  uint32_t coverage;
-  uint32_t rawdata;    // arbitrary, depending on shader
-};
-
 static bool IsShaderParameterVisible(DXBC::ShaderType shaderType,
                                      D3D12_SHADER_VISIBILITY shaderVisibility)
 {
@@ -1645,9 +1632,6 @@ void GatherConstantBuffers(WrappedID3D12Device *pDevice, const DXBCBytecode::Pro
 ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, uint32_t instid,
                                            uint32_t idx, uint32_t view)
 {
-  using namespace DXBCBytecode;
-  using namespace DXBCDebug;
-
   D3D12MarkerRegion region(
       m_pDevice->GetQueue()->GetReal(),
       StringFormat::Fmt("DebugVertex @ %u of (%u,%u,%u)", eventId, vertid, instid, idx));
@@ -1759,11 +1743,11 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
   ShaderDebugTrace *ret = NULL;
   if(dxbc->GetDXBCByteCode())
   {
-    InterpretDebugger *interpreter = new InterpretDebugger;
+    DXBCDebug::InterpretDebugger *interpreter = new DXBCDebug::InterpretDebugger;
     interpreter->eventId = eventId;
     ret = interpreter->BeginDebug(dxbc, refl, 0);
-    GlobalState &global = interpreter->global;
-    ThreadState &state = interpreter->activeLane();
+    DXBCDebug::GlobalState &global = interpreter->global;
+    DXBCDebug::ThreadState &state = interpreter->activeLane();
 
     // Fetch constant buffer data from root signature
     GatherConstantBuffers(m_pDevice, *dxbc->GetDXBCByteCode(), rs.graphics, refl, global,
@@ -2287,10 +2271,6 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
 ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t y,
                                           const DebugPixelInputs &inputs)
 {
-  using namespace DXBC;
-  using namespace DXBCBytecode;
-  using namespace DXBCDebug;
-
   uint32_t sample = inputs.sample;
   uint32_t primitive = inputs.primitive;
 
@@ -2316,7 +2296,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     return new ShaderDebugTrace;
   }
 
-  DXBCContainer *dxbc = ps->GetDXBC();
+  DXBC::DXBCContainer *dxbc = ps->GetDXBC();
   const ShaderReflection &refl = ps->GetDetails();
 
   if(!dxbc)
@@ -2336,7 +2316,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   ShaderDebugTrace *ret = NULL;
 
   // Fetch the previous stage's disassembly, to match outputs to PS inputs
-  DXBCContainer *prevDxbc = NULL;
+  DXBC::DXBCContainer *prevDxbc = NULL;
   // Check for geometry shader first
   {
     WrappedID3D12Shader *gs = (WrappedID3D12Shader *)pso->graphics->GS.pShaderBytecode;
@@ -2365,166 +2345,6 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       prevDxbc = vs->GetDXBC();
   }
 
-  rdcarray<PSInputElement> initialValues;
-  rdcarray<rdcstr> floatInputs;
-  rdcarray<rdcstr> inputVarNames;
-  rdcstr extractHlsl;
-  int structureStride = 0;
-
-  rdcarray<DXBC::InterpolationMode> interpModes;
-  const rdcarray<SigParameter> &inputSig = dxbc->GetReflection()->InputSig;
-  if(dxbc->GetDXBCByteCode())
-    DXBCDebug::GetInterpolationModeForInputParams(inputSig, dxbc->GetDXBCByteCode(), interpModes);
-  else
-    DXILDebug::GetInterpolationModeForInputParams(inputSig, dxbc->GetDXILByteCode(), interpModes);
-
-  std::map<ShaderBuiltin, rdcstr> usedInputs;    // only used for DXIL
-  DXDebug::GatherPSInputDataForInitialValues(inputSig, prevDxbc->GetReflection()->OutputSig,
-                                             interpModes, initialValues, floatInputs, inputVarNames,
-                                             extractHlsl, structureStride, usedInputs);
-
-  uint32_t overdrawLevels = 100;    // maximum number of overdraw levels
-
-  // If the pipe contains a mesh/geometry shader, then SV_PrimitiveID cannot be used in the pixel
-  // shader without being emitted from the mesh/geometry shader. For now, check if this semantic
-  // will succeed in a new pixel shader with the rest of the pipe unchanged
-  bool usePrimitiveID =
-      ((prevDxbc->m_Type != ShaderType::Geometry) && (prevDxbc->m_Type != ShaderType::Mesh));
-  for(const PSInputElement &e : initialValues)
-  {
-    if(e.sysattribute == ShaderBuiltin::PrimitiveIndex)
-    {
-      usePrimitiveID = true;
-      break;
-    }
-  }
-
-  // Store a copy of the event's render state to restore later
-  D3D12RenderState prevState = rs;
-
-  // Fetch the multisample count from the PSO
-  WrappedID3D12PipelineState *origPSO =
-      m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12PipelineState>(rs.pipe);
-
-  D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC pipeDesc;
-  origPSO->Fill(pipeDesc);
-  uint32_t outputSampleCount = RDCMAX(1U, pipeDesc.SampleDesc.Count);
-
-  std::set<GlobalState::SampleEvalCacheKey> evalSampleCacheData;
-  uint64_t sampleEvalRegisterMask = 0;
-
-  // if we're not rendering at MSAA, no need to fill the cache because evaluates will all return the
-  // plain input anyway.
-  if(outputSampleCount > 1)
-  {
-    if(dxbc->GetDXBCByteCode())
-    {
-      // scan the instructions to see if it contains any evaluates.
-      size_t numInstructions = dxbc->GetDXBCByteCode()->GetNumInstructions();
-      for(size_t i = 0; i < numInstructions; ++i)
-      {
-        const Operation &op = dxbc->GetDXBCByteCode()->GetInstruction(i);
-
-        // skip any non-eval opcodes
-        if(op.operation != OPCODE_EVAL_CENTROID && op.operation != OPCODE_EVAL_SAMPLE_INDEX &&
-           op.operation != OPCODE_EVAL_SNAPPED)
-          continue;
-
-        // the generation of this key must match what we'll generate in the corresponding lookup
-        GlobalState::SampleEvalCacheKey key;
-
-        // all the eval opcodes have rDst, vIn as the first two operands
-        key.inputRegisterIndex = (int32_t)op.operands[1].indices[0].index;
-
-        for(int c = 0; c < 4; c++)
-        {
-          if(op.operands[0].comps[c] == 0xff)
-            break;
-
-          key.numComponents = c + 1;
-        }
-
-        key.firstComponent = op.operands[1].comps[op.operands[0].comps[0]];
-
-        sampleEvalRegisterMask |= 1ULL << key.inputRegisterIndex;
-
-        if(op.operation == OPCODE_EVAL_CENTROID)
-        {
-          // nothing to do - default key is centroid, sample is -1 and offset x/y is 0
-          evalSampleCacheData.insert(key);
-        }
-        else if(op.operation == OPCODE_EVAL_SAMPLE_INDEX)
-        {
-          if(op.operands[2].type == TYPE_IMMEDIATE32 || op.operands[2].type == TYPE_IMMEDIATE64)
-          {
-            // hooray, only sampling a single index, just add this key
-            key.sample = (int32_t)op.operands[2].values[0];
-
-            evalSampleCacheData.insert(key);
-          }
-          else
-          {
-            // parameter is a register and we don't know which sample will be needed, fetch them
-            // all. In most cases this will be a loop over them all, so they'll all be needed anyway
-            for(uint32_t c = 0; c < outputSampleCount; c++)
-            {
-              key.sample = (int32_t)c;
-              evalSampleCacheData.insert(key);
-            }
-          }
-        }
-        else if(op.operation == OPCODE_EVAL_SNAPPED)
-        {
-          if(op.operands[2].type == TYPE_IMMEDIATE32 || op.operands[2].type == TYPE_IMMEDIATE64)
-          {
-            // hooray, only sampling a single offset, just add this key
-            key.offsetx = (int32_t)op.operands[2].values[0];
-            key.offsety = (int32_t)op.operands[2].values[1];
-
-            evalSampleCacheData.insert(key);
-          }
-          else
-          {
-            m_pDevice->AddDebugMessage(
-                MessageCategory::Shaders, MessageSeverity::Medium, MessageSource::RuntimeWarning,
-                "EvaluateAttributeSnapped called with dynamic parameter, caching all possible "
-                "evaluations which could have performance impact.");
-
-            for(key.offsetx = -8; key.offsetx <= 7; key.offsetx++)
-              for(key.offsety = -8; key.offsety <= 7; key.offsety++)
-                evalSampleCacheData.insert(key);
-          }
-        }
-      }
-    }
-    else
-    {
-      RDCWARN("TODO DXIL Pixel Shader Debugging support for MSAA Evaluate");
-    }
-  }
-
-  extractHlsl += R"(
-struct PSInitialData
-{
-  // metadata we need ourselves
-  uint hit;
-  float3 pos;
-  uint prim;
-  uint fface;
-  uint sample;
-  uint covge;
-  float derivValid;
-
-  // input values
-  PSInput IN;
-  PSInput INddx;
-  PSInput INddy;
-  PSInput INddxfine;
-  PSInput INddyfine;
-};
-
-)";
-
   WrappedID3D12RootSignature *sig =
       m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12RootSignature>(rs.graphics.rootsig);
 
@@ -2532,157 +2352,30 @@ struct PSInitialData
   RDCASSERT(sig->sig.dwordLength < 64);
   D3D12RootSignature modsig = sig->sig;
 
-  UINT regSpace = GetFreeRegSpace(modsig, 0, D3D12DescriptorType::UAV, D3D12_SHADER_VISIBILITY_PIXEL);
+  DXDebug::PSInputFetcherConfig cfg;
+  DXDebug::PSInputFetcher fetcher;
 
-  // If this event uses MSAA, then at least one render target must be preserved to get multisampling
-  // info. leave u0 alone and start with register u1
-  extractHlsl += StringFormat::Fmt(
-      "RWStructuredBuffer<PSInitialData> PSInitialBuffer : register(u1, space%u);\n\n", regSpace);
+  D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC pipeDesc;
+  m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12PipelineState>(rs.pipe)->Fill(pipeDesc);
 
-  if(!evalSampleCacheData.empty())
-  {
-    // float4 is wasteful in some cases but it's easier than using byte buffers and manual packing
-    extractHlsl +=
-        StringFormat::Fmt("RWBuffer<float4> PSEvalBuffer : register(u2, space%u);\n\n", regSpace);
-  }
+  // Store a copy of the event's render state to restore later
+  D3D12RenderState prevState = rs;
 
-  // The semantics that RenderDoc requires in the shader
-  bool inputHas_SV_Position = false;
-  bool inputHas_SV_PrimitiveID = false;
-  // SV_Coverage, SV_IsFrontFace, SV_SampleIndex : are not in the input structure, see
-  // GatherPSInputDataForInitialValues
-  bool inputHas_SV_Coverage = false;
-  bool inputHas_SV_IsFrontFace = false;
-  bool inputHas_SV_SampleIndex = false;
+  cfg.x = x;
+  cfg.y = y;
+  cfg.uavslot = 1;
+  cfg.uavspace = GetFreeRegSpace(modsig, 0, D3D12DescriptorType::UAV, D3D12_SHADER_VISIBILITY_PIXEL);
+  cfg.outputSampleCount = RDCMAX(1U, pipeDesc.SampleDesc.Count);
 
-  // DXC compiler errors if a semantic input is declared in multiple places
-  if(dxbc->GetDXILByteCode())
-  {
-    inputHas_SV_Position = usedInputs.count(ShaderBuiltin::Position) > 0;
-    inputHas_SV_PrimitiveID = usedInputs.count(ShaderBuiltin::PrimitiveIndex) > 0;
-  }
-
-  extractHlsl += "void ExtractInputsPS(PSInput IN";
-  if(!inputHas_SV_Position)
-    extractHlsl += ", float4 debug_pixelPos : SV_Position";
-  if(usePrimitiveID && !inputHas_SV_PrimitiveID)
-    extractHlsl += ", uint prim : SV_PrimitiveID";
-  if(!inputHas_SV_SampleIndex)
-    extractHlsl += ", uint sample : SV_SampleIndex";
-  if(!inputHas_SV_Coverage)
-    extractHlsl += ", uint covge : SV_Coverage";
-  if(!inputHas_SV_IsFrontFace)
-    extractHlsl += ", bool fface : SV_IsFrontFace";
-
-  extractHlsl += ")\n{\n";
-
-  // Only used for DXIL shaders: copy any SV inputs we need from the input structure
-  if(inputHas_SV_Position)
-    extractHlsl += "  float4 debug_pixelPos = IN." + usedInputs[ShaderBuiltin::Position] + ";\n";
-  if(usePrimitiveID && inputHas_SV_PrimitiveID)
-    extractHlsl += "  uint prim = IN." + usedInputs[ShaderBuiltin::PrimitiveIndex] + ";\n";
-
-  extractHlsl += "  uint idx = " + ToStr(overdrawLevels) + ";\n";
-  extractHlsl += StringFormat::Fmt(
-      "  if(abs(debug_pixelPos.x - %u.5) < 0.5f && abs(debug_pixelPos.y - %u.5) < 0.5f)\n", x, y);
-  extractHlsl += "    InterlockedAdd(PSInitialBuffer[0].hit, 1, idx);\n\n";
-  extractHlsl += "  idx = min(idx, " + ToStr(overdrawLevels) + ");\n\n";
-  extractHlsl += "  PSInitialBuffer[idx].pos = debug_pixelPos.xyz;\n";
-
-  if(usePrimitiveID)
-    extractHlsl += "  PSInitialBuffer[idx].prim = prim;\n";
-  else
-    extractHlsl += "  PSInitialBuffer[idx].prim = 0;\n";
-
-  extractHlsl += "  PSInitialBuffer[idx].fface = fface;\n";
-  extractHlsl += "  PSInitialBuffer[idx].covge = covge;\n";
-  extractHlsl += "  PSInitialBuffer[idx].sample = sample;\n";
-  extractHlsl += "  PSInitialBuffer[idx].IN = IN;\n";
-  extractHlsl += "  PSInitialBuffer[idx].derivValid = ddx(debug_pixelPos.x);\n";
-  extractHlsl += "  PSInitialBuffer[idx].INddx = (PSInput)0;\n";
-  extractHlsl += "  PSInitialBuffer[idx].INddy = (PSInput)0;\n";
-  extractHlsl += "  PSInitialBuffer[idx].INddxfine = (PSInput)0;\n";
-  extractHlsl += "  PSInitialBuffer[idx].INddyfine = (PSInput)0;\n";
-
-  if(!evalSampleCacheData.empty())
-  {
-    extractHlsl += StringFormat::Fmt("  uint evalIndex = idx * %zu;\n", evalSampleCacheData.size());
-
-    uint32_t evalIdx = 0;
-    for(const GlobalState::SampleEvalCacheKey &key : evalSampleCacheData)
-    {
-      uint32_t keyMask = 0;
-
-      for(int32_t i = 0; i < key.numComponents; i++)
-        keyMask |= (1 << (key.firstComponent + i));
-
-      // find the name of the variable matching the operand, in the case of merged input variables.
-      rdcstr name, swizzle = "xyzw";
-      for(size_t i = 0; i < dxbc->GetReflection()->InputSig.size(); i++)
-      {
-        if(dxbc->GetReflection()->InputSig[i].regIndex == (uint32_t)key.inputRegisterIndex &&
-           dxbc->GetReflection()->InputSig[i].systemValue == ShaderBuiltin::Undefined &&
-           (dxbc->GetReflection()->InputSig[i].regChannelMask & keyMask) == keyMask)
-        {
-          name = inputVarNames[i];
-
-          if(!name.empty())
-            break;
-        }
-      }
-
-      swizzle.resize(key.numComponents);
-
-      if(name.empty())
-      {
-        RDCERR("Couldn't find matching input variable for v%d [%d:%d]", key.inputRegisterIndex,
-               key.firstComponent, key.numComponents);
-        extractHlsl += StringFormat::Fmt("  PSEvalBuffer[evalIndex+%u] = 0;\n", evalIdx);
-        evalIdx++;
-        continue;
-      }
-
-      name = StringFormat::Fmt("IN.%s.%s", name.c_str(), swizzle.c_str());
-
-      // we must write all components, so just swizzle the values - they'll be ignored later.
-      rdcstr expandSwizzle = swizzle;
-      while(expandSwizzle.size() < 4)
-        expandSwizzle.push_back('x');
-
-      if(key.sample >= 0)
-      {
-        extractHlsl += StringFormat::Fmt(
-            "  PSEvalBuffer[evalIndex+%u] = EvaluateAttributeAtSample(%s, %d).%s;\n", evalIdx,
-            name.c_str(), key.sample, expandSwizzle.c_str());
-      }
-      else
-      {
-        // we don't need to special-case EvaluateAttributeAtCentroid, since it's just a case with 0,0
-        extractHlsl += StringFormat::Fmt(
-            "  PSEvalBuffer[evalIndex+%u] = EvaluateAttributeSnapped(%s, int2(%d, %d)).%s;\n",
-            evalIdx, name.c_str(), key.offsetx, key.offsety, expandSwizzle.c_str());
-      }
-      evalIdx++;
-    }
-  }
-
-  for(size_t i = 0; i < floatInputs.size(); i++)
-  {
-    const rdcstr &name = floatInputs[i];
-    extractHlsl += "  PSInitialBuffer[idx].INddx." + name + " = ddx(IN." + name + ");\n";
-    extractHlsl += "  PSInitialBuffer[idx].INddy." + name + " = ddy(IN." + name + ");\n";
-    extractHlsl += "  PSInitialBuffer[idx].INddxfine." + name + " = ddx_fine(IN." + name + ");\n";
-    extractHlsl += "  PSInitialBuffer[idx].INddyfine." + name + " = ddy_fine(IN." + name + ");\n";
-  }
-  extractHlsl += "\n}";
+  DXDebug::CreatePSInputFetcher(dxbc, prevDxbc, cfg, fetcher);
 
   // Create pixel shader to get initial values from previous stage output
   ID3DBlob *psBlob = NULL;
   UINT flags = D3DCOMPILE_WARNINGS_ARE_ERRORS;
   if(dxbc->GetDXBCByteCode())
   {
-    if(m_pDevice->GetShaderCache()->GetShaderBlob(extractHlsl.c_str(), "ExtractInputsPS", flags, {},
-                                                  "ps_5_1", &psBlob) != "")
+    if(m_pDevice->GetShaderCache()->GetShaderBlob(fetcher.hlsl.c_str(), "ExtractInputsPS", flags,
+                                                  {}, "ps_5_1", &psBlob) != "")
     {
       RDCERR("Failed to create shader to extract inputs");
       return new ShaderDebugTrace;
@@ -2704,11 +2397,11 @@ struct PSInitialData
     ShaderCompileFlags compileFlags =
         DXBC::EncodeFlags(m_pDevice->GetShaderCache()->GetCompileFlags(), profile);
 
-    const GlobalShaderFlags shaderFlags = dxbc->GetGlobalShaderFlags();
-    if(shaderFlags & GlobalShaderFlags::NativeLowPrecision)
+    const DXBC::GlobalShaderFlags shaderFlags = dxbc->GetGlobalShaderFlags();
+    if(shaderFlags & DXBC::GlobalShaderFlags::NativeLowPrecision)
       compileFlags.flags.push_back({"@compile_option", "-enable-16bit-types"});
 
-    if(m_pDevice->GetShaderCache()->GetShaderBlob(extractHlsl.c_str(), "ExtractInputsPS",
+    if(m_pDevice->GetShaderCache()->GetShaderBlob(fetcher.hlsl.c_str(), "ExtractInputsPS",
                                                   compileFlags, {}, profile, &psBlob) != "")
     {
       RDCERR("Failed to create shader to extract inputs");
@@ -2716,15 +2409,8 @@ struct PSInitialData
     }
   }
 
-  uint32_t structStride = sizeof(uint32_t)       // uint hit;
-                          + sizeof(float) * 3    // float3 pos;
-                          + sizeof(uint32_t)     // uint prim;
-                          + sizeof(uint32_t)     // uint fface;
-                          + sizeof(uint32_t)     // uint sample;
-                          + sizeof(uint32_t)     // uint covge;
-                          + sizeof(float)        // float derivValid;
-                          +
-                          structureStride * 5;    // PSInput IN, INddx, INddy, INddxfine, INddyfine;
+  uint32_t structStride =
+      sizeof(DXDebug::PixelDebugHit) + 4 * (sizeof(DXDebug::LaneData) + fetcher.stride);
 
   HRESULT hr = S_OK;
 
@@ -2732,7 +2418,7 @@ struct PSInitialData
   D3D12_RESOURCE_DESC rdesc;
   ZeroMemory(&rdesc, sizeof(D3D12_RESOURCE_DESC));
   rdesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-  rdesc.Width = structStride * (overdrawLevels + 1);
+  rdesc.Width = structStride * (DXDebug::maxPixelHits + 1);
   rdesc.Height = 1;
   rdesc.DepthOrArraySize = 1;
   rdesc.MipLevels = 1;
@@ -2763,9 +2449,10 @@ struct PSInitialData
 
   // Create buffer to store MSAA evaluations captured in pixel shader
   ID3D12Resource *pMsaaEvalBuffer = NULL;
-  if(!evalSampleCacheData.empty())
+  if(!fetcher.evalSampleCacheData.empty())
   {
-    rdesc.Width = UINT(evalSampleCacheData.size() * sizeof(Vec4f) * (overdrawLevels + 1));
+    rdesc.Width =
+        UINT(fetcher.evalSampleCacheData.size() * sizeof(Vec4f) * (DXDebug::maxPixelHits + 1));
     hr = m_pDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &rdesc, resourceState,
                                             NULL, __uuidof(ID3D12Resource),
                                             (void **)&pMsaaEvalBuffer);
@@ -2784,7 +2471,7 @@ struct PSInitialData
   ZeroMemory(&uavDesc, sizeof(D3D12_UNORDERED_ACCESS_VIEW_DESC));
   uavDesc.Format = DXGI_FORMAT_UNKNOWN;
   uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-  uavDesc.Buffer.NumElements = overdrawLevels + 1;
+  uavDesc.Buffer.NumElements = DXDebug::maxPixelHits + 1;
   uavDesc.Buffer.StructureByteStride = structStride;
 
   D3D12_CPU_DESCRIPTOR_HANDLE uav = m_pDevice->GetDebugManager()->GetCPUHandle(SHADER_DEBUG_UAV);
@@ -2792,7 +2479,7 @@ struct PSInitialData
 
   uavDesc.Format = DXGI_FORMAT_R32_UINT;
   uavDesc.Buffer.FirstElement = 0;
-  uavDesc.Buffer.NumElements = structStride * (overdrawLevels + 1) / sizeof(uint32_t);
+  uavDesc.Buffer.NumElements = structStride * (DXDebug::maxPixelHits + 1) / sizeof(uint32_t);
   uavDesc.Buffer.StructureByteStride = 0;
   D3D12_CPU_DESCRIPTOR_HANDLE clearUav =
       m_pDevice->GetDebugManager()->GetUAVClearHandle(SHADER_DEBUG_UAV);
@@ -2806,12 +2493,13 @@ struct PSInitialData
     D3D12_CPU_DESCRIPTOR_HANDLE msaaUav =
         m_pDevice->GetDebugManager()->GetCPUHandle(SHADER_DEBUG_MSAA_UAV);
     uavDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    uavDesc.Buffer.NumElements = (overdrawLevels + 1) * (uint32_t)evalSampleCacheData.size();
+    uavDesc.Buffer.NumElements =
+        (DXDebug::maxPixelHits + 1) * (uint32_t)fetcher.evalSampleCacheData.size();
     m_pDevice->CreateUnorderedAccessView(pMsaaEvalBuffer, NULL, &uavDesc, msaaUav);
 
     uavDesc.Format = DXGI_FORMAT_R32_UINT;
     uavDesc.Buffer.NumElements =
-        (UINT)evalSampleCacheData.size() * (overdrawLevels + 1) / sizeof(uint32_t);
+        (UINT)fetcher.evalSampleCacheData.size() * (DXDebug::maxPixelHits + 1) / sizeof(uint32_t);
     m_pDevice->CreateUnorderedAccessView(pMsaaEvalBuffer, NULL, &uavDesc, msaaClearUav);
   }
 
@@ -2820,7 +2508,7 @@ struct PSInitialData
   descRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
   descRange.NumDescriptors = pMsaaEvalBuffer ? 2 : 1;
   descRange.BaseShaderRegister = 1;
-  descRange.RegisterSpace = regSpace;
+  descRange.RegisterSpace = cfg.uavspace;
   descRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
   descRange.OffsetInDescriptorsFromTableStart = 0;
 
@@ -2958,7 +2646,7 @@ struct PSInitialData
   SAFE_RELEASE(pMsaaEvalBuffer);
   SAFE_RELEASE(initialPso);
 
-  DebugHit *buf = (DebugHit *)initialData.data();
+  DXDebug::PixelDebugHit *buf = (DXDebug::PixelDebugHit *)initialData.data();
 
   D3D12MarkerRegion::Set(m_pDevice->GetQueue()->GetReal(),
                          StringFormat::Fmt("Got %u hits", buf[0].numHits));
@@ -2974,46 +2662,41 @@ struct PSInitialData
   // depth test and debug that, just by checking if the depth test is ordered and picking the final
   // fragment in the series
 
-  // figure out the TL pixel's coords. Assume even top left (towards 0,0)
-  // this isn't spec'd but is a reasonable assumption.
-  int xTL = x & (~1);
-  int yTL = y & (~1);
-
-  // get the index of our desired pixel
-  int destIdx = (x - xTL) + 2 * (y - yTL);
-
   // Get depth func and determine "winner" pixel
-  DebugHit *pWinnerHit = NULL;
+  DXDebug::PixelDebugHit *pWinnerHit = NULL;
   float *evalSampleCache = (float *)evalData.data();
+  size_t winnerIdx = 0;
 
   if(sample == ~0U)
     sample = 0;
 
   if(primitive != ~0U)
   {
-    for(size_t i = 0; i < buf[0].numHits && i < overdrawLevels; i++)
+    for(size_t i = 0; i < buf[0].numHits && i < DXDebug::maxPixelHits; i++)
     {
-      DebugHit *pHit = (DebugHit *)(initialData.data() + i * structStride);
+      DXDebug::PixelDebugHit *pHit =
+          (DXDebug::PixelDebugHit *)(initialData.data() + i * structStride);
 
       if(pHit->primitive == primitive && pHit->sample == sample)
       {
         pWinnerHit = pHit;
-        evalSampleCache = ((float *)evalData.data() + evalSampleCacheData.size() * 4 * i);
+        winnerIdx = i;
       }
     }
   }
 
   if(pWinnerHit == NULL)
   {
-    for(size_t i = 0; i < buf[0].numHits && i < overdrawLevels; i++)
+    for(size_t i = 0; i < buf[0].numHits && i < DXDebug::maxPixelHits; i++)
     {
-      DebugHit *pHit = (DebugHit *)(initialData.data() + i * structStride);
+      DXDebug::PixelDebugHit *pHit =
+          (DXDebug::PixelDebugHit *)(initialData.data() + i * structStride);
 
       if(pWinnerHit == NULL)
       {
         // If we haven't picked a winner at all yet, use the first one
         pWinnerHit = pHit;
-        evalSampleCache = ((float *)evalData.data()) + evalSampleCacheData.size() * 4 * i;
+        winnerIdx = i;
       }
       else if(pHit->sample == sample)
       {
@@ -3022,7 +2705,7 @@ struct PSInitialData
         {
           // The previously selected winner was for the wrong sample, use this one
           pWinnerHit = pHit;
-          evalSampleCache = ((float *)evalData.data()) + evalSampleCacheData.size() * 4 * i;
+          winnerIdx = i;
         }
         else if(depthFunc == D3D12_COMPARISON_FUNC_EQUAL && existingDepth >= 0.0f)
         {
@@ -3030,7 +2713,7 @@ struct PSInitialData
           if(fabs(pHit->depth - existingDepth) < fabs(pWinnerHit->depth - existingDepth))
           {
             pWinnerHit = pHit;
-            evalSampleCache = ((float *)evalData.data()) + evalSampleCacheData.size() * 4 * i;
+            winnerIdx = i;
           }
         }
         else if(depthFunc == D3D12_COMPARISON_FUNC_ALWAYS ||
@@ -3039,7 +2722,7 @@ struct PSInitialData
         {
           // For depth functions without a sensible comparison, use the last sample encountered
           pWinnerHit = pHit;
-          evalSampleCache = ((float *)evalData.data()) + evalSampleCacheData.size() * 4 * i;
+          winnerIdx = i;
         }
         else if((depthFunc == D3D12_COMPARISON_FUNC_LESS && pHit->depth < pWinnerHit->depth) ||
                 (depthFunc == D3D12_COMPARISON_FUNC_LESS_EQUAL && pHit->depth <= pWinnerHit->depth) ||
@@ -3048,11 +2731,14 @@ struct PSInitialData
         {
           // For depth functions with an inequality, find the hit that "wins" the most
           pWinnerHit = pHit;
-          evalSampleCache = ((float *)evalData.data()) + evalSampleCacheData.size() * 4 * i;
+          winnerIdx = i;
         }
       }
     }
   }
+
+  evalSampleCache =
+      (float *)(evalData.data() + fetcher.evalSampleCacheData.size() * sizeof(Vec4f) * 4 * winnerIdx);
 
   if(pWinnerHit == NULL)
   {
@@ -3060,91 +2746,90 @@ struct PSInitialData
     return new ShaderDebugTrace;
   }
 
-  DebugHit *pHit = pWinnerHit;
-  uint32_t *data = &pHit->rawdata;
-  float *pos_ddx = (float *)data;
+  DXDebug::PixelDebugHit *hit = pWinnerHit;
 
   // ddx(SV_Position.x) MUST be 1.0
-  if(*pos_ddx != 1.0f)
+  if(hit->derivValid != 1.0f)
   {
     RDCERR("Derivatives invalid");
     delete ret;
     return new ShaderDebugTrace;
   }
-  data++;
+
+  byte *data = (byte *)(hit + 1);
 
   if(dxbc->GetDXBCByteCode())
   {
-    InterpretDebugger *interpreter = new InterpretDebugger;
+    DXBCDebug::InterpretDebugger *interpreter = new DXBCDebug::InterpretDebugger;
     interpreter->eventId = eventId;
-    ret = interpreter->BeginDebug(dxbc, refl, destIdx);
-    GlobalState &global = interpreter->global;
-    ThreadState &state = interpreter->activeLane();
+    ret = interpreter->BeginDebug(dxbc, refl, hit->quadLaneIndex);
+    DXBCDebug::GlobalState &global = interpreter->global;
 
     // Fetch constant buffer data from root signature
     GatherConstantBuffers(m_pDevice, *dxbc->GetDXBCByteCode(), rs.graphics, refl, global,
                           ret->sourceVars);
 
-    global.sampleEvalRegisterMask = sampleEvalRegisterMask;
+    global.sampleEvalRegisterMask = fetcher.sampleEvalRegisterMask;
 
+    for(uint32_t q = 0; q < 4; q++)
     {
+      DXDebug::LaneData *lane = (DXDebug::LaneData *)data;
+
+      DXBCDebug::ThreadState &state = interpreter->workgroup[q];
       rdcarray<ShaderVariable> &ins = state.inputs;
-      if(!ins.empty() && ins.back().name == "vCoverage")
-        ins.back().value.u32v[0] = pHit->coverage;
 
-      state.semantics.coverage = pHit->coverage;
-      state.semantics.primID = pHit->primitive;
-      state.semantics.isFrontFace = pHit->isFrontFace;
+      if(q != hit->quadLaneIndex)
+        ins = interpreter->workgroup[hit->quadLaneIndex].inputs;
 
-      for(size_t i = 0; i < initialValues.size(); i++)
+      state.semantics.coverage = lane->coverage;
+      state.semantics.primID = hit->primitive;
+      state.semantics.isFrontFace = hit->isFrontFace;
+
+      if(!ins.empty() && ins.back().name == dxbc->GetDXBCByteCode()->GetRegisterName(
+                                                DXBCBytecode::TYPE_INPUT_COVERAGE_MASK, 0))
+        ins.back().value.u32v[0] = lane->coverage;
+
+      if(lane->isHelper)
+        state.SetHelper();
+
+      data += sizeof(DXDebug::LaneData);
+
+      for(size_t i = 0; i < fetcher.inputs.size(); i++)
       {
-        int32_t *rawout = NULL;
-
-        if(initialValues[i].reg >= 0)
+        if(fetcher.inputs[i].reg >= 0)
         {
-          ShaderVariable &invar = ins[initialValues[i].reg];
+          ShaderVariable &invar = ins[fetcher.inputs[i].reg];
 
-          if(initialValues[i].sysattribute == ShaderBuiltin::PrimitiveIndex)
+          if(fetcher.inputs[i].sysattribute == ShaderBuiltin::PrimitiveIndex)
           {
-            invar.value.u32v[initialValues[i].elem] = pHit->primitive;
+            invar.value.u32v[fetcher.inputs[i].elem] = hit->primitive;
           }
-          else if(initialValues[i].sysattribute == ShaderBuiltin::MSAASampleIndex)
+          else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::MSAASampleIndex)
           {
-            invar.value.u32v[initialValues[i].elem] = pHit->sample;
+            invar.value.u32v[fetcher.inputs[i].elem] = hit->sample;
           }
-          else if(initialValues[i].sysattribute == ShaderBuiltin::MSAACoverage)
+          else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::MSAACoverage)
           {
-            invar.value.u32v[initialValues[i].elem] = pHit->coverage;
+            invar.value.u32v[fetcher.inputs[i].elem] = lane->coverage;
           }
-          else if(initialValues[i].sysattribute == ShaderBuiltin::IsFrontFace)
+          else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::IsFrontFace)
           {
-            invar.value.u32v[initialValues[i].elem] = pHit->isFrontFace ? ~0U : 0;
+            invar.value.u32v[fetcher.inputs[i].elem] = hit->isFrontFace ? ~0U : 0;
           }
           else
           {
-            rawout = &invar.value.s32v[initialValues[i].elem];
+            int32_t *rawout = &invar.value.s32v[fetcher.inputs[i].elem];
 
-            memcpy(rawout, data, initialValues[i].numwords * 4);
+            memcpy(rawout, data, fetcher.inputs[i].numwords * 4);
           }
         }
 
-        if(initialValues[i].included)
-          data += initialValues[i].numwords;
+        if(fetcher.inputs[i].included)
+          data += fetcher.inputs[i].numwords * sizeof(uint32_t);
       }
 
-      for(int i = 0; i < 4; i++)
-      {
-        if(i != destIdx)
-        {
-          interpreter->workgroup[i].inputs = state.inputs;
-          interpreter->workgroup[i].semantics = state.semantics;
-          interpreter->workgroup[i].variables = state.variables;
-          interpreter->workgroup[i].SetHelper();
-        }
-      }
-
-      // Fetch any inputs that were evaluated at sample granularity
-      for(const GlobalState::SampleEvalCacheKey &key : evalSampleCacheData)
+      // fetch any inputs that were evaluated at sample granularity
+      for(const DXDebug::SampleEvalCacheKey &key : fetcher.evalSampleCacheData)
       {
         // start with the basic input value
         ShaderVariable var = state.inputs[key.inputRegisterIndex];
@@ -3152,33 +2837,25 @@ struct PSInitialData
         // copy over the value into the variable
         memcpy(var.value.f32v.data(), evalSampleCache, var.columns * sizeof(float));
 
-        // store in the global cache for each quad. We'll apply derivatives below to adjust for each
-        GlobalState::SampleEvalCacheKey k = key;
-        for(int i = 0; i < 4; i++)
-        {
-          k.quadIndex = i;
-          global.sampleEvalCache[k] = var;
-        }
+        // store in the global cache for this thread
+        DXDebug::SampleEvalCacheKey k = key;
+        k.quadIndex = q;
+        global.sampleEvalCache[k] = var;
 
         // advance past this data - always by float4 as that's the buffer stride
         evalSampleCache += 4;
       }
-
-      ApplyAllDerivatives(global, interpreter->workgroup, destIdx, initialValues, (float *)data);
     }
 
+    ret->inputs = interpreter->activeLane().inputs;
     ret->constantBlocks = global.constantBlocks;
-    ret->inputs = state.inputs;
   }
   else
   {
     DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
-    uint32_t activeLaneIdx = destIdx;
-    ret = debugger->BeginDebug(eventId, dxbc, refl, activeLaneIdx);
+    ret = debugger->BeginDebug(eventId, dxbc, refl, hit->quadLaneIndex);
 
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
-    DXILDebug::ThreadState &activeState = debugger->GetActiveLane();
-    rdcarray<ShaderVariable> &ins = activeState.m_Input.members;
     const rdcarray<DXIL::EntryPointInterface::Signature> &dxilInputs =
         debugger->GetDXILEntryPointInputs();
 
@@ -3186,52 +2863,60 @@ struct PSInitialData
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.graphics, refl,
                                        globalState, ret->sourceVars);
 
-    // TODO: SAMPLE EVALUTE MASK
-    // globalState.sampleEvalRegisterMask = sampleEvalRegisterMask;
-
-    // The initial values are packed into register and elements
-    // DXIL Inputs are not packed and contain the register and element linkage
-    rdcarray<DXILDebug::PSInputData> psInputDatas;
-    for(int i = 0; i < initialValues.count(); i++)
+    for(uint32_t q = 0; q < 4; q++)
     {
-      PSInputElement &inputElement = initialValues[i];
-      int packedRegister = inputElement.reg;
-      if(packedRegister >= 0)
-      {
-        int dxilInputIdx = -1;
-        int dxilArrayIdx = 0;
-        int packedElement = inputElement.elem;
-        int row = packedRegister;
-        // Find the DXIL Input index and element from that matches the register and element
-        for(int j = 0; j < dxilInputs.count(); ++j)
-        {
-          const DXIL::EntryPointInterface::Signature &dxilParam = dxilInputs[j];
-          if((dxilParam.startRow <= row) && (row < (int)(dxilParam.startRow + dxilParam.rows)) &&
-             (dxilParam.startCol == packedElement))
-          {
-            dxilInputIdx = j;
-            dxilArrayIdx = row - dxilParam.startRow;
-            break;
-          }
-        }
-        RDCASSERT(dxilInputIdx >= 0);
-        RDCASSERT(dxilArrayIdx >= 0);
+      DXDebug::LaneData *lane = (DXDebug::LaneData *)data;
 
-        psInputDatas.emplace_back(dxilInputIdx, dxilArrayIdx, inputElement.numwords,
-                                  inputElement.sysattribute, inputElement.included, data);
+      DXILDebug::ThreadState &state = debugger->GetWorkgroup(q);
+      rdcarray<ShaderVariable> &ins = state.m_Input.members;
+
+      if(q != hit->quadLaneIndex)
+        state.InitialiseHelper(debugger->GetActiveLane());
+
+      data += sizeof(DXDebug::LaneData);
+
+      // TODO: SAMPLE EVALUTE MASK
+      // globalState.sampleEvalRegisterMask = sampleEvalRegisterMask;
+
+      // The initial values are packed into register and elements
+      // DXIL Inputs are not packed and contain the register and element linkage
+      rdcarray<DXILDebug::PSInputData> psInputDatas;
+      for(int i = 0; i < fetcher.inputs.count(); i++)
+      {
+        DXDebug::PSInputElement &inputElement = fetcher.inputs[i];
+        int packedRegister = inputElement.reg;
+        if(packedRegister >= 0)
+        {
+          int dxilInputIdx = -1;
+          int dxilArrayIdx = 0;
+          int packedElement = inputElement.elem;
+          int row = packedRegister;
+          // Find the DXIL Input index and element from that matches the register and element
+          for(int j = 0; j < dxilInputs.count(); ++j)
+          {
+            const DXIL::EntryPointInterface::Signature &dxilParam = dxilInputs[j];
+            if((dxilParam.startRow <= row) && (row < (int)(dxilParam.startRow + dxilParam.rows)) &&
+               (dxilParam.startCol == packedElement))
+            {
+              dxilInputIdx = j;
+              dxilArrayIdx = row - dxilParam.startRow;
+              break;
+            }
+          }
+          RDCASSERT(dxilInputIdx >= 0);
+          RDCASSERT(dxilArrayIdx >= 0);
+
+          psInputDatas.emplace_back(dxilInputIdx, dxilArrayIdx, inputElement.numwords,
+                                    inputElement.sysattribute, inputElement.included, data);
+        }
+
+        if(inputElement.included)
+          data += inputElement.numwords * sizeof(uint32_t);
       }
 
-      if(inputElement.included)
-        data += inputElement.numwords;
-    }
-
-    {
-      if(!ins.empty() && ins.back().name == "vCoverage")
-        ins.back().value.u32v[0] = pHit->coverage;
-
-      activeState.m_Semantics.coverage = pHit->coverage;
-      activeState.m_Semantics.primID = pHit->primitive;
-      activeState.m_Semantics.isFrontFace = pHit->isFrontFace;
+      state.m_Semantics.coverage = lane->coverage;
+      state.m_Semantics.primID = hit->primitive;
+      state.m_Semantics.isFrontFace = hit->isFrontFace;
 
       for(const DXILDebug::PSInputData &psInput : psInputDatas)
       {
@@ -3242,19 +2927,19 @@ struct PSInitialData
 
         if(psInput.sysattribute == ShaderBuiltin::PrimitiveIndex)
         {
-          invar.value.u32v[outElement] = pHit->primitive;
+          invar.value.u32v[outElement] = hit->primitive;
         }
         else if(psInput.sysattribute == ShaderBuiltin::MSAASampleIndex)
         {
-          invar.value.u32v[outElement] = pHit->sample;
+          invar.value.u32v[outElement] = hit->sample;
         }
         else if(psInput.sysattribute == ShaderBuiltin::MSAACoverage)
         {
-          invar.value.u32v[outElement] = pHit->coverage;
+          invar.value.u32v[outElement] = lane->coverage;
         }
         else if(psInput.sysattribute == ShaderBuiltin::IsFrontFace)
         {
-          invar.value.u32v[outElement] = pHit->isFrontFace ? ~0U : 0;
+          invar.value.u32v[outElement] = hit->isFrontFace ? ~0U : 0;
         }
         else
         {
@@ -3266,20 +2951,10 @@ struct PSInitialData
           memcpy(rawout, psInput.data, psInput.numwords * 4);
         }
       }
-    }
 
-    for(int i = 0; i < 4; i++)
-    {
-      if(i != destIdx)
-      {
-        DXILDebug::ThreadState &workgroup = debugger->GetWorkgroup(i);
-        workgroup.InitialiseHelper(activeState);
-      }
-    }
-
-    // TODO: UPDATE INPUTS FROM SAMPLE CACHE
+      // TODO: UPDATE INPUTS FROM SAMPLE CACHE
 #if 0
-      for(const GlobalState::SampleEvalCacheKey &key : evalSampleCacheData)
+      for(const DXDebug::SampleEvalCacheKey &key : fetcher.evalSampleCacheData)
       {
         // start with the basic input value
         ShaderVariable var = activeState.m_Input.members[key.inputRegisterIndex];
@@ -3288,7 +2963,7 @@ struct PSInitialData
         memcpy(var.value.f32v.data(), evalSampleCache, var.columns * sizeof(float));
 
         // store in the global cache for each quad. We'll apply derivatives below to adjust for each
-        GlobalState::SampleEvalCacheKey k = key;
+        DXDebug::SampleEvalCacheKey k = key;
         for(int i = 0; i < 4; i++)
         {
           k.quadIndex = i;
@@ -3299,10 +2974,9 @@ struct PSInitialData
         evalSampleCache += 4;
       }
 #endif
-    DXILDebug::ApplyAllDerivatives(globalState, debugger->GetWorkgroups(), destIdx, psInputDatas,
-                                   (float *)data);
+    }
 
-    ret->inputs = {activeState.m_Input};
+    ret->inputs = {debugger->GetActiveLane().m_Input};
     ret->constantBlocks = globalState.constantBlocks;
   }
 
@@ -3315,9 +2989,6 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
                                            const rdcfixedarray<uint32_t, 3> &groupid,
                                            const rdcfixedarray<uint32_t, 3> &threadid)
 {
-  using namespace DXBCBytecode;
-  using namespace DXBCDebug;
-
   D3D12MarkerRegion simloop(
       m_pDevice->GetQueue()->GetReal(),
       StringFormat::Fmt("DebugThread @ %u: [%u, %u, %u] (%u, %u, %u)", eventId, groupid[0],
@@ -3373,11 +3044,11 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
             threadid[2] * refl.dispatchThreadsDimension[0] * refl.dispatchThreadsDimension[1];
     }
 
-    InterpretDebugger *interpreter = new InterpretDebugger;
+    DXBCDebug::InterpretDebugger *interpreter = new DXBCDebug::InterpretDebugger;
     interpreter->eventId = eventId;
     ret = interpreter->BeginDebug(dxbc, refl, activeIndex);
-    GlobalState &global = interpreter->global;
-    ThreadState &state = interpreter->activeLane();
+    DXBCDebug::GlobalState &global = interpreter->global;
+    DXBCDebug::ThreadState &state = interpreter->activeLane();
 
     GatherConstantBuffers(m_pDevice, *dxbc->GetDXBCByteCode(), rs.compute, refl, global,
                           ret->sourceVars);

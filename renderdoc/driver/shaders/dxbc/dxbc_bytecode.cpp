@@ -68,6 +68,90 @@ Program::Program(const rdcarray<uint32_t> &words)
   m_Minor = VersionToken::MinorVersion.Get(cur[0]);
 }
 
+void Program::CalculateEvalSampleCache(const DXDebug::PSInputFetcherConfig &cfg,
+                                       DXDebug::PSInputFetcher &fetcher) const
+{
+  // scan the instructions to see if it contains any evaluates.
+  for(size_t i = 0; i < GetNumInstructions(); i++)
+  {
+    const Operation &op = GetInstruction(i);
+
+    // skip any non-eval opcodes
+    if(op.operation != OPCODE_EVAL_CENTROID && op.operation != OPCODE_EVAL_SAMPLE_INDEX &&
+       op.operation != OPCODE_EVAL_SNAPPED)
+      continue;
+
+    // the generation of this key must match what we'll generate in the corresponding lookup
+    DXDebug::SampleEvalCacheKey key;
+
+    // all the eval opcodes have rDst, vIn as the first two operands
+    key.inputRegisterIndex = (int32_t)op.operands[1].indices[0].index;
+
+    for(int c = 0; c < 4; c++)
+    {
+      if(op.operands[0].comps[c] == 0xff)
+        break;
+
+      key.numComponents = c + 1;
+    }
+
+    key.firstComponent = op.operands[1].comps[op.operands[0].comps[0]];
+
+    fetcher.sampleEvalRegisterMask |= 1ULL << key.inputRegisterIndex;
+
+    if(op.operation == OPCODE_EVAL_CENTROID)
+    {
+      // nothing to do - default key is centroid, sample is -1 and offset x/y is 0
+      if(!fetcher.evalSampleCacheData.contains(key))
+        fetcher.evalSampleCacheData.push_back(key);
+    }
+    else if(op.operation == OPCODE_EVAL_SAMPLE_INDEX)
+    {
+      if(op.operands[2].type == TYPE_IMMEDIATE32 || op.operands[2].type == TYPE_IMMEDIATE64)
+      {
+        // hooray, only sampling a single index, just add this key
+        key.sample = (int32_t)op.operands[2].values[0];
+
+        if(!fetcher.evalSampleCacheData.contains(key))
+          fetcher.evalSampleCacheData.push_back(key);
+      }
+      else
+      {
+        // parameter is a register and we don't know which sample will be needed, fetch them
+        // all. In most cases this will be a loop over them all, so they'll all be needed anyway
+        for(uint32_t c = 0; c < cfg.outputSampleCount; c++)
+        {
+          key.sample = (int32_t)c;
+          fetcher.evalSampleCacheData.push_back(key);
+        }
+      }
+    }
+    else if(op.operation == OPCODE_EVAL_SNAPPED)
+    {
+      if(op.operands[2].type == TYPE_IMMEDIATE32 || op.operands[2].type == TYPE_IMMEDIATE64)
+      {
+        // hooray, only sampling a single offset, just add this key
+        key.offsetx = (int32_t)op.operands[2].values[0];
+        key.offsety = (int32_t)op.operands[2].values[1];
+
+        if(!fetcher.evalSampleCacheData.contains(key))
+          fetcher.evalSampleCacheData.push_back(key);
+      }
+      else
+      {
+        RDCWARN(
+            "EvaluateAttributeSnapped called with dynamic parameter, caching all possible "
+            "evaluations which could have performance impact.");
+
+        for(key.offsetx = -8; key.offsetx <= 7; key.offsetx++)
+          for(key.offsety = -8; key.offsety <= 7; key.offsety++)
+            if(!fetcher.evalSampleCacheData.contains(key))
+              fetcher.evalSampleCacheData.push_back(key);
+      }
+    }
+  }
+}
+
 void HandleResourceArrayIndices(const rdcarray<DXBCBytecode::RegIndex> &indices,
                                 DXBC::ShaderInputBind &desc)
 {
