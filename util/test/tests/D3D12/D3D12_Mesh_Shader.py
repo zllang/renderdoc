@@ -32,16 +32,16 @@ class D3D12_Mesh_Shader(rdtest.TestCase):
                 posY = orgY
 
                 if vert == 0:
-                    posX += -0.2
-                    posY += -0.2
+                    posX += -triSize
+                    posY += -triSize
                     uv = [0.0, 0.0]
                 elif vert == 1:
                     posX += 0.0
-                    posY += 0.2
+                    posY += triSize
                     uv = [0.0, 1.0]
                 elif vert == 2:
-                    posX += 0.2
-                    posY += -0.2
+                    posX += triSize
+                    posY += -triSize
                     uv = [1.0, 0.0]
 
                 reference[i] = {
