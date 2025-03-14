@@ -132,6 +132,7 @@ set(VULKAN_SRC
         vk/vk_load_store_none.cpp
         vk/vk_mem_bench.cpp
         vk/vk_mesh_zoo.cpp
+        vk/vk_mesh_shader.cpp
         vk/vk_misaligned_dirty.cpp
         vk/vk_multi_entry.cpp
         vk/vk_multi_present.cpp

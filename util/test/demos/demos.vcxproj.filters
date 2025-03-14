@@ -703,6 +703,9 @@
     <ClCompile Include="vk\vk_groupshared.cpp">
       <Filter>Vulkan\demos</Filter>
     </ClCompile>
+    <ClCompile Include="vk\vk_mesh_shader.cpp">
+      <Filter>Vulkan\demos</Filter>
+    </ClCompile>
     <ClCompile Include="d3d12\d3d12_groupshared.cpp">
       <Filter>D3D12\demos</Filter>
     </ClCompile>

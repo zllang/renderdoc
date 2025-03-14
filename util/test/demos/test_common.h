@@ -78,7 +78,9 @@ enum class ShaderStage
   tesseval,
   geom,
   frag,
-  comp
+  comp,
+  mesh,
+  task,
 };
 
 bool InternalSpvCompiler();
