@@ -2333,11 +2333,13 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                     ShaderVariable arg;
                     RDCASSERT(GetShaderVariable(inst.args[resIndexArgId], opCode, dxOpCode, arg));
                     uint32_t arrayIndex = arg.value.u32v[0];
+                    RDCASSERT(arrayIndex >= resRef->resourceBase.regBase);
+                    arrayIndex -= resRef->resourceBase.regBase;
                     bool isSRV = (resRef->resourceBase.resClass == ResourceClass::SRV);
                     DescriptorCategory category = isSRV ? DescriptorCategory::ReadOnlyResource
                                                         : DescriptorCategory::ReadWriteResource;
                     result.SetBindIndex(ShaderBindIndex(category, resRef->resourceIndex, arrayIndex));
-                    result.name = baseResource;
+                    result.name = resRef->resourceBase.name + StringFormat::Fmt("[%u]", arrayIndex);
                     result.type = isSRV ? VarType::ReadOnlyResource : VarType::ReadWriteResource;
                     // Default to unannotated handle
                     ClearAnnotatedHandle(result);
@@ -6120,7 +6122,6 @@ ResourceReferenceInfo ThreadState::GetResource(Id handleId, bool &annotatedHandl
       const ResourceReference *resRef = m_Program.GetResourceReference(handleId);
       if(resRef)
       {
-        alias = m_Program.GetHandleAlias(resRef->handleID);
         resRefInfo.Create(resRef, bindIndex.arrayElement);
       }
       else
