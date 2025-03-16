@@ -2201,6 +2201,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           {
             // AnnotateHandle(res,props)
             rdcstr baseResource = GetArgumentName(1);
+            Id baseResourceId = GetSSAId(inst.args[1]);
 
             ShaderVariable resource;
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, resource));
@@ -2210,7 +2211,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               resName = m_Program.GetHandleAlias(result.name);
               // Update m_DirectHeapAccessBindings for the annotated handle
               // to use the data from the source resource
-              Id baseResourceId = GetSSAId(inst.args[1]);
               RDCASSERT(m_DirectHeapAccessBindings.count(baseResourceId) > 0);
               RDCASSERT(m_DirectHeapAccessBindings.count(resultId) == 0);
               m_DirectHeapAccessBindings[resultId] = m_DirectHeapAccessBindings.at(baseResourceId);
@@ -2264,6 +2264,20 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               uint32_t byteWidth = GetElementByteSize(compType);
               structStride = compCount * byteWidth;
             }
+            else if(resKind == ResourceKind::CBuffer)
+            {
+              // Create the cbuffer handle reference for the annotated handle
+              auto it = m_ConstantBlockHandles.find(baseResourceId);
+              if(it != m_ConstantBlockHandles.end())
+              {
+                m_ConstantBlockHandles[resultId] = it->second;
+              }
+              else
+              {
+                RDCERR("Annotated handle resName:%s %s has no cbuffer handle reference %u",
+                       resName.c_str(), baseResource.c_str(), baseResourceId);
+              }
+            }
             // Store the annotate properties for the result
             auto it = m_AnnotatedProperties.find(resultId);
             if(it == m_AnnotatedProperties.end())
@@ -2310,13 +2324,16 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               };
               RDCASSERT(list);
 
-              rdcstr resName = m_Program.GetHandleAlias(baseResource);
+              rdcstr resName = Debugger::GetResourceBaseName(&m_Program, resRef);
+
               const rdcarray<ShaderVariable> &resources = *list;
               result.name.clear();
+              size_t constantBlockIndex = ~0U;
               for(uint32_t i = 0; i < resources.size(); ++i)
               {
                 if(resources[i].name == resName)
                 {
+                  constantBlockIndex = i;
                   result = resources[i];
                   break;
                 }
@@ -2356,6 +2373,49 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                          ToStr(resRef->resourceBase.resClass).c_str());
                 }
               }
+              else
+              {
+                if(resRef->resourceBase.resClass == ResourceClass::CBuffer)
+                {
+                  uint32_t arrayIndex = 0;
+                  // Look up the correct cbuffer variable for cbuffer arrays
+                  if(resRef->resourceBase.regCount > 1)
+                  {
+                    if(resIndexArgId < inst.args.size())
+                    {
+                      ShaderVariable arg;
+                      RDCASSERT(GetShaderVariable(inst.args[resIndexArgId], opCode, dxOpCode, arg));
+                      arrayIndex = arg.value.u32v[0];
+                      RDCASSERT(arrayIndex >= resRef->resourceBase.regBase);
+                      if(arrayIndex >= resRef->resourceBase.regBase)
+                      {
+                        arrayIndex -= resRef->resourceBase.regBase;
+                        RDCASSERT(arrayIndex < result.members.size(), arrayIndex,
+                                  result.members.size());
+                        if(arrayIndex < result.members.size())
+                        {
+                          RDCASSERT(!result.members[arrayIndex].members.empty());
+                          if(!result.members[arrayIndex].members.empty())
+                          {
+                            rdcstr name =
+                                StringFormat::Fmt("%s_%u_%u", result.name.c_str(), arrayIndex, 0);
+                            result = result.members[arrayIndex].members[0];
+                            result.type = VarType::Float;
+                            result.name = name;
+                          }
+                        }
+                      }
+                    }
+                    else
+                    {
+                      RDCERR("Unhandled cbuffer handle %s with invalid resIndexArgId",
+                             resName.c_str(), resIndexArgId);
+                    }
+                  }
+                  // Create the cbuffer handle reference
+                  m_ConstantBlockHandles[resultId] = {constantBlockIndex, arrayIndex};
+                }
+              }
             }
             else
             {
@@ -2384,46 +2444,46 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             RDCASSERT(m_Live[handleId]);
             RDCASSERT(IsVariableAssigned(handleId));
-            const ShaderVariable &cbufferVar = itVar->second;
 
-            // Find the cbuffer index in the global state (matching by name)
-            uint32_t cbufferIndex = ~0U;
-            for(uint32_t i = 0; i < m_GlobalState.constantBlocks.size(); ++i)
-            {
-              if(m_GlobalState.constantBlocks[i].name == cbufferVar.name)
-              {
-                cbufferIndex = i;
-                break;
-              }
-            }
             result.value.u32v[0] = 0;
             result.value.u32v[1] = 0;
             result.value.u32v[2] = 0;
             result.value.u32v[3] = 0;
-            if(cbufferIndex != ~0U)
+            auto constantBlockRefIt = m_ConstantBlockHandles.find(handleId);
+            if(constantBlockRefIt != m_ConstantBlockHandles.end())
             {
-              const bytebuf &cbufferData = m_GlobalState.constantBlocksData[cbufferIndex];
-              const uint32_t bufferSize = (uint32_t)cbufferData.size();
-              const uint32_t maxIndex = AlignUp16(bufferSize) / 16;
-              RDCASSERTMSG("Out of bounds cbuffer load", regIndex < maxIndex, regIndex, maxIndex);
-              if(regIndex < maxIndex)
+              const ConstantBlockReference &constantBlockRef = constantBlockRefIt->second;
+              auto it = m_GlobalState.constantBlocksDatas.find(constantBlockRef);
+              if(it != m_GlobalState.constantBlocksDatas.end())
               {
-                const uint32_t dataOffset = regIndex * 16;
-                const uint32_t byteWidth = 4;
-                const byte *data = cbufferData.data() + dataOffset;
-                const uint32_t numComps = RDCMIN(4U, (bufferSize - dataOffset) / byteWidth);
-                GlobalState::ViewFmt cbufferFmt;
-                cbufferFmt.byteWidth = byteWidth;
-                cbufferFmt.numComps = numComps;
-                cbufferFmt.compType = CompType::Float;
-                cbufferFmt.stride = 16;
+                const bytebuf &cbufferData = it->second;
+                const uint32_t bufferSize = (uint32_t)cbufferData.size();
+                const uint32_t maxIndex = AlignUp16(bufferSize) / 16;
+                RDCASSERTMSG("Out of bounds cbuffer load", regIndex < maxIndex, regIndex, maxIndex);
+                if(regIndex < maxIndex)
+                {
+                  const uint32_t dataOffset = regIndex * 16;
+                  const uint32_t byteWidth = 4;
+                  const byte *data = cbufferData.data() + dataOffset;
+                  const uint32_t numComps = RDCMIN(4U, (bufferSize - dataOffset) / byteWidth);
+                  GlobalState::ViewFmt cbufferFmt;
+                  cbufferFmt.byteWidth = byteWidth;
+                  cbufferFmt.numComps = numComps;
+                  cbufferFmt.compType = CompType::Float;
+                  cbufferFmt.stride = 16;
 
-                result.value = TypedUAVLoad(cbufferFmt, data);
+                  result.value = TypedUAVLoad(cbufferFmt, data);
+                }
+              }
+              else
+              {
+                RDCERR("Failed to find data for constant block data for %s",
+                       itVar->second.name.c_str());
               }
             }
             else
             {
-              RDCERR("Failed to find data for cbuffer %s", cbufferVar.name.c_str());
+              RDCERR("Failed to find data for cbuffer %s", itVar->second.name.c_str());
             }
 
             // DXIL will create a vector of a single type with total size of 16-bytes
@@ -6327,6 +6387,22 @@ Debugger::DebugInfo::~DebugInfo()
 }
 
 // static helper function
+rdcstr Debugger::GetResourceBaseName(const DXIL::Program *program,
+                                     const DXIL::ResourceReference *resRef)
+{
+  rdcstr resName = program->GetHandleAlias(resRef->handleID);
+  // Special case for cbuffer arrays
+  if((resRef->resourceBase.resClass == ResourceClass::CBuffer) && (resRef->resourceBase.regCount > 1))
+  {
+    // Remove any array suffix that might have been appended to the resource name
+    int offs = resName.find('[');
+    if(offs > 0)
+      resName = resName.substr(0, offs);
+  }
+  return resName;
+}
+
+// static helper function
 rdcstr Debugger::GetResourceReferenceName(const DXIL::Program *program,
                                           DXIL::ResourceClass resClass, const BindingSlot &slot)
 {
@@ -6342,7 +6418,7 @@ rdcstr Debugger::GetResourceReferenceName(const DXIL::Program *program,
     if(resRef.resourceBase.regBase + resRef.resourceBase.regCount <= slot.shaderRegister)
       continue;
 
-    return program->GetHandleAlias(resRef.handleID);
+    return GetResourceBaseName(program, &resRef);
   }
   RDCERR("Failed to find DXIL %s Resource Space %d Register %d", ToStr(resClass).c_str(),
          slot.registerSpace, slot.shaderRegister);
@@ -7592,7 +7668,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   // The constant buffer data and details are filled in outside of this method
   size_t count = reflection.constantBlocks.size();
   m_GlobalState.constantBlocks.resize(count);
-  m_GlobalState.constantBlocksData.resize(count);
   for(uint32_t i = 0; i < count; i++)
   {
     m_GlobalState.constantBlocks[i].type = VarType::ConstantBlock;

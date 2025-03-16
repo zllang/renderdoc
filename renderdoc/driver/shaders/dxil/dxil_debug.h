@@ -152,6 +152,19 @@ struct ResourceReferenceInfo
   };
 };
 
+struct ConstantBlockReference
+{
+  size_t constantBlockIndex;
+  size_t arrayIndex;
+
+  bool operator<(const ConstantBlockReference &other) const
+  {
+    if(constantBlockIndex != other.constantBlockIndex)
+      return constantBlockIndex < other.constantBlockIndex;
+    return arrayIndex < other.arrayIndex;
+  }
+};
+
 class DebugAPIWrapper
 {
 public:
@@ -317,6 +330,8 @@ struct ThreadState
   std::map<Id, AnnotationProperties> m_AnnotatedProperties;
   // ResourceReferenceInfo for any direct heap access bindings created using createHandleFromHeap
   std::map<Id, ResourceReferenceInfo> m_DirectHeapAccessBindings;
+  // ConstantBlock information associated with a handle
+  std::map<Id, ConstantBlockReference> m_ConstantBlockHandles;
 
   const FunctionInfo *m_FunctionInfo = NULL;
   DXBC::ShaderType m_ShaderType;
@@ -415,7 +430,7 @@ struct GlobalState
 
   // allocated storage for opaque uniform blocks, does not change over the course of debugging
   rdcarray<ShaderVariable> constantBlocks;
-  rdcarray<bytebuf> constantBlocksData;
+  std::map<ConstantBlockReference, bytebuf> constantBlocksDatas;
 
   // resources may be read-write but the variable itself doesn't change
   rdcarray<ShaderVariable> readOnlyResources;
@@ -562,6 +577,8 @@ public:
   const rdcarray<bool> &GetLiveGlobals() { return m_LiveGlobals; }
   static rdcstr GetResourceReferenceName(const DXIL::Program *program, DXIL::ResourceClass resClass,
                                          const BindingSlot &slot);
+  static rdcstr GetResourceBaseName(const DXIL::Program *program,
+                                    const DXIL::ResourceReference *resRef);
   const DXIL::Program &GetProgram() const { return *m_Program; }
   uint32_t GetEventId() { return m_EventId; }
   const FunctionInfo *GetFunctionInfo(const DXIL::Function *function) const;

@@ -351,9 +351,10 @@ static void AddCBufferToGlobalState(const DXIL::Program *program, GlobalState &g
                                : global.constantBlocks[i].members;
       RDCASSERTMSG("Reassigning previously filled cbuffer", targetVars.empty());
 
-      global.constantBlocksData[i] = cbufData;
-      global.constantBlocks[i].name =
-          Debugger::GetResourceReferenceName(program, ResourceClass::CBuffer, slot);
+      ConstantBlockReference constantBlockRef = {i, arrayIndex};
+      global.constantBlocksDatas[constantBlockRef] = cbufData;
+      rdcstr resName = Debugger::GetResourceReferenceName(program, ResourceClass::CBuffer, slot);
+      global.constantBlocks[i].name = resName;
 
       SourceVariableMapping cbSourceMapping;
       cbSourceMapping.name = refl.constantBlocks[i].name;
