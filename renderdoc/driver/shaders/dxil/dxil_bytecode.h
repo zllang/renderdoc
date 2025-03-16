@@ -1561,12 +1561,15 @@ struct EntryPointInterface
   struct ResourceBase
   {
     ResourceBase(ResourceClass resourceClass, const Metadata *resourceBase);
+    // lowerBound -> upperBound : is inclusive i.e. 1 -> 1 for a single binding
     bool MatchesBinding(uint32_t lowerBound, uint32_t upperBound, uint32_t spaceID) const
     {
       if(space != spaceID)
         return false;
       if(regBase > lowerBound)
         return false;
+      if(upperBound == UINT_MAX)
+        return true;
       if(regBase + regCount <= upperBound)
         return false;
       return true;
