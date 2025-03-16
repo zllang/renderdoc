@@ -5427,19 +5427,24 @@ void Program::ParseReferences(const DXBC::Reflection *reflection)
                   m_ResourceByIdHandles[resultId] = m_ResourceByIdHandles.size();
                   m_ResourceReferences.push_back(resRef);
                   resName = resourceBase->name;
-                  uint32_t index = 0;
-                  if(getival<uint32_t>(inst.args[resIndexArgId], index))
+                  uint32_t arrayIndex = 0;
+                  if(getival<uint32_t>(inst.args[resIndexArgId], arrayIndex))
                   {
-                    if(index != resIndex)
+                    if(arrayIndex != resIndex)
                     {
                       if(resourceBase->regCount > 1)
-                        resName += StringFormat::Fmt("[%u]", index);
+                      {
+                        RDCASSERT(arrayIndex >= resourceBase->regBase);
+                        arrayIndex -= resourceBase->regBase;
+                        resName += StringFormat::Fmt("[%u]", arrayIndex);
+                      }
                     }
                   }
                   else
                   {
                     if(resourceBase->regCount > 1)
-                      resName += "[" + GetArgId(inst, resIndexArgId) + "]";
+                      resName += StringFormat::Fmt(
+                          "[%s - %u]", GetArgId(inst, resIndexArgId).c_str(), resourceBase->regBase);
                   }
                 }
                 if(!resName.isEmpty())
