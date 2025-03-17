@@ -1858,11 +1858,12 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     prevdxbc = vs->GetDXBC();
   RDCASSERT(prevdxbc);
 
-  DXDebug::PSInputFetcherConfig cfg;
-  DXDebug::PSInputFetcher fetcher;
+  DXDebug::InputFetcherConfig cfg;
+  DXDebug::InputFetcher fetcher;
 
   cfg.x = x;
   cfg.y = y;
+  cfg.maxWaveSize = 4;
 
   ID3D11DepthStencilView *depthView = NULL;
   ID3D11RenderTargetView *rtView = NULL;
@@ -1903,13 +1904,13 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     }
   }
 
-  DXDebug::CreatePSInputFetcher(dxbc, prevdxbc, cfg, fetcher);
+  DXDebug::CreateInputFetcher(dxbc, prevdxbc, cfg, fetcher);
 
   ID3D11PixelShader *extract =
-      m_pDevice->GetShaderCache()->MakePShader(fetcher.hlsl.c_str(), "ExtractInputsPS", "ps_5_0");
+      m_pDevice->GetShaderCache()->MakePShader(fetcher.hlsl.c_str(), "ExtractInputs", "ps_5_0");
 
-  uint32_t structStride =
-      sizeof(DXDebug::PixelDebugHit) + 4 * (sizeof(DXDebug::LaneData) + fetcher.stride);
+  uint32_t structStride = fetcher.hitBufferStride;
+  RDCASSERT(fetcher.laneDataBufferStride == 0);
 
   HRESULT hr = S_OK;
 
@@ -2078,7 +2079,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
   SAFE_RELEASE(extract);
 
-  DXDebug::PixelDebugHit *buf = (DXDebug::PixelDebugHit *)initialData.data();
+  DXDebug::DebugHit *buf = (DXDebug::DebugHit *)initialData.data();
 
   D3D11MarkerRegion::Set(StringFormat::Fmt("Got %u hits", buf[0].numHits));
 
@@ -2103,7 +2104,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     depthFunc = desc.DepthFunc;
   }
 
-  DXDebug::PixelDebugHit *winner = NULL;
+  DXDebug::DebugHit *winner = NULL;
   float *evalSampleCache = (float *)evalData.data();
   size_t winnerIdx = 0;
 
@@ -2114,7 +2115,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   {
     for(size_t i = 0; i < buf[0].numHits && i < DXDebug::maxPixelHits; i++)
     {
-      DXDebug::PixelDebugHit *hit = (DXDebug::PixelDebugHit *)(initialData.data() + i * structStride);
+      DXDebug::DebugHit *hit = (DXDebug::DebugHit *)(initialData.data() + i * structStride);
 
       if(hit->primitive == primitive && hit->sample == sample)
       {
@@ -2128,7 +2129,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   {
     for(size_t i = 0; i < buf[0].numHits && i < DXDebug::maxPixelHits; i++)
     {
-      DXDebug::PixelDebugHit *hit = (DXDebug::PixelDebugHit *)(initialData.data() + i * structStride);
+      DXDebug::DebugHit *hit = (DXDebug::DebugHit *)(initialData.data() + i * structStride);
 
       if(winner == NULL)
       {
@@ -2176,7 +2177,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
   tracker.State().ApplyState(m_pImmediateContext);
 
-  DXDebug::PixelDebugHit *hit = winner;
+  DXDebug::DebugHit *hit = winner;
 
   // ddx(SV_Position.x) MUST be 1.0
   if(hit->derivValid != 1.0f)
@@ -2199,7 +2200,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
   for(uint32_t q = 0; q < 4; q++)
   {
-    DXDebug::LaneData *lane = (DXDebug::LaneData *)data;
+    DXDebug::PSLaneData *lane = (DXDebug::PSLaneData *)data;
 
     DXBCDebug::ThreadState &state = interpreter->workgroup[q];
     rdcarray<ShaderVariable> &ins = state.inputs;
@@ -2218,7 +2219,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     if(lane->isHelper)
       state.SetHelper();
 
-    data += sizeof(DXDebug::LaneData);
+    data += sizeof(DXDebug::PSLaneData);
 
     for(size_t i = 0; i < fetcher.inputs.size(); i++)
     {

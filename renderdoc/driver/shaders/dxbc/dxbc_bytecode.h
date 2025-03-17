@@ -1117,8 +1117,8 @@ public:
   void FetchComputeProperties(DXBC::Reflection *reflection);
   DXBC::Reflection *GuessReflection();
 
-  void CalculateEvalSampleCache(const DXDebug::PSInputFetcherConfig &cfg,
-                                DXDebug::PSInputFetcher &fetcher) const;
+  void CalculateEvalSampleCache(const DXDebug::InputFetcherConfig &cfg,
+                                DXDebug::InputFetcher &fetcher) const;
 
   const rdcarray<uint32_t> &GetTokens() const { return m_ProgramWords; }
   rdcstr GetDebugStatus();

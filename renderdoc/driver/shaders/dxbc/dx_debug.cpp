@@ -32,14 +32,17 @@
 
 namespace DXDebug
 {
-void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
-                                       const DXBC::DXBCContainer *prevdxbc, PSInputFetcher &fetcher,
-                                       rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &inputVarNames)
+void GatherInputDataForInitialValues(const DXBC::DXBCContainer *dxbc, InputFetcher &fetcher,
+                                     const DXBC::DXBCContainer *prevdxbc,
+                                     rdcarray<rdcstr> &floatInputs, rdcarray<rdcstr> &nonfloatInputs,
+                                     rdcarray<rdcstr> &inputVarNames)
 {
   rdcarray<DXBC::InterpolationMode> interpModes;
 
   const rdcarray<SigParameter> &stageInputSig = dxbc->GetReflection()->InputSig;
-  const rdcarray<SigParameter> &prevStageOutputSig = prevdxbc->GetReflection()->OutputSig;
+  rdcarray<SigParameter> emptySig;
+  const rdcarray<SigParameter> &prevStageOutputSig =
+      prevdxbc ? prevdxbc->GetReflection()->OutputSig : emptySig;
 
   if(dxbc->GetDXBCByteCode())
     DXBCDebug::GetInterpolationModeForInputParams(stageInputSig, dxbc->GetDXBCByteCode(),
@@ -52,7 +55,7 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
   // input for the pixel that we are debugging, from whichever the previous shader stage was
   // configured in the pipeline. This function returns the input element definitions, other
   // associated data, the HLSL definition to use when gathering pixel shader initial values,
-  // and the stride of that HLSL structure.
+  // and the laneDataBufferStride of that HLSL structure.
 
   // This function does not provide any HLSL definitions for additional metadata that may be
   // needed for gathering initial values, such as primitive ID, and also does not provide the
@@ -60,19 +63,20 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
 
   fetcher.inputs.clear();
   floatInputs.clear();
+  nonfloatInputs.clear();
   inputVarNames.clear();
-  fetcher.hlsl += "struct PSInput\n{\n";
+  fetcher.hlsl += "struct Inputs\n{\n";
   rdcstr defines;
-  fetcher.stride = 0;
+  fetcher.laneDataBufferStride = 0;
 
-  if(stageInputSig.empty())
+  if(stageInputSig.empty() && dxbc->m_Type == DXBC::ShaderType::Pixel)
   {
     fetcher.hlsl += "float4 input_dummy : SV_Position;\n";
     fetcher.hlsl += "#define POSITION_VAR input_dummy\n";
 
-    fetcher.inputs.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
+    fetcher.inputs.push_back(InputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
 
-    fetcher.stride += 4;
+    fetcher.laneDataBufferStride += 4;
   }
 
   // name, pair<start semantic index, end semantic index>
@@ -160,10 +164,9 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
           fetcher.hlsl += ToStr((uint32_t)numCols) + " input_" + name + " : " + name + ";\n";
 
           uint32_t byteSize = AlignUp4(numCols * bytesPerColumn);
-          fetcher.stride += byteSize;
+          fetcher.laneDataBufferStride += byteSize;
 
-          fetcher.inputs.push_back(
-              PSInputElement(-1, 0, byteSize / 4, ShaderBuiltin::Undefined, true));
+          fetcher.inputs.push_back(InputElement(-1, 0, byteSize / 4, ShaderBuiltin::Undefined, true));
         }
       }
 
@@ -173,9 +176,9 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
         dummy_reg += ToStr((uint32_t)nextreg + dummy);
         fetcher.hlsl += "float4 var_" + dummy_reg + " : semantic_" + dummy_reg + ";\n";
 
-        fetcher.inputs.push_back(PSInputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
+        fetcher.inputs.push_back(InputElement(-1, 0, 4, ShaderBuiltin::Undefined, true));
 
-        fetcher.stride += 4 * sizeof(float);
+        fetcher.laneDataBufferStride += 4 * sizeof(float);
       }
     }
 
@@ -254,7 +257,7 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
     if(included)
     {
       // in UAV structs, arrays are packed tightly, so just multiply by arrayLength
-      fetcher.stride += 4 * numCols * RDCMAX(1, arrayLength);
+      fetcher.laneDataBufferStride += 4 * numCols * RDCMAX(1, arrayLength);
     }
 
     // as another side effect of the above, an element declared as a 1-length array won't be
@@ -302,26 +305,34 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
       fetcher.hlsl += "[" + ToStr(arrayLength) + "]";
     fetcher.hlsl += " : " + name;
     // DXIL does not allow redeclaring SV_ variables, any that we might need which could already be
-    // in PSInput must be obtained from there and not redeclared in our entry point
-    if(sig.systemValue == ShaderBuiltin::Position)
-      defines += "#define POSITION_VAR " + inputName + "\n";
-    else if(sig.systemValue == ShaderBuiltin::PrimitiveIndex)
-      defines += "#define PRIM_VAR " + inputName + "\n";
+    // in Inputs must be obtained from there and not redeclared in our entry point
+    if(included)
+    {
+      if(sig.systemValue == ShaderBuiltin::Position)
+        defines += "#define POSITION_VAR " + inputName + rdcstr(arrayLength > 0 ? "[0]" : "") + "\n";
+      else if(sig.systemValue == ShaderBuiltin::PrimitiveIndex)
+        defines += "#define PRIM_VAR " + inputName + rdcstr(arrayLength > 0 ? "[0]" : "") + "\n";
+      else if(sig.systemValue == ShaderBuiltin::VertexIndex)
+        defines += "#define VERT_VAR " + inputName + rdcstr(arrayLength > 0 ? "[0]" : "") + "\n";
+      else if(sig.systemValue == ShaderBuiltin::InstanceIndex)
+        defines += "#define INST_VAR " + inputName + rdcstr(arrayLength > 0 ? "[0]" : "") + "\n";
+    }
 
     inputVarNames[i] = inputName;
     if(arrayLength > 0)
       inputVarNames[i] += StringFormat::Fmt("[%d]", RDCMAX(0, arrayIndex));
 
-    if(included && sig.varType == VarType::Float)
+    if(included)
     {
+      rdcarray<rdcstr> &outArray = sig.varType == VarType::Float ? floatInputs : nonfloatInputs;
       if(arrayLength == 0)
       {
-        floatInputs.push_back("input_" + name);
+        outArray.push_back(inputName);
       }
       else
       {
         for(int a = 0; a < arrayLength; a++)
-          floatInputs.push_back("input_" + name + "[" + ToStr(a) + "]");
+          outArray.push_back(inputName + "[" + ToStr(a) + "]");
       }
     }
 
@@ -342,14 +353,14 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
       if(arrayLength == 0)
       {
         fetcher.inputs.push_back(
-            PSInputElement(sig.regIndex, firstElem, byteSize / 4, sig.systemValue, included));
+            InputElement(sig.regIndex, firstElem, byteSize / 4, sig.systemValue, included));
       }
       else
       {
         for(int a = 0; a < arrayLength; a++)
         {
           fetcher.inputs.push_back(
-              PSInputElement(sig.regIndex + a, firstElem, byteSize / 4, sig.systemValue, included));
+              InputElement(sig.regIndex + a, firstElem, byteSize / 4, sig.systemValue, included));
         }
       }
     }
@@ -358,53 +369,24 @@ void GatherPSInputDataForInitialValues(const DXBC::DXBCContainer *dxbc,
   fetcher.hlsl += "};\n\n" + defines;
 }
 
-void CreatePSInputFetcher(const DXBC::DXBCContainer *dxbc, const DXBC::DXBCContainer *prevdxbc,
-                          const PSInputFetcherConfig &cfg, PSInputFetcher &fetcher)
+void CreateLegacyInputFetcher(const DXBC::DXBCContainer *dxbc, const InputFetcherConfig &cfg,
+                              const rdcarray<rdcstr> &floatInputs,
+                              const rdcarray<rdcstr> &inputVarNames, InputFetcher &fetcher)
 {
-  // If the pipe contains a geometry/mesh shader, then SV_PrimitiveID cannot be used in the pixel
-  // shader without being emitted from the geometry shader. For now, check if this semantic
-  // will succeed in a new pixel shader with the rest of the pipe unchanged
-  bool usePrimitiveID = ((prevdxbc->m_Type != DXBC::ShaderType::Geometry) &&
-                         (prevdxbc->m_Type != DXBC::ShaderType::Mesh));
-
-  rdcarray<rdcstr> floatInputs;
-  rdcarray<rdcstr> inputVarNames;
-  DXDebug::GatherPSInputDataForInitialValues(dxbc, prevdxbc, fetcher, floatInputs, inputVarNames);
-
-  for(const PSInputElement &e : fetcher.inputs)
-  {
-    if(e.sysattribute == ShaderBuiltin::PrimitiveIndex)
-    {
-      usePrimitiveID = true;
-      break;
-    }
-  }
-
-  fetcher.hlsl += StringFormat::Fmt(
-      "#define DESTX %u.5\n"
-      "#define DESTY %u.5\n"
-      "#define USEPRIM %u\n"
-      "#define MAXHIT %u\n",
-      cfg.x, cfg.y, usePrimitiveID ? 1 : 0, DXDebug::maxPixelHits);
-
-  if(cfg.uavspace == 0)
-    fetcher.hlsl += StringFormat::Fmt(
-        "#define HITBUFFER u%u\n"
-        "#define EVALCACHEBUFFER u%u\n",
-        cfg.uavslot, cfg.uavslot + 1);
-  else
-    fetcher.hlsl += StringFormat::Fmt(
-        "#define HITBUFFER u%u, space%u\n"
-        "#define EVALCACHEBUFFER u%u, space%u\n",
-        cfg.uavslot, cfg.uavspace, cfg.uavslot + 1, cfg.uavspace);
-
-  fetcher.hlsl += "\n";
+  fetcher.hitBufferStride =
+      sizeof(DXDebug::DebugHit) +
+      (sizeof(DXDebug::PSLaneData) + fetcher.laneDataBufferStride) * cfg.maxWaveSize;
+  fetcher.laneDataBufferStride = 0;
 
   fetcher.hlsl += GetEmbeddedResource(quadswizzle_hlsl);
 
   fetcher.hlsl += R"(
 struct LaneData
 {
+  uint laneIndex;
+  uint active;
+  uint2 pad;
+
   float4 pixelPos;
 
   uint isHelper;
@@ -412,10 +394,10 @@ struct LaneData
   uint quadLane;
   uint coverage;
 
-  PSInput IN;
+  Inputs IN;
 };
 
-struct PixelDebugHit
+struct DebugHit
 {
   // only used in the first instance
   uint numHits;
@@ -427,30 +409,34 @@ struct PixelDebugHit
   uint sample;
 
   uint quadLaneIndex;
-  uint3 pad;
+  uint laneIndex;
+  uint subgroupSize;
+  uint pad;
 
-  // input values
-  LaneData quad[4];
+  uint4 globalBallot;
+  uint4 helperBallot;
+
+  LaneData lanes[4];
 };
 
-RWStructuredBuffer<PixelDebugHit> HitBuffer : register(HITBUFFER);
+RWStructuredBuffer<DebugHit> HitBuffer : register(HITBUFFER);
 
 // float4 is wasteful in some cases but it's easier than using ByteAddressBuffer and manual
 // packing
 RWBuffer<float4> EvalCacheBuffer : register(EVALCACHEBUFFER);
 
-void ExtractInputsPS(PSInput IN,
+void ExtractInputs(Inputs IN
 #ifndef POSITION_VAR
-                     float4 debug_pixelPos : SV_Position,
+                     , float4 debug_pixelPos : SV_Position
 #endif
 #if USEPRIM && !defined(PRIM_VAR)
-                     uint primitive : SV_PrimitiveID,
+                     , uint primitive : SV_PrimitiveID
 #endif
                      // sample, coverage and isFrontFace are deliberately omittted from the
                      // IN struct for SV_ ordering reasons
-                     uint sample : SV_SampleIndex,
-                     uint coverage : SV_Coverage,
-                     bool isFrontFace : SV_IsFrontFace)
+                     , uint sample : SV_SampleIndex
+                     , uint coverage : SV_Coverage
+                     , bool isFrontFace : SV_IsFrontFace)
 {
 #ifdef POSITION_VAR
   float4 debug_pixelPos = IN.POSITION_VAR;
@@ -480,48 +466,59 @@ void ExtractInputsPS(PSInput IN,
   HitBuffer[idx].sample = sample;
 
   HitBuffer[idx].quadLaneIndex = quadLaneIndex;
+  HitBuffer[idx].laneIndex = quadLaneIndex;
+  HitBuffer[idx].subgroupSize = 4;
+
+  HitBuffer[idx].globalBallot = 0;
+  HitBuffer[idx].helperBallot = 0;
 
   // quad pixelPos will be set with other derivatives for float inputs
 
   // for the simple quad case, only the desired thread is considered non-helper
-  HitBuffer[idx].quad[0].isHelper = 1u;
-  HitBuffer[idx].quad[1].isHelper = 1u;
-  HitBuffer[idx].quad[2].isHelper = 1u;
-  HitBuffer[idx].quad[3].isHelper = 1u;
-  HitBuffer[idx].quad[quadLaneIndex].isHelper = 0u;
+  HitBuffer[idx].lanes[0].isHelper = 1u;
+  HitBuffer[idx].lanes[1].isHelper = 1u;
+  HitBuffer[idx].lanes[2].isHelper = 1u;
+  HitBuffer[idx].lanes[3].isHelper = 1u;
+  HitBuffer[idx].lanes[quadLaneIndex].isHelper = 0u;
+
+  // and all threads are active
+  HitBuffer[idx].lanes[0].active = 1u;
+  HitBuffer[idx].lanes[1].active = 1u;
+  HitBuffer[idx].lanes[2].active = 1u;
+  HitBuffer[idx].lanes[3].active = 1u;
 
   // quadId is a single value that's unique for this quad and uniform across the quad. Degenerate
   // for the simple quad case
   uint quadId = 1000+quadSwizzleHelper(quadLaneIndex, quadLaneIndex, 0u);
-  HitBuffer[idx].quad[0].quadId = quadId;
-  HitBuffer[idx].quad[1].quadId = quadId;
-  HitBuffer[idx].quad[2].quadId = quadId;
-  HitBuffer[idx].quad[3].quadId = quadId;
+  HitBuffer[idx].lanes[0].quadId = quadId;
+  HitBuffer[idx].lanes[1].quadId = quadId;
+  HitBuffer[idx].lanes[2].quadId = quadId;
+  HitBuffer[idx].lanes[3].quadId = quadId;
 
   // per-quad lane identifier, degenerate for the simple quad case
-  HitBuffer[idx].quad[0].quadLane = 0;
-  HitBuffer[idx].quad[1].quadLane = 1;
-  HitBuffer[idx].quad[2].quadLane = 2;
-  HitBuffer[idx].quad[3].quadLane = 3;
+  HitBuffer[idx].lanes[0].quadLane = 0;
+  HitBuffer[idx].lanes[1].quadLane = 1;
+  HitBuffer[idx].lanes[2].quadLane = 2;
+  HitBuffer[idx].lanes[3].quadLane = 3;
 
   // coverage is handled with pixelPos as it can vary per-thread
 
   // start off with just copying all the inputs to all the quad. For float inputs or uints that may
   // vary across the quad we will quadSwizzle them
-  HitBuffer[idx].quad[0].IN = IN;
-  HitBuffer[idx].quad[1].IN = IN;
-  HitBuffer[idx].quad[2].IN = IN;
-  HitBuffer[idx].quad[3].IN = IN;
+  HitBuffer[idx].lanes[0].IN = IN;
+  HitBuffer[idx].lanes[1].IN = IN;
+  HitBuffer[idx].lanes[2].IN = IN;
+  HitBuffer[idx].lanes[3].IN = IN;
 )";
 
   for(int q = 0; q < 4; q++)
   {
     fetcher.hlsl += StringFormat::Fmt(
-        "  HitBuffer[idx].quad[%i].pixelPos = "
+        "  HitBuffer[idx].lanes[%i].pixelPos = "
         "quadSwizzleHelper(debug_pixelPos, quadLaneIndex, %i);\n",
         q, q);
     fetcher.hlsl += StringFormat::Fmt(
-        "  HitBuffer[idx].quad[%i].coverage = "
+        "  HitBuffer[idx].lanes[%i].coverage = "
         "quadSwizzleHelper(coverage, quadLaneIndex, %i);\n",
         q, q);
   }
@@ -532,13 +529,13 @@ void ExtractInputsPS(PSInput IN,
     for(int q = 0; q < 4; q++)
     {
       fetcher.hlsl += StringFormat::Fmt(
-          "  HitBuffer[idx].quad[%i].IN.%s = quadSwizzleHelper(IN.%s, quadLaneIndex, %i);\n", q,
+          "  HitBuffer[idx].lanes[%i].IN.%s = quadSwizzleHelper(IN.%s, quadLaneIndex, %i);\n", q,
           name.c_str(), name.c_str(), q);
     }
   }
 
-  // if we're not rendering at MSAA, no need to fill the cache because evaluates will all return the
-  // plain input anyway.
+  // if we're not rendering at MSAA, no need to fill the cache because evaluates will all return
+  // the plain input anyway.
   if(cfg.outputSampleCount > 1)
   {
     if(dxbc->GetDXBCByteCode())
@@ -638,6 +635,384 @@ void ExtractInputsPS(PSInput IN,
   }
 
   fetcher.hlsl += "\n}\n";
+}
+
+void CreateInputFetcher(const DXBC::DXBCContainer *dxbc, const DXBC::DXBCContainer *prevdxbc,
+                        const InputFetcherConfig &cfg, InputFetcher &fetcher)
+{
+  bool usePrimitiveID = prevdxbc && ((prevdxbc->m_Type != DXBC::ShaderType::Geometry) &&
+                                     (prevdxbc->m_Type != DXBC::ShaderType::Mesh));
+
+  rdcarray<rdcstr> floatInputs;
+  rdcarray<rdcstr> nonfloatInputs;
+  rdcarray<rdcstr> inputVarNames;
+  if(dxbc->m_Type == DXBC::ShaderType::Compute)
+  {
+    fetcher.hlsl += R"(
+struct Inputs
+{
+};
+)";
+  }
+  else
+  {
+    DXDebug::GatherInputDataForInitialValues(dxbc, fetcher, prevdxbc, floatInputs, nonfloatInputs,
+                                             inputVarNames);
+  }
+
+  for(const InputElement &e : fetcher.inputs)
+  {
+    if(e.sysattribute == ShaderBuiltin::PrimitiveIndex)
+    {
+      usePrimitiveID = true;
+      break;
+    }
+  }
+
+  uint32_t waveSize = cfg.maxWaveSize;
+  uint32_t reqWaveSize = dxbc->GetReflection()->WaveSize;
+  if(reqWaveSize != 0)
+  {
+    if(reqWaveSize < waveSize)
+      waveSize = reqWaveSize;
+    else
+      RDCERR("Invalid requested wave size %u vs device maximum of %u", reqWaveSize, cfg.maxWaveSize);
+  }
+
+  fetcher.numLanesPerHit = waveSize;
+
+  fetcher.hlsl += StringFormat::Fmt(
+      "#define STAGE_VS %u\n"
+      "#define STAGE_PS %u\n"
+      "#define STAGE_CS %u\n"
+      "#define STAGE %u\n"
+      "#define MAXHIT %u\n"
+      "#define MAXWAVESIZE %u\n"
+      "#define USEPRIM %u\n",
+      DXBC::ShaderType::Vertex, DXBC::ShaderType::Pixel, DXBC::ShaderType::Compute, dxbc->m_Type,
+      DXDebug::maxPixelHits, waveSize, usePrimitiveID ? 1 : 0);
+
+  if(dxbc->m_Type == DXBC::ShaderType::Vertex)
+  {
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define DEST_VERT %u\n"
+        "#define DEST_INST %u\n",
+        cfg.vert, cfg.inst);
+  }
+  else if(dxbc->m_Type == DXBC::ShaderType::Pixel)
+  {
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define DESTX %u.5\n"
+        "#define DESTY %u.5\n",
+        cfg.x, cfg.y);
+  }
+  else if(dxbc->m_Type == DXBC::ShaderType::Compute)
+  {
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define DESTX %u\n"
+        "#define DESTY %u\n"
+        "#define DESTZ %u\n",
+        cfg.threadid[0], cfg.threadid[1], cfg.threadid[2]);
+    fetcher.hlsl += StringFormat::Fmt("#define NUMTHREADS %u,%u,%u\n",
+                                      dxbc->GetReflection()->DispatchThreadsDimension[0],
+                                      dxbc->GetReflection()->DispatchThreadsDimension[1],
+                                      dxbc->GetReflection()->DispatchThreadsDimension[2]);
+  }
+  else
+  {
+    RDCERR("Unexpected type of shader");
+  }
+
+  if(cfg.uavspace == 0)
+  {
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define HITBUFFER u%u\n"
+        "#define EVALCACHEBUFFER u%u\n"
+        "#define LANEBUFFER u%u\n",
+        cfg.uavslot, cfg.uavslot + 1, cfg.uavslot + 2);
+  }
+  else
+  {
+    fetcher.hlsl += StringFormat::Fmt(
+        "#define HITBUFFER u%u, space%u\n"
+        "#define EVALCACHEBUFFER u%u, space%u\n"
+        "#define LANEBUFFER u%u, space%u\n",
+        cfg.uavslot, cfg.uavspace, cfg.uavslot + 1, cfg.uavspace, cfg.uavslot + 2, cfg.uavspace);
+  }
+
+  fetcher.hlsl += "\n";
+
+  if(waveSize == 4 && dxbc->m_Type == DXBC::ShaderType::Pixel)
+    return CreateLegacyInputFetcher(dxbc, cfg, floatInputs, inputVarNames, fetcher);
+
+  fetcher.hitBufferStride = sizeof(DXDebug::DebugHit);
+
+  if(dxbc->m_Type == DXBC::ShaderType::Vertex)
+    fetcher.laneDataBufferStride = sizeof(DXDebug::VSLaneData) + fetcher.laneDataBufferStride;
+  else if(dxbc->m_Type == DXBC::ShaderType::Pixel)
+    fetcher.laneDataBufferStride = sizeof(DXDebug::PSLaneData) + fetcher.laneDataBufferStride;
+  else if(dxbc->m_Type == DXBC::ShaderType::Compute)
+    fetcher.laneDataBufferStride = sizeof(DXDebug::CSLaneData) + fetcher.laneDataBufferStride;
+
+  fetcher.hlsl += R"(
+struct VSLaneData
+{
+#if STAGE == STAGE_VS
+  uint inst;
+  uint vert;
+  uint2 pad;
+#endif
+};
+
+struct PSLaneData
+{
+#if STAGE == STAGE_PS
+  float4 pixelPos;
+
+  uint isHelper;
+  uint quadId;
+  uint quadLane;
+  uint coverage;
+#endif
+};
+
+struct CSLaneData
+{
+#if STAGE == STAGE_CS
+  uint3 threadid;
+  uint pad;
+#endif
+};
+
+struct LaneData
+{
+  uint laneIndex;
+  uint active;
+  uint2 pad2;
+
+  VSLaneData vs;
+  PSLaneData ps;
+  CSLaneData cs;
+
+  Inputs IN;
+};
+
+struct DebugHit
+{
+  // only used in the first instance
+  uint numHits;
+  float3 pos_depth; // xy position and depth
+
+  float derivValid;
+  uint primitive;
+  uint isFrontFace;
+  uint sample;
+
+  uint quadLaneIndex;
+  uint laneIndex;
+  uint subgroupSize;
+  uint pad;
+
+  uint4 globalBallot;
+  uint4 helperBallot;
+};
+
+RWStructuredBuffer<DebugHit> HitBuffer : register(HITBUFFER);
+RWStructuredBuffer<LaneData> LaneBuffer : register(LANEBUFFER);
+
+#if STAGE == STAGE_CS
+[numthreads(NUMTHREADS)]
+#endif
+
+void ExtractInputs(Inputs IN
+
+#if STAGE == STAGE_VS
+
+  #ifndef VERT_VAR
+                     , uint vert : SV_VertexID
+  #endif
+  #ifndef INST_VAR
+                     , uint inst : SV_InstanceID
+  #endif
+
+#elif STAGE == STAGE_PS
+
+
+  #ifndef POSITION_VAR
+                     , float4 debug_pixelPos : SV_Position
+  #endif
+  #if USEPRIM && !defined(PRIM_VAR)
+                     , uint primitive : SV_PrimitiveID
+  #endif
+                     // sample, coverage and isFrontFace are deliberately omittted from the
+                     // IN struct for SV_ ordering reasons
+                     , uint sample : SV_SampleIndex
+                     , uint coverage : SV_Coverage
+                     , bool isFrontFace : SV_IsFrontFace
+
+#elif STAGE == STAGE_CS
+
+                     , uint3 threadid : SV_DispatchThreadID
+
+#endif
+)
+{
+#ifdef VERT_VAR
+  uint vert = IN.VERT_VAR;
+#endif
+
+#ifdef INST_VAR
+  uint inst = IN.INST_VAR;
+#endif
+
+#ifdef POSITION_VAR
+  float4 debug_pixelPos = IN.POSITION_VAR;
+#endif
+
+#if USEPRIM && defined(PRIM_VAR)
+  uint primitive = IN.PRIM_VAR;
+#elif !USEPRIM && STAGE == STAGE_PS
+  uint primitive = 0;
+#endif
+
+#if STAGE != STAGE_PS
+  float4 debug_pixelPos = 0;
+  uint primitive = 0;
+  uint sample = 0;
+  uint isFrontFace = 0;
+#endif
+
+  VSLaneData vs = (VSLaneData)0;
+  PSLaneData ps = (PSLaneData)0;
+  CSLaneData cs = (CSLaneData)0;
+
+  uint isHelper = 0;
+  uint quadLaneIndex = 0;
+  uint quadId = 0;
+  uint4 globalBallot = WaveActiveBallot(true);
+  uint laneIndex = WaveGetLaneIndex();
+  uint4 helperBallot = 0;
+  float derivValid = 1.0f;
+
+#if STAGE == STAGE_VS
+  bool candidateThread = (vert == DEST_VERT && inst == DEST_INST);
+
+  vs.vert = vert;
+  vs.inst = inst;
+#elif STAGE == STAGE_PS
+  bool candidateThread = (abs(debug_pixelPos.x - DESTX) < 0.5f && abs(debug_pixelPos.y - DESTY) < 0.5f);
+
+  quadLaneIndex = (2u * (uint(debug_pixelPos.y) & 1u)) + (uint(debug_pixelPos.x) & 1u);
+  derivValid = ddx(debug_pixelPos.x);
+  isHelper = IsHelperLane() ? 1 : 0;
+
+  helperBallot = WaveActiveBallot(isHelper != 0);
+
+  // quadId is a single value that's unique for this quad and uniform across the quad. Degenerate
+  // for the simple quad case
+  quadId = 1000+QuadReadLaneAt(laneIndex, 0u);
+
+  LaneData helper0data = (LaneData)0;
+  LaneData helper1data = (LaneData)0;
+  LaneData helper2data = (LaneData)0;
+  LaneData helper3data = (LaneData)0;
+
+)";
+
+  for(uint32_t q = 0; q < 4; q++)
+  {
+    fetcher.hlsl += StringFormat::Fmt("  // quad %u\n", q);
+    fetcher.hlsl += "  {\n";
+    fetcher.hlsl += StringFormat::Fmt(
+        "    helper%udata.ps.pixelPos = QuadReadLaneAt(debug_pixelPos, %uu);\n", q, q);
+    fetcher.hlsl +=
+        StringFormat::Fmt("    helper%udata.ps.isHelper = QuadReadLaneAt(isHelper, %uu);\n", q, q);
+    fetcher.hlsl += StringFormat::Fmt("    helper%udata.ps.quadId = quadId;\n", q);
+    fetcher.hlsl += StringFormat::Fmt("    helper%udata.ps.quadLane = %uu;\n", q, q);
+    fetcher.hlsl +=
+        StringFormat::Fmt("    helper%udata.ps.coverage = QuadReadLaneAt(coverage, %uu);\n", q, q);
+    fetcher.hlsl +=
+        StringFormat::Fmt("    helper%udata.laneIndex = QuadReadLaneAt(laneIndex, %uu);\n", q, q);
+    fetcher.hlsl += StringFormat::Fmt("    helper%udata.active = 1;\n", q, q);
+    for(size_t i = 0; i < floatInputs.size(); i++)
+    {
+      const rdcstr &name = floatInputs[i];
+      fetcher.hlsl += StringFormat::Fmt("    helper%udata.IN.%s = QuadReadLaneAt(IN.%s, %u);\n", q,
+                                        name.c_str(), name.c_str(), q);
+    }
+    for(size_t i = 0; i < nonfloatInputs.size(); i++)
+    {
+      const rdcstr &name = nonfloatInputs[i];
+      fetcher.hlsl += StringFormat::Fmt("    helper%udata.IN.%s = QuadReadLaneAt(IN.%s, %u);\n", q,
+                                        name.c_str(), name.c_str(), q);
+    }
+    fetcher.hlsl += "  }\n\n";
+  }
+
+  fetcher.hlsl += R"(
+  ps.pixelPos = debug_pixelPos;
+
+  ps.isHelper = isHelper;
+  ps.quadId = quadId;
+  ps.quadLane = quadLaneIndex;
+  ps.coverage = coverage;
+#elif STAGE == STAGE_CS
+  bool candidateThread = (threadid.x == DESTX && threadid.y == DESTY && threadid.z == DESTZ);
+
+  cs.threadid = threadid;
+#endif
+
+  if(WaveActiveAnyTrue(candidateThread))
+  {
+    if(isHelper == 0)
+    {
+      uint idx = MAXHIT;
+      if(WaveIsFirstLane())
+      {
+        InterlockedAdd(HitBuffer[0].numHits, 1, idx);
+      }
+      idx = WaveReadLaneFirst(idx);
+      if(idx < MAXHIT)
+      {
+        if(candidateThread)
+        {
+          HitBuffer[idx].pos_depth = debug_pixelPos.xyz;
+          HitBuffer[idx].derivValid = derivValid;
+          HitBuffer[idx].primitive = primitive;
+          HitBuffer[idx].isFrontFace = isFrontFace;
+          HitBuffer[idx].sample = sample;
+          HitBuffer[idx].laneIndex = laneIndex;
+          HitBuffer[idx].quadLaneIndex = quadLaneIndex;
+          HitBuffer[idx].subgroupSize = WaveGetLaneCount();
+          HitBuffer[idx].globalBallot = globalBallot;
+          HitBuffer[idx].helperBallot = helperBallot;
+        }
+
+#if STAGE == STAGE_PS
+        if(helper0data.ps.isHelper)
+          LaneBuffer[idx*MAXWAVESIZE+helper0data.laneIndex] = helper0data;
+
+        if(helper1data.ps.isHelper)
+          LaneBuffer[idx*MAXWAVESIZE+helper1data.laneIndex] = helper1data;
+
+        if(helper2data.ps.isHelper)
+          LaneBuffer[idx*MAXWAVESIZE+helper2data.laneIndex] = helper2data;
+
+        if(helper3data.ps.isHelper)
+          LaneBuffer[idx*MAXWAVESIZE+helper3data.laneIndex] = helper3data;
+#endif
+
+        LaneBuffer[idx*MAXWAVESIZE+laneIndex].laneIndex = laneIndex;
+        LaneBuffer[idx*MAXWAVESIZE+laneIndex].active = 1;
+        LaneBuffer[idx*MAXWAVESIZE+laneIndex].vs = vs;
+        LaneBuffer[idx*MAXWAVESIZE+laneIndex].ps = ps;
+        LaneBuffer[idx*MAXWAVESIZE+laneIndex].cs = cs;
+        LaneBuffer[idx*MAXWAVESIZE+laneIndex].IN = IN;
+      }
+    }
+  }
+}
+)";
 }
 
 // "NaN has special handling. If one source operand is NaN, then the other source operand is

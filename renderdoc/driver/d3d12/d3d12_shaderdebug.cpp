@@ -2359,8 +2359,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   RDCASSERT(sig->sig.dwordLength < 64);
   D3D12RootSignature modsig = sig->sig;
 
-  DXDebug::PSInputFetcherConfig cfg;
-  DXDebug::PSInputFetcher fetcher;
+  DXDebug::InputFetcherConfig cfg;
+  DXDebug::InputFetcher fetcher;
 
   D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC pipeDesc;
   m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12PipelineState>(rs.pipe)->Fill(pipeDesc);
@@ -2371,18 +2371,22 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   cfg.x = x;
   cfg.y = y;
   cfg.uavslot = 1;
+  cfg.maxWaveSize = 4;
   cfg.uavspace = GetFreeRegSpace(modsig, 0, D3D12DescriptorType::UAV, D3D12_SHADER_VISIBILITY_PIXEL);
   cfg.outputSampleCount = RDCMAX(1U, pipeDesc.SampleDesc.Count);
 
-  DXDebug::CreatePSInputFetcher(dxbc, prevDxbc, cfg, fetcher);
+  if(D3D_Hack_EnableGroups() && (dxbc->GetThreadScope() & DXBC::ThreadScope::Subgroup))
+    cfg.maxWaveSize = m_pDevice->GetOpts1().WaveLaneCountMax;
+
+  DXDebug::CreateInputFetcher(dxbc, prevDxbc, cfg, fetcher);
 
   // Create pixel shader to get initial values from previous stage output
   ID3DBlob *psBlob = NULL;
   UINT flags = D3DCOMPILE_WARNINGS_ARE_ERRORS;
   if(dxbc->GetDXBCByteCode())
   {
-    if(m_pDevice->GetShaderCache()->GetShaderBlob(fetcher.hlsl.c_str(), "ExtractInputsPS", flags,
-                                                  {}, "ps_5_1", &psBlob) != "")
+    if(m_pDevice->GetShaderCache()->GetShaderBlob(fetcher.hlsl.c_str(), "ExtractInputs", flags, {},
+                                                  "ps_5_1", &psBlob) != "")
     {
       RDCERR("Failed to create shader to extract inputs");
       return new ShaderDebugTrace;
@@ -2408,7 +2412,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     if(shaderFlags & DXBC::GlobalShaderFlags::NativeLowPrecision)
       compileFlags.flags.push_back({"@compile_option", "-enable-16bit-types"});
 
-    if(m_pDevice->GetShaderCache()->GetShaderBlob(fetcher.hlsl.c_str(), "ExtractInputsPS",
+    if(m_pDevice->GetShaderCache()->GetShaderBlob(fetcher.hlsl.c_str(), "ExtractInputs",
                                                   compileFlags, {}, profile, &psBlob) != "")
     {
       RDCERR("Failed to create shader to extract inputs");
@@ -2416,16 +2420,24 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     }
   }
 
-  uint32_t structStride =
-      sizeof(DXDebug::PixelDebugHit) + 4 * (sizeof(DXDebug::LaneData) + fetcher.stride);
-
   HRESULT hr = S_OK;
 
   // Create buffer to store initial values captured in pixel shader
   D3D12_RESOURCE_DESC rdesc;
   ZeroMemory(&rdesc, sizeof(D3D12_RESOURCE_DESC));
   rdesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-  rdesc.Width = structStride * (DXDebug::maxPixelHits + 1);
+  rdesc.Width = fetcher.hitBufferStride * (DXDebug::maxPixelHits + 1);
+
+  uint64_t laneDataOffset = 0;
+  // if we have separate lane data, allocate that at the end
+  if(fetcher.laneDataBufferStride > 0)
+  {
+    rdesc.Width = AlignToMultiple(rdesc.Width, (uint64_t)fetcher.laneDataBufferStride);
+    laneDataOffset = rdesc.Width;
+    rdesc.Width +=
+        (fetcher.laneDataBufferStride * fetcher.numLanesPerHit) * (DXDebug::maxPixelHits + 1);
+  }
+
   rdesc.Height = 1;
   rdesc.DepthOrArraySize = 1;
   rdesc.MipLevels = 1;
@@ -2442,11 +2454,10 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   heapProps.CreationNodeMask = 1;
   heapProps.VisibleNodeMask = 1;
 
-  ID3D12Resource *pInitialValuesBuffer = NULL;
+  ID3D12Resource *dataBuffer = NULL;
   D3D12_RESOURCE_STATES resourceState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
   hr = m_pDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &rdesc, resourceState,
-                                          NULL, __uuidof(ID3D12Resource),
-                                          (void **)&pInitialValuesBuffer);
+                                          NULL, __uuidof(ID3D12Resource), (void **)&dataBuffer);
   if(FAILED(hr))
   {
     RDCERR("Failed to create buffer for pixel shader debugging HRESULT: %s", ToStr(hr).c_str());
@@ -2467,7 +2478,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     {
       RDCERR("Failed to create MSAA buffer for pixel shader debugging HRESULT: %s",
              ToStr(hr).c_str());
-      SAFE_RELEASE(pInitialValuesBuffer);
+      SAFE_RELEASE(dataBuffer);
       SAFE_RELEASE(psBlob);
       return new ShaderDebugTrace;
     }
@@ -2479,18 +2490,31 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   uavDesc.Format = DXGI_FORMAT_UNKNOWN;
   uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
   uavDesc.Buffer.NumElements = DXDebug::maxPixelHits + 1;
-  uavDesc.Buffer.StructureByteStride = structStride;
+  uavDesc.Buffer.StructureByteStride = fetcher.hitBufferStride;
 
   D3D12_CPU_DESCRIPTOR_HANDLE uav = m_pDevice->GetDebugManager()->GetCPUHandle(SHADER_DEBUG_UAV);
-  m_pDevice->CreateUnorderedAccessView(pInitialValuesBuffer, NULL, &uavDesc, uav);
+  m_pDevice->CreateUnorderedAccessView(dataBuffer, NULL, &uavDesc, uav);
 
   uavDesc.Format = DXGI_FORMAT_R32_UINT;
   uavDesc.Buffer.FirstElement = 0;
-  uavDesc.Buffer.NumElements = structStride * (DXDebug::maxPixelHits + 1) / sizeof(uint32_t);
+  uavDesc.Buffer.NumElements = UINT(dataBuffer->GetDesc().Width / sizeof(uint32_t));
   uavDesc.Buffer.StructureByteStride = 0;
   D3D12_CPU_DESCRIPTOR_HANDLE clearUav =
       m_pDevice->GetDebugManager()->GetUAVClearHandle(SHADER_DEBUG_UAV);
-  m_pDevice->CreateUnorderedAccessView(pInitialValuesBuffer, NULL, &uavDesc, clearUav);
+  m_pDevice->CreateUnorderedAccessView(dataBuffer, NULL, &uavDesc, clearUav);
+
+  // create UAV of separate lane data, if needed
+  if(fetcher.laneDataBufferStride)
+  {
+    uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uavDesc.Buffer.FirstElement = laneDataOffset / fetcher.laneDataBufferStride;
+    uavDesc.Buffer.StructureByteStride = fetcher.laneDataBufferStride;
+    uavDesc.Buffer.NumElements = DXDebug::maxPixelHits + 1;
+
+    uav = m_pDevice->GetDebugManager()->GetCPUHandle(SHADER_DEBUG_LANEDATA_UAV);
+    m_pDevice->CreateUnorderedAccessView(dataBuffer, NULL, &uavDesc, uav);
+  }
 
   // Create UAV of MSAA eval buffer
   D3D12_CPU_DESCRIPTOR_HANDLE msaaClearUav =
@@ -2513,7 +2537,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   // Create the descriptor table for our UAV
   D3D12_DESCRIPTOR_RANGE1 descRange;
   descRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-  descRange.NumDescriptors = pMsaaEvalBuffer ? 2 : 1;
+  descRange.NumDescriptors = 3;
   descRange.BaseShaderRegister = 1;
   descRange.RegisterSpace = cfg.uavspace;
   descRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
@@ -2540,7 +2564,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     RDCERR("Failed to create root signature for pixel shader debugging HRESULT: %s",
            ToStr(hr).c_str());
     SAFE_RELEASE(psBlob);
-    SAFE_RELEASE(pInitialValuesBuffer);
+    SAFE_RELEASE(dataBuffer);
     SAFE_RELEASE(pMsaaEvalBuffer);
     return new ShaderDebugTrace;
   }
@@ -2556,7 +2580,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   {
     RDCERR("Failed to create PSO for pixel shader debugging HRESULT: %s", ToStr(hr).c_str());
     SAFE_RELEASE(psBlob);
-    SAFE_RELEASE(pInitialValuesBuffer);
+    SAFE_RELEASE(dataBuffer);
     SAFE_RELEASE(pMsaaEvalBuffer);
     SAFE_RELEASE(pRootSignature);
     return new ShaderDebugTrace;
@@ -2584,7 +2608,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   m_pDevice->GetDebugManager()->SetDescriptorHeaps(cmdList, true, false);
   D3D12_GPU_DESCRIPTOR_HANDLE gpuUav = m_pDevice->GetDebugManager()->GetGPUHandle(SHADER_DEBUG_UAV);
   UINT zero[4] = {0, 0, 0, 0};
-  cmdList->ClearUnorderedAccessViewUint(gpuUav, clearUav, pInitialValuesBuffer, zero, 0, NULL);
+  cmdList->ClearUnorderedAccessViewUint(gpuUav, clearUav, dataBuffer, zero, 0, NULL);
 
   if(pMsaaEvalBuffer)
   {
@@ -2597,8 +2621,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   std::set<ResourceId> copiedHeaps;
   rdcarray<PortableHandle> debugHandles;
   debugHandles.push_back(ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_UAV)));
-  if(pMsaaEvalBuffer)
-    debugHandles.push_back(ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_MSAA_UAV)));
+  debugHandles.push_back(ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_MSAA_UAV)));
+  debugHandles.push_back(ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_LANEDATA_UAV)));
   AddDebugDescriptorsToRenderState(m_pDevice, rs, debugHandles,
                                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, sigElem, copiedHeaps);
 
@@ -2610,7 +2634,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   {
     RDCERR("Failed to close command list HRESULT: %s", ToStr(hr).c_str());
     SAFE_RELEASE(psBlob);
-    SAFE_RELEASE(pInitialValuesBuffer);
+    SAFE_RELEASE(dataBuffer);
     SAFE_RELEASE(pMsaaEvalBuffer);
     SAFE_RELEASE(pRootSignature);
     SAFE_RELEASE(initialPso);
@@ -2639,7 +2663,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   }
 
   bytebuf initialData;
-  m_pDevice->GetDebugManager()->GetBufferData(pInitialValuesBuffer, 0, 0, initialData);
+  m_pDevice->GetDebugManager()->GetBufferData(dataBuffer, 0, 0, initialData);
 
   bytebuf evalData;
   if(pMsaaEvalBuffer)
@@ -2649,11 +2673,11 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   // Free all the resources that were created.
   SAFE_RELEASE(psBlob);
   SAFE_RELEASE(pRootSignature);
-  SAFE_RELEASE(pInitialValuesBuffer);
+  SAFE_RELEASE(dataBuffer);
   SAFE_RELEASE(pMsaaEvalBuffer);
   SAFE_RELEASE(initialPso);
 
-  DXDebug::PixelDebugHit *buf = (DXDebug::PixelDebugHit *)initialData.data();
+  DXDebug::DebugHit *buf = (DXDebug::DebugHit *)initialData.data();
 
   D3D12MarkerRegion::Set(m_pDevice->GetQueue()->GetReal(),
                          StringFormat::Fmt("Got %u hits", buf[0].numHits));
@@ -2670,7 +2694,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   // fragment in the series
 
   // Get depth func and determine "winner" pixel
-  DXDebug::PixelDebugHit *pWinnerHit = NULL;
+  DXDebug::DebugHit *pWinnerHit = NULL;
   float *evalSampleCache = (float *)evalData.data();
   size_t winnerIdx = 0;
 
@@ -2681,8 +2705,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   {
     for(size_t i = 0; i < buf[0].numHits && i < DXDebug::maxPixelHits; i++)
     {
-      DXDebug::PixelDebugHit *pHit =
-          (DXDebug::PixelDebugHit *)(initialData.data() + i * structStride);
+      DXDebug::DebugHit *pHit =
+          (DXDebug::DebugHit *)(initialData.data() + i * fetcher.hitBufferStride);
 
       if(pHit->primitive == primitive && pHit->sample == sample)
       {
@@ -2696,8 +2720,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   {
     for(size_t i = 0; i < buf[0].numHits && i < DXDebug::maxPixelHits; i++)
     {
-      DXDebug::PixelDebugHit *pHit =
-          (DXDebug::PixelDebugHit *)(initialData.data() + i * structStride);
+      DXDebug::DebugHit *pHit =
+          (DXDebug::DebugHit *)(initialData.data() + i * fetcher.hitBufferStride);
 
       if(pWinnerHit == NULL)
       {
@@ -2753,7 +2777,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     return new ShaderDebugTrace;
   }
 
-  DXDebug::PixelDebugHit *hit = pWinnerHit;
+  DXDebug::DebugHit *hit = pWinnerHit;
 
   // ddx(SV_Position.x) MUST be 1.0
   if(hit->derivValid != 1.0f)
@@ -2765,11 +2789,18 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
   byte *data = (byte *)(hit + 1);
 
+  // if we have separate lane data, fetch it here
+  if(fetcher.laneDataBufferStride)
+  {
+    data = (initialData.data() + laneDataOffset +
+            winnerIdx * fetcher.numLanesPerHit * fetcher.laneDataBufferStride);
+  }
+
   if(dxbc->GetDXBCByteCode())
   {
     DXBCDebug::InterpretDebugger *interpreter = new DXBCDebug::InterpretDebugger;
     interpreter->eventId = eventId;
-    ret = interpreter->BeginDebug(dxbc, refl, hit->quadLaneIndex);
+    ret = interpreter->BeginDebug(dxbc, refl, hit->laneIndex);
     DXBCDebug::GlobalState &global = interpreter->global;
 
     // Fetch constant buffer data from root signature
@@ -2780,7 +2811,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
     for(uint32_t q = 0; q < 4; q++)
     {
-      DXDebug::LaneData *lane = (DXDebug::LaneData *)data;
+      DXDebug::PSLaneData *lane = (DXDebug::PSLaneData *)data;
 
       DXBCDebug::ThreadState &state = interpreter->workgroup[q];
       rdcarray<ShaderVariable> &ins = state.inputs;
@@ -2799,7 +2830,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       if(lane->isHelper)
         state.SetHelper();
 
-      data += sizeof(DXDebug::LaneData);
+      data += sizeof(DXDebug::PSLaneData);
 
       for(size_t i = 0; i < fetcher.inputs.size(); i++)
       {
@@ -2860,11 +2891,11 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   else
   {
     DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
-    ret = debugger->BeginDebug(eventId, dxbc, refl, hit->quadLaneIndex, 4);
+    ret = debugger->BeginDebug(eventId, dxbc, refl, hit->laneIndex, hit->subgroupSize);
 
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
     rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
-    workgroupProperties.resize(4);
+    workgroupProperties.resize(hit->subgroupSize);
     const rdcarray<DXIL::EntryPointInterface::Signature> &dxilInputs =
         debugger->GetDXILEntryPointInputs();
 
@@ -2872,21 +2903,19 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.graphics, refl,
                                        globalState, ret->sourceVars);
 
-    for(uint32_t q = 0; q < 4; q++)
+    for(uint32_t q = 0; q < hit->subgroupSize; q++)
     {
-      DXDebug::LaneData *lane = (DXDebug::LaneData *)data;
+      DXDebug::PSLaneData *lane = (DXDebug::PSLaneData *)data;
 
       DXILDebug::ThreadState &state = debugger->GetWorkgroup(q);
       rdcarray<ShaderVariable> &ins = state.m_Input.members;
 
-      RDCASSERT(q == lane->quadLane, q, lane->quadLane);
-
-      workgroupProperties[q][DXILDebug::ThreadProperty::Active] = 1;
-      workgroupProperties[q][DXILDebug::ThreadProperty::Helper] = q != hit->quadLaneIndex;
+      workgroupProperties[q][DXILDebug::ThreadProperty::Active] = lane->active;
+      workgroupProperties[q][DXILDebug::ThreadProperty::Helper] = lane->isHelper;
       workgroupProperties[q][DXILDebug::ThreadProperty::QuadLane] = lane->quadLane;
       workgroupProperties[q][DXILDebug::ThreadProperty::QuadId] = lane->quadId;
 
-      data += sizeof(DXDebug::LaneData);
+      data += sizeof(DXDebug::PSLaneData);
 
       // TODO: SAMPLE EVALUTE MASK
       // globalState.sampleEvalRegisterMask = sampleEvalRegisterMask;
@@ -2896,7 +2925,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       rdcarray<DXILDebug::PSInputData> psInputDatas;
       for(int i = 0; i < fetcher.inputs.count(); i++)
       {
-        DXDebug::PSInputElement &inputElement = fetcher.inputs[i];
+        DXDebug::InputElement &inputElement = fetcher.inputs[i];
         int packedRegister = inputElement.reg;
         if(packedRegister >= 0)
         {
@@ -3051,7 +3080,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
   if(dxbc->GetDXBCByteCode())
   {
     uint32_t activeIndex = 0;
-    if(dxbc->GetThreadScope() == DXBC::ThreadScope::Workgroup)
+    if(dxbc->GetThreadScope() & DXBC::ThreadScope::Workgroup)
     {
       if(D3D_Hack_EnableGroups())
         activeIndex =

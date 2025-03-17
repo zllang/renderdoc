@@ -46,8 +46,12 @@ typedef DXBC::ResourceRetType ResourceRetType;
 typedef DXBCBytecode::ResourceDimension ResourceDimension;
 typedef DXBCBytecode::SamplerMode SamplerMode;
 
-struct LaneData
+struct PSLaneData
 {
+  uint32_t laneIndex;
+  uint32_t active;
+  uint32_t pad[2];
+
   Vec4f pixelPos;
 
   uint32_t isHelper;
@@ -58,7 +62,30 @@ struct LaneData
   // user data PSInput below here
 };
 
-struct PixelDebugHit
+struct VSLaneData
+{
+  uint32_t laneIndex;
+  uint32_t active;
+  uint32_t pad2[2];
+
+  uint32_t inst;
+  uint32_t vert;
+  uint32_t pad[2];
+
+  // user data VSInput below here
+};
+
+struct CSLaneData
+{
+  uint32_t laneIndex;
+  uint32_t active;
+  uint32_t pad2[2];
+
+  uint32_t threadid[3];
+  uint32_t pad;
+};
+
+struct DebugHit
 {
   // only used in the first instance
   uint32_t numHits;
@@ -73,7 +100,12 @@ struct PixelDebugHit
   uint32_t sample;
 
   uint32_t quadLaneIndex;
-  uint32_t pad[3];
+  uint32_t laneIndex;
+  uint32_t subgroupSize;
+  uint32_t pad;
+
+  Vec4u globalBallot;
+  Vec4u helperBallot;
 
   // LaneData quad[4] below here
 };
@@ -81,9 +113,9 @@ struct PixelDebugHit
 // maximum number of overdraw levels before we start losing potential pixel hits
 static const uint32_t maxPixelHits = 100;
 
-struct PSInputElement
+struct InputElement
 {
-  PSInputElement(int regster, int element, int numWords, ShaderBuiltin attr, bool inc)
+  InputElement(int regster, int element, int numWords, ShaderBuiltin attr, bool inc)
   {
     reg = regster;
     elem = element;
@@ -135,30 +167,40 @@ struct SampleEvalCacheKey
   bool operator==(const SampleEvalCacheKey &o) const { return !(*this < o) && !(o < *this); }
 };
 
-struct PSInputFetcherConfig
+struct InputFetcherConfig
 {
   uint32_t x = 0, y = 0;
+
+  uint32_t vert = 0, inst = 0;
+
+  rdcfixedarray<uint32_t, 3> threadid = {0, 0, 0};
+
   uint32_t uavslot = 0;
   uint32_t uavspace = 0;
+  uint32_t maxWaveSize = 64;
   uint32_t outputSampleCount = 1;
 };
 
-struct PSInputFetcher
+struct InputFetcher
 {
-  // stride of the generated PSInput struct
-  uint32_t stride = 0;
-  // members of the PSInput struct
-  rdcarray<PSInputElement> inputs;
+  // stride of the hit buffer
+  uint32_t hitBufferStride = 0;
+  // stride of the lane data buffer - if 0 then no buffer is needed and lane data is inside hits
+  uint32_t laneDataBufferStride = 0;
+  // number of lanes each hit has allocated - usually equal to max wave size, or explicit wave size
+  uint32_t numLanesPerHit = 0;
+  // members of the Input struct
+  rdcarray<InputElement> inputs;
 
-  // per-sample evaluation cache
+  // per-sample evaluation cache (pixel shader only)
   rdcarray<SampleEvalCacheKey> evalSampleCacheData;
   uint64_t sampleEvalRegisterMask = 0;
 
   rdcstr hlsl;
 };
 
-void CreatePSInputFetcher(const DXBC::DXBCContainer *dxbc, const DXBC::DXBCContainer *prevdxbc,
-                          const PSInputFetcherConfig &cfg, PSInputFetcher &fetcher);
+void CreateInputFetcher(const DXBC::DXBCContainer *dxbc, const DXBC::DXBCContainer *prevdxbc,
+                        const InputFetcherConfig &cfg, InputFetcher &fetcher);
 
 enum class GatherChannel : uint8_t
 {

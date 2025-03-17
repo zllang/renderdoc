@@ -68,8 +68,8 @@ Program::Program(const rdcarray<uint32_t> &words)
   m_Minor = VersionToken::MinorVersion.Get(cur[0]);
 }
 
-void Program::CalculateEvalSampleCache(const DXDebug::PSInputFetcherConfig &cfg,
-                                       DXDebug::PSInputFetcher &fetcher) const
+void Program::CalculateEvalSampleCache(const DXDebug::InputFetcherConfig &cfg,
+                                       DXDebug::InputFetcher &fetcher) const
 {
   // scan the instructions to see if it contains any evaluates.
   for(size_t i = 0; i < GetNumInstructions(); i++)
