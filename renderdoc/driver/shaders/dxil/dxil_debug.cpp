@@ -8274,6 +8274,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         ref.name = inStruct.name + "." + v.name;
         inputMapping.variables.push_back(ref);
       }
+      ret->sourceVars.push_back(inputMapping);
     }
 
     // Make a single source variable mapping for the whole input struct
@@ -8433,37 +8434,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     outputMapping.variables[0].type = DebugVariableType::Variable;
     ret->sourceVars.push_back(outputMapping);
   }
-
-  // Per instruction all source variable mappings at this instruction (cumulative and complete)
-  // InstructionSourceInfo
-  // {
-  //   uint32_t instruction;
-  //   LineColumnInfo lineInfo;
-  //   {
-  //     uint32_t disassemblyLine = 0;
-  //     int32_t fileIndex = -1;
-  //     uint32_t lineStart = 0;
-  //     uint32_t lineEnd = 0;
-  //     uint32_t colStart = 0;
-  //     uint32_t colEnd = 0;
-  //   }
-  //   rdcarray<SourceVariableMapping> sourceVars;
-  //   {
-  //     rdcstr name;
-  //     VarType type = VarType::Unknown;
-  //     uint32_t rows = 0;
-  //     uint32_t columns = 0;
-  //     uint32_t offset;
-  //     int32_t signatureIndex = -1;
-  //     rdcarray<DebugVariableReference> variables;
-  //     {
-  //       rdcstr name;
-  //       DebugVariableType type = DebugVariableType::Undefined;
-  //       uint32_t component = 0;
-  //     }
-  //   }
-  // }
-  // ret->instInfo.push_back(InstructionSourceInfo())
 
   ret->inputs = {state.m_Input};
   ret->inputs.append(state.m_Input.members);
