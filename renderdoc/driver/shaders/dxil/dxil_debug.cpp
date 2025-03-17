@@ -1493,24 +1493,13 @@ void MemoryTracking::AllocateMemoryForType(const DXIL::Type *type, Id allocId, b
   m_Pointers[allocId] = {allocId, backingMem, byteSize};
 }
 
-ThreadState::ThreadState(uint32_t workgroupIndex, Debugger &debugger,
-                         const GlobalState &globalState, uint32_t maxSSAId)
+ThreadState::ThreadState(Debugger &debugger, const GlobalState &globalState, uint32_t maxSSAId)
     : m_Debugger(debugger),
       m_GlobalState(globalState),
       m_Program(debugger.GetProgram()),
       m_MaxSSAId(maxSSAId)
 {
-  m_WorkgroupIndex = workgroupIndex;
-  m_FunctionInfo = NULL;
-  m_FunctionInstructionIdx = 0;
-  m_ActiveGlobalInstructionIdx = 0;
-  m_Killed = false;
-  m_Ended = false;
-  m_Callstack.clear();
   m_ShaderType = m_Program.GetShaderType();
-  m_Semantics.coverage = ~0U;
-  m_Semantics.isFrontFace = false;
-  m_Semantics.primID = ~0U;
   m_Assigned.resize(maxSSAId);
   m_Live.resize(maxSSAId);
 }
@@ -1524,19 +1513,9 @@ ThreadState::~ThreadState()
   }
 }
 
-void ThreadState::InitialiseHelper(const ThreadState &activeState)
-{
-  m_Input = activeState.m_Input;
-  m_Semantics = activeState.m_Semantics;
-  m_Variables = activeState.m_Variables;
-  m_Assigned = activeState.m_Assigned;
-  m_Live = activeState.m_Live;
-  m_IsGlobal = activeState.m_IsGlobal;
-}
-
 bool ThreadState::Finished() const
 {
-  return m_Killed || m_Ended || m_Callstack.empty();
+  return m_Dead || m_Ended || m_Callstack.empty();
 }
 
 bool ThreadState::InUniformBlock() const
@@ -1676,7 +1655,7 @@ bool IsNopInstruction(const Instruction &inst)
 }
 
 bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
-                                     const rdcarray<ThreadState> &workgroups)
+                                     const rdcarray<ThreadState> &workgroup)
 {
   m_CurrentInstruction = m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
   const Instruction &inst = *m_CurrentInstruction;
@@ -1891,7 +1870,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             if(!resRefInfo.Valid())
               break;
 
-            PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRefInfo, apiWrapper, inst, result);
+            PerformGPUResourceOp(workgroup, opCode, dxOpCode, resRefInfo, apiWrapper, inst, result);
             eventFlags |= ShaderEvents::SampleLoadGather;
             break;
           }
@@ -1918,8 +1897,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // SRV TextureLoad is done on the GPU
             if((dxOpCode == DXOp::TextureLoad) && (resClass == ResourceClass::SRV))
             {
-              PerformGPUResourceOp(workgroups, opCode, dxOpCode, resRefInfo, apiWrapper, inst,
-                                   result);
+              PerformGPUResourceOp(workgroup, opCode, dxOpCode, resRefInfo, apiWrapper, inst, result);
               eventFlags |= ShaderEvents::SampleLoadGather;
               break;
             }
@@ -2755,21 +2733,21 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::DerivFineX:
           case DXOp::DerivFineY:
           {
-            if(m_ShaderType != DXBC::ShaderType::Pixel || workgroups.size() != 4)
+            if(m_ShaderType != DXBC::ShaderType::Pixel || workgroup.size() != 4)
             {
               RDCERR("Undefined results using derivative instruction outside of a pixel shader.");
             }
             else
             {
-              RDCASSERT(!ThreadsAreDiverged(workgroups));
+              RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
               if(dxOpCode == DXOp::DerivCoarseX)
-                result.value = DDX(false, opCode, dxOpCode, workgroups, inst.args[1]);
+                result.value = DDX(false, opCode, dxOpCode, workgroup, inst.args[1]);
               else if(dxOpCode == DXOp::DerivCoarseY)
-                result.value = DDY(false, opCode, dxOpCode, workgroups, inst.args[1]);
+                result.value = DDY(false, opCode, dxOpCode, workgroup, inst.args[1]);
               else if(dxOpCode == DXOp::DerivFineX)
-                result.value = DDX(true, opCode, dxOpCode, workgroups, inst.args[1]);
+                result.value = DDX(true, opCode, dxOpCode, workgroup, inst.args[1]);
               else if(dxOpCode == DXOp::DerivFineY)
-                result.value = DDY(true, opCode, dxOpCode, workgroups, inst.args[1]);
+                result.value = DDY(true, opCode, dxOpCode, workgroup, inst.args[1]);
             }
             break;
           }
@@ -2913,7 +2891,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             BarrierMode barrierMode = (BarrierMode)arg.value.u32v[0];
             // For thread barriers the threads must be converged
             if(barrierMode & BarrierMode::SyncThreadGroup)
-              RDCASSERT(!ThreadsAreDiverged(workgroups));
+              RDCASSERT(!WorkgroupIsDiverged(workgroup));
             break;
           }
           case DXOp::Discard:
@@ -2922,7 +2900,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, cond));
             if(cond.value.u32v[0] != 0)
             {
-              m_Killed = true;
+              m_Dead = true;
               return true;
             }
             break;
@@ -3295,8 +3273,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           }
           case DXOp::IsHelperLane:
           {
-            // Helper lanes don't have state
-            result.value.u32v[0] = m_State ? 0 : 1;
+            result.value.u32v[0] = m_Helper ? 0 : 1;
             break;
           }
           case DXOp::UAddc:
@@ -3573,7 +3550,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::QuadReadLaneAt:
           case DXOp::QuadOp:
           {
-            RDCASSERT(!ThreadsAreDiverged(workgroups));
+            RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
             // QuadOp(value,op)
             // QuadReadLaneAt(value,quadLane)
             ShaderVariable b;
@@ -3629,10 +3606,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               RDCERR("Unhandled dxOpCode %s", ToStr(dxOpCode).c_str());
             }
-            if(lane < workgroups.size())
+            if(lane < workgroup.size())
             {
               ShaderVariable var;
-              RDCASSERT(workgroups[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, var));
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, var));
               result.value = var.value;
             }
             else
@@ -3992,7 +3969,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::NoOp: RDCERR("NoOp instructions should not be executed"); return false;
     case Operation::Unreachable:
     {
-      m_Killed = true;
+      m_Dead = true;
       RDCERR("Operation::Unreachable reached, terminating debugging!");
       return true;
     }
@@ -5361,7 +5338,7 @@ void ThreadState::StepOverNopInstructions()
 }
 
 void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
-                           const rdcarray<ThreadState> &workgroups)
+                           const rdcarray<ThreadState> &workgroup)
 {
   m_State = state;
 
@@ -5399,7 +5376,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       }
     }
   }
-  ExecuteInstruction(apiWrapper, workgroups);
+  ExecuteInstruction(apiWrapper, workgroup);
 
   m_State = NULL;
 }
@@ -5704,7 +5681,7 @@ void ThreadState::UpdateMemoryVariableFromBackingMemory(Id memoryId, const void 
   }
 }
 
-void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, Operation opCode,
+void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroup, Operation opCode,
                                        DXOp dxOpCode, const ResourceReferenceInfo &resRefInfo,
                                        DebugAPIWrapper *apiWrapper, const DXIL::Instruction &inst,
                                        ShaderVariable &result)
@@ -5935,22 +5912,22 @@ void ThreadState::PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, 
   // Sample, SampleBias, CalculateLOD need DDX, DDY
   if((dxOpCode == DXOp::Sample) || (dxOpCode == DXOp::SampleBias) || (dxOpCode == DXOp::CalculateLOD))
   {
-    if(m_ShaderType != DXBC::ShaderType::Pixel || workgroups.size() != 4)
+    if(m_ShaderType != DXBC::ShaderType::Pixel || m_QuadNeighbours.contains(~0U))
     {
       RDCERR("Undefined results using derivative instruction outside of a pixel shader.");
     }
     else
     {
-      RDCASSERT(!ThreadsAreDiverged(workgroups));
+      RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
       // texture samples use coarse derivatives
       ShaderValue delta;
       for(uint32_t i = 0; i < 4; i++)
       {
         if(uvDDXY[i])
         {
-          delta = DDX(false, opCode, dxOpCode, workgroups, inst.args[3 + i]);
+          delta = DDX(false, opCode, dxOpCode, workgroup, inst.args[3 + i]);
           ddx.value.f32v[i] = delta.f32v[0];
-          delta = DDY(false, opCode, dxOpCode, workgroups, inst.args[3 + i]);
+          delta = DDY(false, opCode, dxOpCode, workgroup, inst.args[3 + i]);
           ddy.value.f32v[i] = delta.f32v[0];
         }
       }
@@ -6107,12 +6084,25 @@ void ThreadState::Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderVa
 }
 
 ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
-                             const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const
+                             const rdcarray<ThreadState> &workgroup, const DXIL::Value *dxilValue) const
 {
-  RDCASSERT(!ThreadsAreDiverged(quad));
+  ShaderValue ret = {};
+
+  if(m_QuadNeighbours[0] == ~0U || m_QuadNeighbours[1] == ~0U || m_QuadNeighbours[2] == ~0U ||
+     m_QuadNeighbours[3] == ~0U)
+  {
+    RDCERR("Derivative calculation within non-quad");
+    return ret;
+  }
+
+  RDCASSERT(m_QuadNeighbours[0] < workgroup.size(), m_QuadNeighbours[0], workgroup.size());
+  RDCASSERT(m_QuadNeighbours[1] < workgroup.size(), m_QuadNeighbours[1], workgroup.size());
+  RDCASSERT(m_QuadNeighbours[2] < workgroup.size(), m_QuadNeighbours[2], workgroup.size());
+  RDCASSERT(m_QuadNeighbours[3] < workgroup.size(), m_QuadNeighbours[3], workgroup.size());
+  RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
 
   uint32_t index = ~0U;
-  int quadIndex = m_WorkgroupIndex;
+  int quadIndex = m_QuadLaneIndex;
 
   if(!fine)
   {
@@ -6129,21 +6119,34 @@ ShaderValue ThreadState::DDX(bool fine, Operation opCode, DXOp dxOpCode,
     index = quadIndex - 1;
   }
 
-  ShaderValue ret;
   ShaderVariable a;
   ShaderVariable b;
-  RDCASSERT(quad[index + 1].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
-  RDCASSERT(quad[index].GetShaderVariable(dxilValue, opCode, dxOpCode, b));
+  RDCASSERT(workgroup[m_QuadNeighbours[index + 1]].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
+  RDCASSERT(workgroup[m_QuadNeighbours[index]].GetShaderVariable(dxilValue, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
 }
 
 ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
-                             const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const
+                             const rdcarray<ThreadState> &workgroup, const DXIL::Value *dxilValue) const
 {
-  RDCASSERT(!ThreadsAreDiverged(quad));
+  ShaderValue ret = {};
+
+  if(m_QuadNeighbours[0] == ~0U || m_QuadNeighbours[1] == ~0U || m_QuadNeighbours[2] == ~0U ||
+     m_QuadNeighbours[3] == ~0U)
+  {
+    RDCERR("Derivative calculation within non-quad");
+    return ret;
+  }
+
+  RDCASSERT(m_QuadNeighbours[0] < workgroup.size(), m_QuadNeighbours[0], workgroup.size());
+  RDCASSERT(m_QuadNeighbours[1] < workgroup.size(), m_QuadNeighbours[1], workgroup.size());
+  RDCASSERT(m_QuadNeighbours[2] < workgroup.size(), m_QuadNeighbours[2], workgroup.size());
+  RDCASSERT(m_QuadNeighbours[3] < workgroup.size(), m_QuadNeighbours[3], workgroup.size());
+  RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
+
   uint32_t index = ~0U;
-  int quadIndex = m_WorkgroupIndex;
+  int quadIndex = m_QuadLaneIndex;
 
   if(!fine)
   {
@@ -6160,12 +6163,10 @@ ShaderValue ThreadState::DDY(bool fine, Operation opCode, DXOp dxOpCode,
     index = quadIndex - 2;
   }
 
-  ShaderValue ret;
-  memset(&ret, 0, sizeof(ret));
   ShaderVariable a;
   ShaderVariable b;
-  RDCASSERT(quad[index + 2].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
-  RDCASSERT(quad[index].GetShaderVariable(dxilValue, opCode, dxOpCode, b));
+  RDCASSERT(workgroup[m_QuadNeighbours[index + 2]].GetShaderVariable(dxilValue, opCode, dxOpCode, a));
+  RDCASSERT(workgroup[m_QuadNeighbours[index]].GetShaderVariable(dxilValue, opCode, dxOpCode, b));
   Sub(a, b, ret);
   return ret;
 }
@@ -6179,25 +6180,57 @@ GlobalState::~GlobalState()
   }
 }
 
-bool ThreadState::ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups)
+bool ThreadState::WorkgroupIsDiverged(const rdcarray<ThreadState> &workgroup)
 {
   uint32_t block0 = ~0U;
   uint32_t instr0 = ~0U;
-  for(size_t i = 0; i < workgroups.size(); i++)
+  for(size_t i = 0; i < workgroup.size(); i++)
   {
-    if(workgroups[i].Finished())
+    if(workgroup[i].Finished())
       continue;
     if(block0 == ~0U)
     {
-      block0 = workgroups[i].m_Block;
-      instr0 = workgroups[i].m_ActiveGlobalInstructionIdx;
+      block0 = workgroup[i].m_Block;
+      instr0 = workgroup[i].m_ActiveGlobalInstructionIdx;
       continue;
     }
     // not in the same basic block
-    if(workgroups[i].m_Block != block0)
+    if(workgroup[i].m_Block != block0)
       return true;
     // not executing the same instruction
-    if(workgroups[i].m_ActiveGlobalInstructionIdx != instr0)
+    if(workgroup[i].m_ActiveGlobalInstructionIdx != instr0)
+      return true;
+  }
+  return false;
+}
+
+bool ThreadState::QuadIsDiverged(const rdcarray<ThreadState> &workgroup,
+                                 const rdcfixedarray<uint32_t, 4> &quadNeighbours)
+{
+  uint32_t block0 = ~0U;
+  uint32_t instr0 = ~0U;
+  for(size_t q = 0; q < quadNeighbours.size(); q++)
+  {
+    uint32_t i = quadNeighbours[q];
+    if(i == ~0U)
+    {
+      RDCERR("Checking quad divergence on non-quad");
+      continue;
+    }
+
+    if(workgroup[i].Finished())
+      continue;
+    if(block0 == ~0U)
+    {
+      block0 = workgroup[i].m_Block;
+      instr0 = workgroup[i].m_ActiveGlobalInstructionIdx;
+      continue;
+    }
+    // not in the same basic block
+    if(workgroup[i].m_Block != block0)
+      return true;
+    // not executing the same instruction
+    if(workgroup[i].m_ActiveGlobalInstructionIdx != instr0)
       return true;
   }
   return false;
@@ -6237,35 +6270,35 @@ rdcstr Debugger::GetResourceReferenceName(const DXIL::Program *program,
 void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
 {
   // one bool per workgroup thread
-  activeMask.resize(m_Workgroups.size());
+  activeMask.resize(m_Workgroup.size());
 
   // mark any threads that have finished as inactive, otherwise they're active
-  for(size_t i = 0; i < m_Workgroups.size(); i++)
-    activeMask[i] = !m_Workgroups[i].Finished();
+  for(size_t i = 0; i < m_Workgroup.size(); i++)
+    activeMask[i] = !m_Workgroup[i].Finished();
 
   // only pixel shaders automatically converge workgroups, compute shaders need explicit sync
   if(m_Stage != ShaderStage::Pixel)
     return;
 
   // Not diverged then all active
-  if(!ThreadState::ThreadsAreDiverged(m_Workgroups))
+  if(!ThreadState::WorkgroupIsDiverged(m_Workgroup))
     return;
 
   bool anyActive = false;
-  for(size_t i = 0; i < m_Workgroups.size(); i++)
+  for(size_t i = 0; i < m_Workgroup.size(); i++)
   {
     if(!activeMask[i])
       continue;
     // Run any thread that is not in a uniform block
     // Stop any thread that is not in a uniform block
-    activeMask[i] = !m_Workgroups[i].InUniformBlock();
+    activeMask[i] = !m_Workgroup[i].InUniformBlock();
     anyActive |= activeMask[i];
   }
   if(!anyActive)
   {
     RDCERR("No active threads, forcing all unfinished threads to run");
-    for(size_t i = 0; i < m_Workgroups.size(); i++)
-      activeMask[i] = !m_Workgroups[i].Finished();
+    for(size_t i = 0; i < m_Workgroup.size(); i++)
+      activeMask[i] = !m_Workgroup[i].Finished();
   }
   return;
 }
@@ -7450,7 +7483,8 @@ void Debugger::ParseDebugData()
 }
 
 ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContainer *dxbcContainer,
-                                       const ShaderReflection &reflection, uint32_t activeLaneIndex)
+                                       const ShaderReflection &reflection, uint32_t activeLaneIndex,
+                                       uint32_t workgroupSize)
 {
   ShaderStage shaderStage = reflection.stage;
 
@@ -7466,9 +7500,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   ShaderDebugTrace *ret = new ShaderDebugTrace;
   ret->stage = shaderStage;
 
-  uint32_t workgroupSize = shaderStage == ShaderStage::Pixel ? 4 : 1;
   for(uint32_t i = 0; i < workgroupSize; i++)
-    m_Workgroups.push_back(ThreadState(i, *this, m_GlobalState, nextSSAId));
+    m_Workgroup.push_back(ThreadState(*this, m_GlobalState, nextSSAId));
 
   ThreadState &state = GetActiveLane();
 
@@ -8287,11 +8320,106 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   ret->samplers = m_GlobalState.samplers;
   ret->debugger = this;
 
+  for(uint32_t i = 0; i < workgroupSize; i++)
+  {
+    ThreadState &lane = m_Workgroup[i];
+    lane.m_WorkgroupIndex = i;
+
+    if(i != m_ActiveLaneIndex)
+    {
+      lane.m_Input = state.m_Input;
+      lane.m_Semantics = state.m_Semantics;
+      lane.m_Variables = state.m_Variables;
+      lane.m_Assigned = state.m_Assigned;
+      lane.m_Live = state.m_Live;
+      lane.m_IsGlobal = state.m_IsGlobal;
+    }
+  }
+
   // Add the output struct to the global state
   if(countOutputs)
     m_GlobalState.globals.push_back(state.m_Output);
 
   return ret;
+}
+
+void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupProperties)
+{
+  const uint32_t workgroupSize = (uint32_t)m_Workgroup.size();
+
+  if(workgroupSize == 1)
+    return;
+
+  if(workgroupSize != workgroupProperties.size())
+  {
+    RDCERR("Workgroup properties has wrong count %zu, expected %u", workgroupProperties.size(),
+           workgroupSize);
+    return;
+  }
+
+  for(uint32_t i = 0; i < workgroupSize; i++)
+  {
+    ThreadState &lane = m_Workgroup[i];
+
+    if(m_Stage == ShaderStage::Pixel)
+    {
+      lane.m_Helper = workgroupProperties[i][ThreadProperty::Helper] != 0;
+      lane.m_QuadLaneIndex = workgroupProperties[i][ThreadProperty::QuadLane];
+      lane.m_QuadId = workgroupProperties[i][ThreadProperty::QuadId];
+    }
+
+    lane.m_Dead = workgroupProperties[i][ThreadProperty::Active] == 0;
+  }
+
+  // find quad neighbours
+  {
+    rdcarray<uint32_t> processedQuads;
+    for(uint32_t i = 0; i < workgroupSize; i++)
+    {
+      uint32_t desiredQuad = m_Workgroup[i].m_QuadId;
+
+      // ignore threads not in any quad
+      if(desiredQuad == 0)
+        continue;
+
+      // quads are almost certainly sorted together, so shortcut by checking the last one
+      if((!processedQuads.empty() && processedQuads.back() == desiredQuad) ||
+         processedQuads.contains(desiredQuad))
+        continue;
+
+      processedQuads.push_back(desiredQuad);
+
+      // find the threads
+      uint32_t threads[4] = {
+          i,
+          ~0U,
+          ~0U,
+          ~0U,
+      };
+      for(uint32_t j = i + 1, t = 1; j < workgroupSize && t < 4; j++)
+      {
+        if(m_Workgroup[j].m_QuadId == desiredQuad)
+          threads[t++] = j;
+      }
+
+      // now swizzle the threads to know each other
+      for(uint32_t src = 0; src < 4; src++)
+      {
+        uint32_t lane = m_Workgroup[threads[src]].m_QuadLaneIndex;
+
+        if(lane >= 4)
+          continue;
+
+        for(uint32_t dst = 0; dst < 4; dst++)
+        {
+          if(threads[dst] == ~0U)
+            continue;
+
+          m_Workgroup[threads[dst]].m_QuadNeighbours[lane] = threads[src];
+        }
+      }
+    }
+  }
 }
 
 rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
@@ -8305,9 +8433,9 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
   {
     ShaderDebugState initial;
 
-    for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
+    for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
     {
-      ThreadState &thread = m_Workgroups[lane];
+      ThreadState &thread = m_Workgroup[lane];
 
       if(lane == m_ActiveLaneIndex)
       {
@@ -8351,11 +8479,11 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
     // step all active members of the workgroup
     ShaderDebugState state;
     bool hasDebugState = false;
-    for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
+    for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
     {
       if(activeMask[lane])
       {
-        ThreadState &thread = m_Workgroups[lane];
+        ThreadState &thread = m_Workgroup[lane];
         if(thread.Finished())
         {
           if(lane == m_ActiveLaneIndex)
@@ -8367,24 +8495,24 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
         {
           hasDebugState = true;
           state.stepIndex = m_Steps;
-          thread.StepNext(&state, apiWrapper, m_Workgroups);
+          thread.StepNext(&state, apiWrapper, m_Workgroup);
           m_Steps++;
         }
         else
         {
-          thread.StepNext(NULL, apiWrapper, m_Workgroups);
+          thread.StepNext(NULL, apiWrapper, m_Workgroup);
         }
       }
     }
-    for(size_t lane = 0; lane < m_Workgroups.size(); lane++)
+    for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
     {
       if(activeMask[lane])
-        m_Workgroups[lane].StepOverNopInstructions();
+        m_Workgroup[lane].StepOverNopInstructions();
     }
     // Update UI state after the execute and step over nops to make sure state.nextInstruction is in sync
     if(hasDebugState)
     {
-      ThreadState &thread = m_Workgroups[m_ActiveLaneIndex];
+      ThreadState &thread = m_Workgroup[m_ActiveLaneIndex];
       state.nextInstruction = thread.m_ActiveGlobalInstructionIdx;
       thread.FillCallstack(state);
       ret.push_back(std::move(state));

@@ -492,7 +492,7 @@ void ExtractInputsPS(PSInput IN,
 
   // quadId is a single value that's unique for this quad and uniform across the quad. Degenerate
   // for the simple quad case
-  uint quadId = quadSwizzleHelper(quadLaneIndex, quadLaneIndex, 0u);
+  uint quadId = 1000+quadSwizzleHelper(quadLaneIndex, quadLaneIndex, 0u);
   HitBuffer[idx].quad[0].quadId = quadId;
   HitBuffer[idx].quad[1].quadId = quadId;
   HitBuffer[idx].quad[2].quadId = quadId;

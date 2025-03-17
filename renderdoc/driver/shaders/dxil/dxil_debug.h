@@ -214,20 +214,19 @@ struct MemoryTracking
 
 struct ThreadState
 {
-  ThreadState(uint32_t workgroupIndex, Debugger &debugger, const GlobalState &globalState,
-              uint32_t maxSSAId);
+  ThreadState(Debugger &debugger, const GlobalState &globalState, uint32_t maxSSAId);
   ~ThreadState();
 
   void EnterFunction(const DXIL::Function *function, const rdcarray<DXIL::Value *> &args);
   void EnterEntryPoint(const DXIL::Function *function, ShaderDebugState *state);
   void StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
-                const rdcarray<ThreadState> &workgroups);
+                const rdcarray<ThreadState> &workgroup);
   void StepOverNopInstructions();
 
   bool Finished() const;
   bool InUniformBlock() const;
 
-  bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroups);
+  bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroup);
 
   void MarkResourceAccess(const rdcstr &name, const ResourceReferenceInfo &resRefInfo,
                           bool directAccess, const ShaderDirectAccess &access,
@@ -259,21 +258,22 @@ struct ThreadState
   void UpdateBackingMemoryFromVariable(void *ptr, uint64_t &allocSize, const ShaderVariable &var);
   void UpdateMemoryVariableFromBackingMemory(Id memoryId, const void *ptr);
 
-  void PerformGPUResourceOp(const rdcarray<ThreadState> &workgroups, DXIL::Operation opCode,
+  void PerformGPUResourceOp(const rdcarray<ThreadState> &workgroup, DXIL::Operation opCode,
                             DXIL::DXOp dxOpCode, const ResourceReferenceInfo &resRef,
                             DebugAPIWrapper *apiWrapper, const DXIL::Instruction &inst,
                             ShaderVariable &result);
   void Sub(const ShaderVariable &a, const ShaderVariable &b, ShaderValue &ret) const;
 
   ShaderValue DDX(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
-                  const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const;
+                  const rdcarray<ThreadState> &workgroup, const DXIL::Value *dxilValue) const;
   ShaderValue DDY(bool fine, DXIL::Operation opCode, DXIL::DXOp dxOpCode,
-                  const rdcarray<ThreadState> &quad, const DXIL::Value *dxilValue) const;
+                  const rdcarray<ThreadState> &workgroup, const DXIL::Value *dxilValue) const;
 
   void ProcessScopeChange(const rdcarray<bool> &oldLive, const rdcarray<bool> &newLive);
 
-  void InitialiseHelper(const ThreadState &activeState);
-  static bool ThreadsAreDiverged(const rdcarray<ThreadState> &workgroups);
+  static bool WorkgroupIsDiverged(const rdcarray<ThreadState> &workgroup);
+  static bool QuadIsDiverged(const rdcarray<ThreadState> &workgroup,
+                             const rdcfixedarray<uint32_t, 4> &quadNeighbours);
 
   bool GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Operation op, DXIL::DXOp dxOpCode,
                                ShaderVariable &var, bool flushDenormInput, bool isLive) const;
@@ -288,9 +288,9 @@ struct ThreadState
 
   struct
   {
-    uint32_t coverage;
-    uint32_t primID;
-    uint32_t isFrontFace;
+    uint32_t coverage = ~0U;
+    uint32_t primID = ~0U;
+    uint32_t isFrontFace = false;
   } m_Semantics;
 
   Debugger &m_Debugger;
@@ -326,13 +326,13 @@ struct ThreadState
   MemoryTracking m_Memory;
 
   // The instruction index within the current function
-  uint32_t m_FunctionInstructionIdx = ~0U;
+  uint32_t m_FunctionInstructionIdx = 0;
   const DXIL::Instruction *m_CurrentInstruction = NULL;
   // The current and previous function basic block index
   uint32_t m_Block = ~0U;
   uint32_t m_PreviousBlock = ~0U;
   // The global PC of the active instruction that was or will be executed on the current simulation step
-  uint32_t m_ActiveGlobalInstructionIdx = ~0U;
+  uint32_t m_ActiveGlobalInstructionIdx = 0;
 
   // SSA Ids guaranteed to be greater than 0 and less than this value
   uint32_t m_MaxSSAId;
@@ -340,10 +340,17 @@ struct ThreadState
   rdcarray<BindingSlot> m_accessedSRVs;
   rdcarray<BindingSlot> m_accessedUAVs;
 
-  // index in the pixel quad
+  // quad ID (arbitrary, just used to find neighbours for derivatives)
+  uint32_t m_QuadId = 0;
+  // index in the pixel quad (relative to the active lane)
+  uint32_t m_QuadLaneIndex = ~0U;
+  // the lane indices of our quad neighbours
+  rdcfixedarray<uint32_t, 4> m_QuadNeighbours = {~0U, ~0U, ~0U, ~0U};
+  // index in the workgroup
   uint32_t m_WorkgroupIndex = ~0U;
-  bool m_Killed = true;
-  bool m_Ended = true;
+  bool m_Dead = false;
+  bool m_Ended = false;
+  bool m_Helper = false;
 };
 
 struct GlobalState
@@ -408,16 +415,13 @@ struct GlobalState
   rdcarray<ShaderVariable> constantBlocks;
   rdcarray<bytebuf> constantBlocksData;
 
-  // workgroup private variables
-  rdcarray<ShaderVariable> workgroups;
-
   // resources may be read-write but the variable itself doesn't change
   rdcarray<ShaderVariable> readOnlyResources;
   rdcarray<ShaderVariable> readWriteResources;
   rdcarray<ShaderVariable> samplers;
-  // Globals across workgroups including inputs (immutable) and outputs (mutable)
+  // Globals across workgroup including inputs (immutable) and outputs (mutable)
   rdcarray<GlobalVariable> globals;
-  // Constants across workgroups
+  // Constants across workgroup
   rdcarray<GlobalConstant> constants;
   // Memory created for global variables
   MemoryTracking memory;
@@ -511,17 +515,48 @@ struct TypeData
   bool colMajorMat = false;
 };
 
+enum class ThreadProperty : uint32_t
+{
+  Helper,
+  QuadId,
+  QuadLane,
+  Active,
+  SubgroupId,
+  Count,
+};
+
+struct ThreadProperties
+{
+  rdcfixedarray<uint32_t, arraydim<ThreadProperty>()> props;
+
+  uint32_t &operator[](ThreadProperty p)
+  {
+    if(p >= ThreadProperty::Count)
+      return props[0];
+    return props[(uint32_t)p];
+  }
+
+  uint32_t operator[](ThreadProperty p) const
+  {
+    if(p >= ThreadProperty::Count)
+      return 0;
+    return props[(uint32_t)p];
+  }
+};
+
 class Debugger : public DXBCContainerDebugger
 {
 public:
   Debugger() : DXBCContainerDebugger(true){};
   ShaderDebugTrace *BeginDebug(uint32_t eventId, const DXBC::DXBCContainer *dxbcContainer,
-                               const ShaderReflection &reflection, uint32_t activeLaneIndex);
+                               const ShaderReflection &reflection, uint32_t activeLaneIndex,
+                               uint32_t workgroupSize);
+  void InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupProperties);
   rdcarray<ShaderDebugState> ContinueDebug(DebugAPIWrapper *apiWrapper);
   GlobalState &GetGlobalState() { return m_GlobalState; }
-  ThreadState &GetActiveLane() { return m_Workgroups[m_ActiveLaneIndex]; }
-  ThreadState &GetWorkgroup(const uint32_t i) { return m_Workgroups[i]; }
-  rdcarray<ThreadState> &GetWorkgroups() { return m_Workgroups; }
+  ThreadState &GetActiveLane() { return m_Workgroup[m_ActiveLaneIndex]; }
+  ThreadState &GetWorkgroup(const uint32_t i) { return m_Workgroup[i]; }
+  rdcarray<ThreadState> &GetWorkgroup() { return m_Workgroup; }
   const rdcarray<bool> &GetLiveGlobals() { return m_LiveGlobals; }
   static rdcstr GetResourceReferenceName(const DXIL::Program *program, DXIL::ResourceClass resClass,
                                          const BindingSlot &slot);
@@ -544,7 +579,7 @@ private:
   void AddLocalVariable(const DXIL::SourceMappingInfo &srcMapping, uint32_t instructionIndex);
   void ParseDebugData();
 
-  rdcarray<ThreadState> m_Workgroups;
+  rdcarray<ThreadState> m_Workgroup;
   std::map<const DXIL::Function *, FunctionInfo> m_FunctionInfos;
 
   // the live mutable global variables, to initialise a stack frame's live list

@@ -2005,11 +2005,15 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
   else
   {
     DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
-    ret = debugger->BeginDebug(eventId, dxbc, refl, 0);
+    ret = debugger->BeginDebug(eventId, dxbc, refl, 0, 1);
 
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
     DXILDebug::ThreadState &activeState = debugger->GetActiveLane();
     rdcarray<ShaderVariable> &inputs = activeState.m_Input.members;
+    rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
+    workgroupProperties.resize(1);
+
+    workgroupProperties[0][DXILDebug::ThreadProperty::Active] = 1;
 
     // Fetch constant buffer data from root signature
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.graphics, refl,
@@ -2258,6 +2262,9 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
         default: RDCERR("Unhandled system value semantic on VS input"); break;
       }
     }
+
+    debugger->InitialiseWorkgroup(workgroupProperties);
+
     ret->inputs = {activeState.m_Input};
     ret->constantBlocks = globalState.constantBlocks;
     delete[] instData;
@@ -2853,9 +2860,11 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   else
   {
     DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
-    ret = debugger->BeginDebug(eventId, dxbc, refl, hit->quadLaneIndex);
+    ret = debugger->BeginDebug(eventId, dxbc, refl, hit->quadLaneIndex, 4);
 
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
+    rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
+    workgroupProperties.resize(4);
     const rdcarray<DXIL::EntryPointInterface::Signature> &dxilInputs =
         debugger->GetDXILEntryPointInputs();
 
@@ -2870,8 +2879,12 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       DXILDebug::ThreadState &state = debugger->GetWorkgroup(q);
       rdcarray<ShaderVariable> &ins = state.m_Input.members;
 
-      if(q != hit->quadLaneIndex)
-        state.InitialiseHelper(debugger->GetActiveLane());
+      RDCASSERT(q == lane->quadLane, q, lane->quadLane);
+
+      workgroupProperties[q][DXILDebug::ThreadProperty::Active] = 1;
+      workgroupProperties[q][DXILDebug::ThreadProperty::Helper] = q != hit->quadLaneIndex;
+      workgroupProperties[q][DXILDebug::ThreadProperty::QuadLane] = lane->quadLane;
+      workgroupProperties[q][DXILDebug::ThreadProperty::QuadId] = lane->quadId;
 
       data += sizeof(DXDebug::LaneData);
 
@@ -2975,6 +2988,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       }
 #endif
     }
+
+    debugger->InitialiseWorkgroup(workgroupProperties);
 
     ret->inputs = {debugger->GetActiveLane().m_Input};
     ret->constantBlocks = globalState.constantBlocks;
@@ -3121,16 +3136,20 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     m_pDevice->ReplayLog(0, eventId, eReplay_WithoutDraw);
 
     DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
-    ret = debugger->BeginDebug(eventId, dxbc, refl, 0);
+    ret = debugger->BeginDebug(eventId, dxbc, refl, 0, 1);
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
 
     std::map<ShaderBuiltin, ShaderVariable> &builtins = globalState.builtinInputs;
+    rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
+    workgroupProperties.resize(1);
 
     uint32_t threadDim[3] = {
         refl.dispatchThreadsDimension[0],
         refl.dispatchThreadsDimension[1],
         refl.dispatchThreadsDimension[2],
     };
+
+    workgroupProperties[0][DXILDebug::ThreadProperty::Active] = 1;
 
     // SV_DispatchThreadID
     builtins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
@@ -3154,6 +3173,9 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     // Fetch constant buffer data from root signature
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.compute, refl,
                                        globalState, ret->sourceVars);
+
+    debugger->InitialiseWorkgroup(workgroupProperties);
+
     // ret->inputs = state.inputs;
     ret->constantBlocks = globalState.constantBlocks;
   }
