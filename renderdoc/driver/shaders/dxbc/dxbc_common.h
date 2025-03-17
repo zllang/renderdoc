@@ -495,6 +495,7 @@ struct Reflection
   rdcarray<SigParameter> PatchConstantSig;
 
   uint32_t DispatchThreadsDimension[3];
+  uint32_t WaveSize = 0;
 };
 
 class DXBCContainer;

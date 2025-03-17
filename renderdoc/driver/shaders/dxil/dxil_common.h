@@ -158,6 +158,7 @@ enum class ShaderEntryTag
   Compute = 4,
   Mesh = 9,
   Amplification = 10,
+  WaveSize = 11,
 };
 
 enum class ResField

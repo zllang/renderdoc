@@ -735,6 +735,12 @@ void Program::FetchComputeProperties(DXBC::Reflection *reflection)
           reflection->DispatchThreadsDimension[2] = getival<uint32_t>(threadDim.children[2]);
           return;
         }
+        else if(shaderTypeTag == ShaderEntryTag::WaveSize)
+        {
+          Metadata &sizeData = *tags.children[t + 1];
+          RDCASSERTEQUAL(sizeData.children.size(), 1);
+          reflection->WaveSize = getival<uint32_t>(sizeData.children[0]);
+        }
       }
 
       break;
