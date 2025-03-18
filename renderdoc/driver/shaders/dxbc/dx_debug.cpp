@@ -394,6 +394,11 @@ struct LaneData
   uint quadLane;
   uint coverage;
 
+  uint sample;
+  uint primitive;
+  uint isFrontFace;
+  uint pad2;
+
   Inputs IN;
 };
 
@@ -404,14 +409,13 @@ struct DebugHit
   float3 pos_depth; // xy position and depth
 
   float derivValid;
-  uint primitive;
-  uint isFrontFace;
-  uint sample;
-
   uint quadLaneIndex;
   uint laneIndex;
   uint subgroupSize;
-  uint pad;
+
+  uint sample;
+  uint primitive;
+  uint2 pad;
 
   uint4 globalBallot;
   uint4 helperBallot;
@@ -462,7 +466,6 @@ void ExtractInputs(Inputs IN
 
   HitBuffer[idx].primitive = primitive;
 
-  HitBuffer[idx].isFrontFace = isFrontFace;
   HitBuffer[idx].sample = sample;
 
   HitBuffer[idx].quadLaneIndex = quadLaneIndex;
@@ -471,6 +474,22 @@ void ExtractInputs(Inputs IN
 
   HitBuffer[idx].globalBallot = 0;
   HitBuffer[idx].helperBallot = 0;
+
+  // replicate these across the quad, we assume they do not vary
+  HitBuffer[idx].lanes[0].primitive = primitive;
+  HitBuffer[idx].lanes[1].primitive = primitive;
+  HitBuffer[idx].lanes[2].primitive = primitive;
+  HitBuffer[idx].lanes[3].primitive = primitive;
+
+  HitBuffer[idx].lanes[0].isFrontFace = isFrontFace;
+  HitBuffer[idx].lanes[1].isFrontFace = isFrontFace;
+  HitBuffer[idx].lanes[2].isFrontFace = isFrontFace;
+  HitBuffer[idx].lanes[3].isFrontFace = isFrontFace;
+
+  HitBuffer[idx].lanes[0].sample = sample;
+  HitBuffer[idx].lanes[1].sample = sample;
+  HitBuffer[idx].lanes[2].sample = sample;
+  HitBuffer[idx].lanes[3].sample = sample;
 
   // quad pixelPos will be set with other derivatives for float inputs
 
@@ -773,6 +792,11 @@ struct PSLaneData
   uint quadId;
   uint quadLane;
   uint coverage;
+
+  uint sample;
+  uint primitive;
+  uint isFrontFace;
+  uint pad2;
 #endif
 };
 
@@ -804,14 +828,13 @@ struct DebugHit
   float3 pos_depth; // xy position and depth
 
   float derivValid;
-  uint primitive;
-  uint isFrontFace;
-  uint sample;
-
   uint quadLaneIndex;
   uint laneIndex;
   uint subgroupSize;
-  uint pad;
+
+  uint sample;
+  uint primitive;
+  uint2 pad;
 
   uint4 globalBallot;
   uint4 helperBallot;
@@ -956,6 +979,10 @@ void ExtractInputs(Inputs IN
   ps.quadId = quadId;
   ps.quadLane = quadLaneIndex;
   ps.coverage = coverage;
+
+  ps.sample = sample;
+  ps.primitive = primitive;
+  ps.isFrontFace = isFrontFace;
 #elif STAGE == STAGE_CS
   bool candidateThread = (threadid.x == DESTX && threadid.y == DESTY && threadid.z == DESTZ);
 
@@ -979,7 +1006,6 @@ void ExtractInputs(Inputs IN
           HitBuffer[idx].pos_depth = debug_pixelPos.xyz;
           HitBuffer[idx].derivValid = derivValid;
           HitBuffer[idx].primitive = primitive;
-          HitBuffer[idx].isFrontFace = isFrontFace;
           HitBuffer[idx].sample = sample;
           HitBuffer[idx].laneIndex = laneIndex;
           HitBuffer[idx].quadLaneIndex = quadLaneIndex;

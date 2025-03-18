@@ -2209,8 +2209,8 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       ins = interpreter->workgroup[hit->quadLaneIndex].inputs;
 
     state.semantics.coverage = lane->coverage;
-    state.semantics.primID = hit->primitive;
-    state.semantics.isFrontFace = hit->isFrontFace;
+    state.semantics.primID = lane->primitive;
+    state.semantics.isFrontFace = lane->isFrontFace;
 
     if(!ins.empty() && ins.back().name == dxbc->GetDXBCByteCode()->GetRegisterName(
                                               DXBCBytecode::TYPE_INPUT_COVERAGE_MASK, 0))
@@ -2229,11 +2229,11 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
         if(fetcher.inputs[i].sysattribute == ShaderBuiltin::PrimitiveIndex)
         {
-          invar.value.u32v[fetcher.inputs[i].elem] = hit->primitive;
+          invar.value.u32v[fetcher.inputs[i].elem] = lane->primitive;
         }
         else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::MSAASampleIndex)
         {
-          invar.value.u32v[fetcher.inputs[i].elem] = hit->sample;
+          invar.value.u32v[fetcher.inputs[i].elem] = lane->sample;
         }
         else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::MSAACoverage)
         {
@@ -2241,7 +2241,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
         }
         else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::IsFrontFace)
         {
-          invar.value.u32v[fetcher.inputs[i].elem] = hit->isFrontFace ? ~0U : 0;
+          invar.value.u32v[fetcher.inputs[i].elem] = lane->isFrontFace ? ~0U : 0;
         }
         else
         {

@@ -59,6 +59,11 @@ struct PSLaneData
   uint32_t quadLane;
   uint32_t coverage;
 
+  uint32_t sample;
+  uint32_t primitive;
+  uint32_t isFrontFace;
+  uint32_t pad2;
+
   // user data PSInput below here
 };
 
@@ -95,14 +100,13 @@ struct DebugHit
   float depth;
 
   float derivValid;
-  uint32_t primitive;
-  uint32_t isFrontFace;
-  uint32_t sample;
-
   uint32_t quadLaneIndex;
   uint32_t laneIndex;
   uint32_t subgroupSize;
-  uint32_t pad;
+
+  uint32_t sample;
+  uint32_t primitive;
+  uint32_t pad[2];
 
   Vec4u globalBallot;
   Vec4u helperBallot;

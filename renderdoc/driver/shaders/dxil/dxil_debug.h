@@ -212,6 +212,8 @@ struct MemoryTracking
   std::map<Id, Pointer> m_Pointers;
 };
 
+typedef rdcflatmap<ShaderBuiltin, ShaderVariable> BuiltinInputs;
+
 struct ThreadState
 {
   ThreadState(Debugger &debugger, const GlobalState &globalState, uint32_t maxSSAId);
@@ -279,6 +281,8 @@ struct ThreadState
                                ShaderVariable &var, bool flushDenormInput, bool isLive) const;
   bool IsVariableAssigned(const Id id) const;
 
+  ShaderVariable GetBuiltin(ShaderBuiltin builtin);
+
   struct AnnotationProperties
   {
     DXIL::ResourceKind resKind;
@@ -286,12 +290,7 @@ struct ThreadState
     uint32_t structStride;
   };
 
-  struct
-  {
-    uint32_t coverage = ~0U;
-    uint32_t primID = ~0U;
-    uint32_t isFrontFace = false;
-  } m_Semantics;
+  BuiltinInputs m_Builtins;
 
   Debugger &m_Debugger;
   const DXIL::Program &m_Program;
@@ -355,11 +354,9 @@ struct ThreadState
 
 struct GlobalState
 {
-  typedef std::map<ShaderBuiltin, ShaderVariable> BuiltinInputs;
-
   GlobalState() = default;
   ~GlobalState();
-  BuiltinInputs builtinInputs;
+  BuiltinInputs builtins;
 
   struct ViewFmt
   {

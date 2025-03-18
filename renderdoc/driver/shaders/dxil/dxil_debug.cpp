@@ -2688,9 +2688,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERTEQUAL(arg.type, VarType::SInt);
             RDCASSERTEQUAL(result.type, VarType::SInt);
             uint32_t component = arg.value.u32v[0];
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::DispatchThreadIndex) != 0);
             result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::DispatchThreadIndex).value.u32v[component];
+                GetBuiltin(ShaderBuiltin::DispatchThreadIndex).value.u32v[component];
             break;
           }
           case DXOp::GroupId:
@@ -2701,9 +2700,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERTEQUAL(arg.type, VarType::SInt);
             RDCASSERTEQUAL(result.type, VarType::SInt);
             uint32_t component = arg.value.u32v[0];
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::GroupIndex) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::GroupIndex).value.u32v[component];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::GroupIndex).value.u32v[component];
             break;
           }
           case DXOp::ThreadIdInGroup:
@@ -2714,18 +2711,14 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERTEQUAL(arg.type, VarType::SInt);
             RDCASSERTEQUAL(result.type, VarType::SInt);
             uint32_t component = arg.value.u32v[0];
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::GroupThreadIndex) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::GroupThreadIndex).value.u32v[component];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::GroupThreadIndex).value.u32v[component];
             break;
           }
           case DXOp::FlattenedThreadIdInGroup:
           {
             // FlattenedThreadIdInGroup()->SV_GroupIndex
             RDCASSERTEQUAL(result.type, VarType::SInt);
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::GroupFlatIndex) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::GroupFlatIndex).value.u32v[0];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::GroupFlatIndex).value.u32v[0];
             break;
           }
           case DXOp::DerivCoarseX:
@@ -3234,41 +3227,31 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::SampleIndex:
           {
             // SV_SampleIndex
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::MSAASampleIndex) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::MSAASampleIndex).value.u32v[0];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::MSAASampleIndex).value.u32v[0];
             break;
           }
           case DXOp::Coverage:
           {
             // SV_Coverage
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::MSAACoverage) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::MSAACoverage).value.u32v[0];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::MSAACoverage).value.u32v[0];
             break;
           }
           case DXOp::InnerCoverage:
           {
             // SV_InnerCoverage
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::IsFullyCovered) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::IsFullyCovered).value.u32v[0];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::IsFullyCovered).value.u32v[0];
             break;
           }
           case DXOp::ViewID:
           {
             // SV_ViewportArrayIndex
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::ViewportIndex) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::ViewportIndex).value.u32v[0];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::ViewportIndex).value.u32v[0];
             break;
           }
           case DXOp::PrimitiveID:
           {
             // SV_PrimitiveID
-            RDCASSERT(m_GlobalState.builtinInputs.count(ShaderBuiltin::PrimitiveIndex) != 0);
-            result.value.u32v[0] =
-                m_GlobalState.builtinInputs.at(ShaderBuiltin::PrimitiveIndex).value.u32v[0];
+            result.value.u32v[0] = GetBuiltin(ShaderBuiltin::PrimitiveIndex).value.u32v[0];
             break;
           }
           case DXOp::IsHelperLane:
@@ -5510,6 +5493,20 @@ bool ThreadState::IsVariableAssigned(const Id id) const
     RDCERR("Variable Id %d is not in assigned list", id);
     return false;
   }
+}
+
+ShaderVariable ThreadState::GetBuiltin(ShaderBuiltin builtin)
+{
+  auto local = m_Builtins.find(builtin);
+  if(local != m_Builtins.end())
+    return local->second;
+
+  auto global = m_GlobalState.builtins.find(builtin);
+  if(global != m_GlobalState.builtins.end())
+    return global->second;
+
+  RDCERR("Couldn't find data for builtin %s", ToStr(builtin).c_str());
+  return {};
 }
 
 bool ThreadState::GetLiveVariable(const Id &id, Operation op, DXOp dxOpCode, ShaderVariable &var) const
@@ -8066,11 +8063,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       if(FindSigParameter(dxbcInParams, sig, sigParam))
       {
         v.name = sigParam.semanticIdxName;
-        if(sigParam.systemValue != ShaderBuiltin::Undefined)
-        {
-          RDCASSERT(m_GlobalState.builtinInputs.count(sigParam.systemValue) == 0);
-          m_GlobalState.builtinInputs[sigParam.systemValue] = v;
-        }
       }
       else
       {
@@ -8328,7 +8320,6 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     if(i != m_ActiveLaneIndex)
     {
       lane.m_Input = state.m_Input;
-      lane.m_Semantics = state.m_Semantics;
       lane.m_Variables = state.m_Variables;
       lane.m_Assigned = state.m_Assigned;
       lane.m_Live = state.m_Live;

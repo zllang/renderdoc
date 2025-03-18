@@ -2261,6 +2261,11 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
         }
         default: RDCERR("Unhandled system value semantic on VS input"); break;
       }
+
+      if(sigParam.systemValue != ShaderBuiltin::Undefined)
+      {
+        activeState.m_Builtins[sigParam.systemValue] = inputs[i];
+      }
     }
 
     debugger->InitialiseWorkgroup(workgroupProperties);
@@ -2820,8 +2825,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
         ins = interpreter->workgroup[hit->quadLaneIndex].inputs;
 
       state.semantics.coverage = lane->coverage;
-      state.semantics.primID = hit->primitive;
-      state.semantics.isFrontFace = hit->isFrontFace;
+      state.semantics.primID = lane->primitive;
+      state.semantics.isFrontFace = lane->isFrontFace;
 
       if(!ins.empty() && ins.back().name == dxbc->GetDXBCByteCode()->GetRegisterName(
                                                 DXBCBytecode::TYPE_INPUT_COVERAGE_MASK, 0))
@@ -2840,11 +2845,11 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
           if(fetcher.inputs[i].sysattribute == ShaderBuiltin::PrimitiveIndex)
           {
-            invar.value.u32v[fetcher.inputs[i].elem] = hit->primitive;
+            invar.value.u32v[fetcher.inputs[i].elem] = lane->primitive;
           }
           else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::MSAASampleIndex)
           {
-            invar.value.u32v[fetcher.inputs[i].elem] = hit->sample;
+            invar.value.u32v[fetcher.inputs[i].elem] = lane->sample;
           }
           else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::MSAACoverage)
           {
@@ -2852,7 +2857,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
           }
           else if(fetcher.inputs[i].sysattribute == ShaderBuiltin::IsFrontFace)
           {
-            invar.value.u32v[fetcher.inputs[i].elem] = hit->isFrontFace ? ~0U : 0;
+            invar.value.u32v[fetcher.inputs[i].elem] = lane->isFrontFace ? ~0U : 0;
           }
           else
           {
@@ -2956,9 +2961,12 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
           data += inputElement.numwords * sizeof(uint32_t);
       }
 
-      state.m_Semantics.coverage = lane->coverage;
-      state.m_Semantics.primID = hit->primitive;
-      state.m_Semantics.isFrontFace = hit->isFrontFace;
+      state.m_Builtins[ShaderBuiltin::PrimitiveIndex] =
+          ShaderVariable(rdcstr(), lane->primitive, 0U, 0U, 0U);
+      state.m_Builtins[ShaderBuiltin::MSAACoverage] =
+          ShaderVariable(rdcstr(), lane->coverage, 0U, 0U, 0U);
+      state.m_Builtins[ShaderBuiltin::IsFrontFace] =
+          ShaderVariable(rdcstr(), lane->isFrontFace, 0U, 0U, 0U);
 
       for(const DXILDebug::PSInputData &psInput : psInputDatas)
       {
@@ -2969,11 +2977,11 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
         if(psInput.sysattribute == ShaderBuiltin::PrimitiveIndex)
         {
-          invar.value.u32v[outElement] = hit->primitive;
+          invar.value.u32v[outElement] = lane->primitive;
         }
         else if(psInput.sysattribute == ShaderBuiltin::MSAASampleIndex)
         {
-          invar.value.u32v[outElement] = hit->sample;
+          invar.value.u32v[outElement] = lane->sample;
         }
         else if(psInput.sysattribute == ShaderBuiltin::MSAACoverage)
         {
@@ -2981,7 +2989,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
         }
         else if(psInput.sysattribute == ShaderBuiltin::IsFrontFace)
         {
-          invar.value.u32v[outElement] = hit->isFrontFace ? ~0U : 0;
+          invar.value.u32v[outElement] = lane->isFrontFace ? ~0U : 0;
         }
         else
         {
@@ -2992,6 +3000,9 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
           memcpy(rawout, psInput.data, psInput.numwords * 4);
         }
+
+        if(psInput.sysattribute != ShaderBuiltin::Undefined)
+          state.m_Builtins[psInput.sysattribute] = invar;
       }
 
       // TODO: UPDATE INPUTS FROM SAMPLE CACHE
@@ -3168,7 +3179,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     ret = debugger->BeginDebug(eventId, dxbc, refl, 0, 1);
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
 
-    std::map<ShaderBuiltin, ShaderVariable> &builtins = globalState.builtinInputs;
+    rdcflatmap<ShaderBuiltin, ShaderVariable> &globalBuiltins = globalState.builtins;
     rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
     workgroupProperties.resize(1);
 
@@ -3181,20 +3192,20 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     workgroupProperties[0][DXILDebug::ThreadProperty::Active] = 1;
 
     // SV_DispatchThreadID
-    builtins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
+    globalBuiltins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
         rdcstr(), groupid[0] * threadDim[0] + threadid[0], groupid[1] * threadDim[1] + threadid[1],
         groupid[2] * threadDim[2] + threadid[2], 0U);
 
     // SV_GroupID
-    builtins[ShaderBuiltin::GroupIndex] =
+    globalBuiltins[ShaderBuiltin::GroupIndex] =
         ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
 
     // SV_GroupThreadID
-    builtins[ShaderBuiltin::GroupThreadIndex] =
+    globalBuiltins[ShaderBuiltin::GroupThreadIndex] =
         ShaderVariable(rdcstr(), threadid[0], threadid[1], threadid[2], 0U);
 
     // SV_GroupIndex
-    builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+    globalBuiltins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
         rdcstr(),
         threadid[2] * threadDim[0] * threadDim[1] + threadid[1] * threadDim[0] + threadid[0], 0U,
         0U, 0U);
