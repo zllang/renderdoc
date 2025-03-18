@@ -3,12 +3,12 @@ import struct
 import rdtest
 
 
-class VK_Subgroup_Zoo(rdtest.TestCase):
-    demos_test_name = 'VK_Subgroup_Zoo'
+class D3D12_Subgroup_Zoo(rdtest.TestCase):
+    demos_test_name = 'D3D12_Subgroup_Zoo'
 
     def check_support(self, **kwargs):
         # Only allow this if explicitly run
-        if kwargs['test_include'] == 'VK_Subgroup_Zoo':
+        if kwargs['test_include'] == 'D3D12_Subgroup_Zoo':
             return True, ''
         return False, 'Disabled test'
 
@@ -93,7 +93,7 @@ class VK_Subgroup_Zoo(rdtest.TestCase):
 
                                 if not rdtest.value_compare(real, debugged.value.f32v[0:4], eps=5.0E-06):
                                     rdtest.log.error(
-                                        f"{idx} at {action.eventId} debugged vertex value {debugged.value.f32v[0:4]} at {vtx} instance {inst} view {view} does not match output {real}")
+                                        f"Test {idx} at {action.eventId} debugged vertex value {debugged.value.f32v[0:4]} at {vtx} instance {inst} view {view} does not match output {real}")
 
                         self.controller.FreeTrace(trace)
 
