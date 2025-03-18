@@ -200,8 +200,9 @@ struct D3D12QuadOverdrawCallback : public D3D12ActionCallback
                                                        Unwrap(m_MSDepth));
     }
 
-    AddDebugDescriptorsToRenderState(m_pDevice, rs, {m_UAV}, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                                     cache.sigElem, m_CopiedHeaps);
+    AddDebugDescriptorsToRenderState(m_pDevice, rs, false, {m_UAV},
+                                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, cache.sigElem,
+                                     m_CopiedHeaps);
 
     // as we're changing the root signature, we need to reapply all elements,
     // so just apply all state

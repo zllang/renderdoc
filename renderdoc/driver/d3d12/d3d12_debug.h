@@ -313,6 +313,6 @@ uint32_t GetFreeRegSpace(const D3D12RootSignature &sig, const uint32_t registerS
                          D3D12DescriptorType type, D3D12_SHADER_VISIBILITY visibility);
 
 void AddDebugDescriptorsToRenderState(WrappedID3D12Device *pDevice, D3D12RenderState &rs,
-                                      const rdcarray<PortableHandle> &handles,
+                                      bool compute, const rdcarray<PortableHandle> &handles,
                                       D3D12_DESCRIPTOR_HEAP_TYPE heapType, uint32_t sigElem,
                                       std::set<ResourceId> &copiedHeaps);

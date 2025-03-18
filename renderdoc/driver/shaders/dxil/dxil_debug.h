@@ -518,7 +518,6 @@ enum class ThreadProperty : uint32_t
   QuadId,
   QuadLane,
   Active,
-  SubgroupId,
   Count,
 };
 
@@ -552,7 +551,7 @@ public:
   rdcarray<ShaderDebugState> ContinueDebug(DebugAPIWrapper *apiWrapper);
   GlobalState &GetGlobalState() { return m_GlobalState; }
   ThreadState &GetActiveLane() { return m_Workgroup[m_ActiveLaneIndex]; }
-  ThreadState &GetWorkgroup(const uint32_t i) { return m_Workgroup[i]; }
+  ThreadState &GetLane(const uint32_t i) { return m_Workgroup[i]; }
   rdcarray<ThreadState> &GetWorkgroup() { return m_Workgroup; }
   const rdcarray<bool> &GetLiveGlobals() { return m_LiveGlobals; }
   static rdcstr GetResourceReferenceName(const DXIL::Program *program, DXIL::ResourceClass resClass,
