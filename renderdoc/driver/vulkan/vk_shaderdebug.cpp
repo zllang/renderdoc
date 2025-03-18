@@ -5926,7 +5926,7 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
     uint32_t maxHits = 4;    // we should only ever get one hit
 
     // struct size is ResultDataBase header plus Nx structStride for the number of threads
-    uint32_t structSize = sizeof(ResultDataBase) + structStride * numThreads;
+    uint32_t structSize = sizeof(ResultDataBase) + structStride * maxSubgroupSize;
 
     VkDeviceSize feedbackStorageSize = maxHits * structSize + 1024;
 
@@ -6080,67 +6080,56 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
     apiWrapper->thread_builtins.resize(numThreads);
     apiWrapper->thread_props.resize(numThreads);
 
-    for(uint32_t t = 0; t < numThreads; t++)
+    laneIndex = ~0U;
+
+    for(uint32_t t = 0; t < winner->subgroupSize; t++)
     {
       byte *value = LaneData + t * structStride;
 
-      {
-        SubgroupLaneData *subgroupData = (SubgroupLaneData *)value;
-        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Active] = subgroupData->isActive;
-        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::Elected] = subgroupData->elect;
-        apiWrapper->thread_props[t][(size_t)rdcspv::ThreadProperty::SubgroupId] = t;
+      SubgroupLaneData *subgroupData = (SubgroupLaneData *)value;
+      value += sizeof(SubgroupLaneData);
 
-        value += sizeof(SubgroupLaneData);
-      }
-
-      // read ComputeLaneData
-      {
-        ComputeLaneData *compData = (ComputeLaneData *)value;
-
-        // should we try to verify that the GPU assigned subgroups as we expect?
-
-        apiWrapper->thread_builtins[t][ShaderBuiltin::DispatchThreadIndex] =
-            ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + compData->threadid[0],
-                           groupid[1] * threadDim[1] + compData->threadid[1],
-                           groupid[2] * threadDim[2] + compData->threadid[2], 0U);
-        apiWrapper->thread_builtins[t][ShaderBuiltin::GroupThreadIndex] = ShaderVariable(
-            rdcstr(), compData->threadid[0], compData->threadid[1], compData->threadid[2], 0U);
-        apiWrapper->thread_builtins[t][ShaderBuiltin::GroupFlatIndex] =
-            ShaderVariable(rdcstr(),
-                           compData->threadid[2] * threadDim[0] * threadDim[1] +
-                               compData->threadid[1] * threadDim[0] + compData->threadid[0],
-                           0U, 0U, 0U);
-        apiWrapper->thread_builtins[t][ShaderBuiltin::SubgroupIndexInWorkgroup] =
-            ShaderVariable(rdcstr(), compData->subIdxInGroup, 0U, 0U, 0U);
-      }
+      ComputeLaneData *compData = (ComputeLaneData *)value;
       value += sizeof(ComputeLaneData);
 
-      for(size_t i = 0; i < shadRefl.refl->inputSignature.size(); i++)
+      // should we try to verify that the GPU assigned subgroups as we expect? this assumes tightly wrapped subgroups
+      uint32_t lane = t;
+
+      if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Workgroup)
       {
-        const SigParameter &param = shadRefl.refl->inputSignature[i];
-
-        bool builtin = true;
-        if(param.systemValue == ShaderBuiltin::Undefined)
-        {
-          builtin = false;
-          apiWrapper->location_inputs[t].resize(
-              RDCMAX((uint32_t)apiWrapper->location_inputs.size(), param.regIndex + 1));
-        }
-
-        ShaderVariable &var = builtin ? apiWrapper->thread_builtins[t][param.systemValue]
-                                      : apiWrapper->location_inputs[t][param.regIndex];
-
-        var.rows = 1;
-        var.columns = param.compCount & 0xff;
-        var.type = param.varType;
-
-        const uint32_t comp = Bits::CountTrailingZeroes(uint32_t(param.regChannelMask));
-        const uint32_t elemSize = VarTypeByteSize(param.varType);
-
-        const size_t sz = elemSize * param.compCount;
-
-        memcpy((var.value.u8v.data()) + elemSize * comp, value + i * paramAlign, sz);
+        lane = compData->threadid[2] * threadDim[0] * threadDim[1] +
+               compData->threadid[1] * threadDim[0] + compData->threadid[0];
       }
+
+      if(rdcfixedarray<uint32_t, 3>(compData->threadid) == threadid)
+        laneIndex = lane;
+
+      apiWrapper->thread_props[lane][(size_t)rdcspv::ThreadProperty::Active] = subgroupData->isActive;
+      RDCASSERT(subgroupData->isActive);
+      apiWrapper->thread_props[lane][(size_t)rdcspv::ThreadProperty::Elected] = subgroupData->elect;
+      apiWrapper->thread_props[lane][(size_t)rdcspv::ThreadProperty::SubgroupId] = t;
+
+      apiWrapper->thread_builtins[lane][ShaderBuiltin::DispatchThreadIndex] =
+          ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + compData->threadid[0],
+                         groupid[1] * threadDim[1] + compData->threadid[1],
+                         groupid[2] * threadDim[2] + compData->threadid[2], 0U);
+      apiWrapper->thread_builtins[lane][ShaderBuiltin::GroupThreadIndex] = ShaderVariable(
+          rdcstr(), compData->threadid[0], compData->threadid[1], compData->threadid[2], 0U);
+      apiWrapper->thread_builtins[lane][ShaderBuiltin::GroupFlatIndex] =
+          ShaderVariable(rdcstr(),
+                         compData->threadid[2] * threadDim[0] * threadDim[1] +
+                             compData->threadid[1] * threadDim[0] + compData->threadid[0],
+                         0U, 0U, 0U);
+      apiWrapper->thread_builtins[lane][ShaderBuiltin::IndexInSubgroup] =
+          ShaderVariable(rdcstr(), t, 0U, 0U, 0U);
+      apiWrapper->thread_builtins[lane][ShaderBuiltin::SubgroupIndexInWorkgroup] =
+          ShaderVariable(rdcstr(), compData->subIdxInGroup, 0U, 0U, 0U);
+    }
+
+    if(laneIndex == ~0U)
+    {
+      RDCERR("Didn't find desired lane in subgroup data");
+      laneIndex = 0;
     }
 
     // if we're simulating the whole workgroup we need to fill in the thread IDs of other threads
@@ -6155,21 +6144,30 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
           {
             std::unordered_map<ShaderBuiltin, ShaderVariable> &thread_builtins =
                 apiWrapper->thread_builtins[i];
-            thread_builtins[ShaderBuiltin::DispatchThreadIndex] =
-                ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + tx,
-                               groupid[1] * threadDim[1] + ty, groupid[2] * threadDim[2] + tz, 0U);
-            thread_builtins[ShaderBuiltin::GroupThreadIndex] =
-                ShaderVariable(rdcstr(), tx, ty, tz, 0U);
-            thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
-                rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
-            // tightly wrap subgroups, this is likely not how the GPU actually assigns them
-            thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
-                ShaderVariable(rdcstr(), i % winner->subgroupSize, 0U, 0U, 0U);
-            apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active] = 1;
 
-            if(rdcfixedarray<uint32_t, 3>({tx, ty, tz}) == threadid)
+            if(apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active])
             {
-              laneIndex = i;
+              // assert that this is the thread we expect it to be
+              RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[0],
+                             groupid[0] * threadDim[0] + tx);
+              RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[1],
+                             groupid[1] * threadDim[1] + ty);
+              RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[2],
+                             groupid[2] * threadDim[2] + tz);
+            }
+            else
+            {
+              thread_builtins[ShaderBuiltin::DispatchThreadIndex] =
+                  ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + tx,
+                                 groupid[1] * threadDim[1] + ty, groupid[2] * threadDim[2] + tz, 0U);
+              thread_builtins[ShaderBuiltin::GroupThreadIndex] =
+                  ShaderVariable(rdcstr(), tx, ty, tz, 0U);
+              thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+                  rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
+              // tightly wrap subgroups, this is likely not how the GPU actually assigns them
+              thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
+                  ShaderVariable(rdcstr(), i % winner->subgroupSize, 0U, 0U, 0U);
+              apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active] = 1;
             }
 
             i++;
