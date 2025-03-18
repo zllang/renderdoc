@@ -1653,7 +1653,14 @@ ID3DBlob *D3D12Replay::CompileShaderDebugFetcher(DXBC::DXBCContainer *dxbc, cons
       RDCERR("Invalid vertex shader SM %d.%d expect SM6.0+", smMajor, smMinor);
       return NULL;
     }
-    const char *profile = StringFormat::Fmt("ps_%u_%u", smMajor, smMinor).c_str();
+
+    char stage = 'p';
+    if(dxbc->m_Type == DXBC::ShaderType::Vertex)
+      stage = 'v';
+    else if(dxbc->m_Type == DXBC::ShaderType::Compute)
+      stage = 'c';
+
+    const char *profile = StringFormat::Fmt("%cs_%u_%u", stage, smMajor, smMinor).c_str();
 
     ShaderCompileFlags compileFlags =
         DXBC::EncodeFlags(m_pDevice->GetShaderCache()->GetCompileFlags(), profile);
@@ -1907,8 +1914,13 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
   }
 
   bytebuf vertData[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
-  bytebuf *instData = new bytebuf[MaxStepRate * D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+  rdcarray<bytebuf> instData;
+  instData.resize(MaxStepRate * D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT);
   bytebuf staticData[D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+
+  // if we're fetching from the GPU anyway, don't grab any buffer data
+  if(D3D_Hack_EnableGroups() && (dxbc->GetThreadScope() & DXBC::ThreadScope::Subgroup))
+    vertexbuffers.clear();
 
   for(auto it = vertexbuffers.begin(); it != vertexbuffers.end(); ++it)
   {
@@ -2195,8 +2207,241 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
 
     ret->constantBlocks = global.constantBlocks;
     ret->inputs = state.inputs;
+  }
+  else if(D3D_Hack_EnableGroups() && (dxbc->GetThreadScope() & DXBC::ThreadScope::Subgroup))
+  {
+    DXDebug::InputFetcherConfig cfg;
+    DXDebug::InputFetcher fetcher;
 
-    delete[] instData;
+    D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC pipeDesc;
+    m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12PipelineState>(rs.pipe)->Fill(pipeDesc);
+
+    // Store a copy of the event's render state to restore later
+    D3D12RenderState prevState = rs;
+
+    uint32_t sigElem = 0;
+    ID3D12RootSignature *pRootSignature = CreateInputFetchRootSig(false, cfg.uavspace, sigElem);
+
+    if(pRootSignature == NULL)
+      return new ShaderDebugTrace;
+
+    rs.graphics.rootsig = GetResID(pRootSignature);
+
+    uint32_t sv_vertid = vertid;
+
+    if(action->flags & ActionFlags::Indexed)
+      sv_vertid = idx - action->baseVertex;
+
+    cfg.vert = sv_vertid;
+    cfg.inst = instid;
+    cfg.uavslot = 1;
+    cfg.maxWaveSize = m_pDevice->GetOpts1().WaveLaneCountMax;
+
+    DXDebug::CreateInputFetcher(dxbc, NULL, cfg, fetcher);
+
+    // Create pixel shader to get initial values from previous stage output
+    ID3DBlob *vsBlob = CompileShaderDebugFetcher(dxbc, fetcher.hlsl);
+
+    if(vsBlob == NULL)
+      return new ShaderDebugTrace;
+
+    uint64_t laneDataOffset = 0;
+    uint64_t evalDataOffset = 0;
+    ID3D12Resource *dataBuffer = CreateInputFetchBuffer(fetcher, laneDataOffset, evalDataOffset);
+
+    if(dataBuffer == NULL)
+      return new ShaderDebugTrace;
+
+    // Add the descriptor for our UAV
+    std::set<ResourceId> copiedHeaps;
+    rdcarray<PortableHandle> debugHandles = {
+        ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_UAV)),
+        ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_MSAA_UAV)),
+        ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_LANEDATA_UAV)),
+    };
+    AddDebugDescriptorsToRenderState(m_pDevice, rs, false, debugHandles,
+                                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, sigElem, copiedHeaps);
+
+    pipeDesc.VS.BytecodeLength = vsBlob->GetBufferSize();
+    pipeDesc.VS.pShaderBytecode = vsBlob->GetBufferPointer();
+    pipeDesc.pRootSignature = pRootSignature;
+
+    // disable rasterizaion
+    pipeDesc.PS = {};
+    pipeDesc.DepthStencilState.DepthEnable = FALSE;
+    pipeDesc.DepthStencilState.StencilEnable = FALSE;
+
+    ID3D12PipelineState *initialPso = NULL;
+    HRESULT hr = m_pDevice->CreatePipeState(pipeDesc, &initialPso);
+
+    SAFE_RELEASE(vsBlob);
+
+    if(FAILED(hr))
+    {
+      RDCERR("Failed to create PSO for compute shader debugging HRESULT: %s", ToStr(hr).c_str());
+      SAFE_RELEASE(dataBuffer);
+      SAFE_RELEASE(pRootSignature);
+      return new ShaderDebugTrace;
+    }
+
+    rs.pipe = GetResID(initialPso);
+
+    ID3D12GraphicsCommandListX *cmdList = m_pDevice->GetDebugManager()->ResetDebugList();
+
+    // clear our UAVs
+    m_pDevice->GetDebugManager()->SetDescriptorHeaps(cmdList, true, false);
+    D3D12_GPU_DESCRIPTOR_HANDLE gpuUav = m_pDevice->GetDebugManager()->GetGPUHandle(SHADER_DEBUG_UAV);
+    D3D12_CPU_DESCRIPTOR_HANDLE cpuUav =
+        m_pDevice->GetDebugManager()->GetUAVClearHandle(SHADER_DEBUG_UAV);
+    UINT zero[4] = {0, 0, 0, 0};
+    cmdList->ClearUnorderedAccessViewUint(gpuUav, cpuUav, dataBuffer, zero, 0, NULL);
+
+    rs.ApplyDescriptorHeaps(cmdList);
+
+    // Execute the command to ensure that UAV clear and resource creation occur before replay
+    hr = cmdList->Close();
+    if(FAILED(hr))
+    {
+      RDCERR("Failed to close command list HRESULT: %s", ToStr(hr).c_str());
+      SAFE_RELEASE(dataBuffer);
+      SAFE_RELEASE(pRootSignature);
+      SAFE_RELEASE(initialPso);
+      return new ShaderDebugTrace;
+    }
+
+    {
+      ID3D12CommandList *l = cmdList;
+      m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
+      m_pDevice->InternalQueueWaitForIdle();
+    }
+
+    {
+      D3D12MarkerRegion initState(m_pDevice->GetQueue()->GetReal(),
+                                  "Replaying event for initial states");
+
+      // Replay the event with our modified state
+      m_pDevice->ReplayLog(0, eventId, eReplay_OnlyDraw);
+    }
+
+    // Restore D3D12 state to what the event uses
+    rs = prevState;
+
+    bytebuf initialData;
+    m_pDevice->GetDebugManager()->GetBufferData(dataBuffer, 0, 0, initialData);
+
+    // Replaying the event has finished, and the data has been copied out.
+    // Free all the resources that were created.
+    SAFE_RELEASE(pRootSignature);
+    SAFE_RELEASE(dataBuffer);
+    SAFE_RELEASE(initialPso);
+
+    DXDebug::DebugHit *buf = (DXDebug::DebugHit *)initialData.data();
+
+    D3D12MarkerRegion::Set(m_pDevice->GetQueue()->GetReal(),
+                           StringFormat::Fmt("Got %u hits", buf[0].numHits));
+    if(buf[0].numHits == 0)
+    {
+      RDCLOG("No hit for this event");
+      return new ShaderDebugTrace;
+    }
+
+    if(buf[0].numHits > 1)
+      RDCLOG("Unexpected number of vertex hits: %u!", buf[0].numHits);
+
+    DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
+    ret = debugger->BeginDebug(eventId, dxbc, refl, buf->laneIndex, buf->subgroupSize);
+
+    DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
+    rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
+    workgroupProperties.resize(buf->subgroupSize);
+    const rdcarray<DXIL::EntryPointInterface::Signature> &dxilInputs =
+        debugger->GetDXILEntryPointInputs();
+
+    for(uint32_t t = 0; t < buf->subgroupSize; t++)
+    {
+      DXDebug::VSLaneData *lane = (DXDebug::VSLaneData *)(initialData.data() + laneDataOffset +
+                                                          t * fetcher.laneDataBufferStride);
+      DXILDebug::ThreadState &state = debugger->GetLane(t);
+      rdcarray<ShaderVariable> &ins = state.m_Input.members;
+
+      byte *data = (byte *)(lane + 1);
+
+      if(lane->active)
+        RDCASSERTEQUAL(lane->laneIndex, t);
+      workgroupProperties[t][DXILDebug::ThreadProperty::Active] = lane->active;
+
+      rdcarray<DXILDebug::InputData> inputDatas;
+      for(int i = 0; i < fetcher.inputs.count(); i++)
+      {
+        DXDebug::InputElement &inputElement = fetcher.inputs[i];
+        int packedRegister = inputElement.reg;
+        if(packedRegister >= 0)
+        {
+          int dxilInputIdx = -1;
+          int dxilArrayIdx = 0;
+          int packedElement = inputElement.elem;
+          int row = packedRegister;
+          // Find the DXIL Input index and element from that matches the register and element
+          for(int j = 0; j < dxilInputs.count(); ++j)
+          {
+            const DXIL::EntryPointInterface::Signature &dxilParam = dxilInputs[j];
+            if((dxilParam.startRow <= row) && (row < (int)(dxilParam.startRow + dxilParam.rows)) &&
+               (dxilParam.startCol == packedElement))
+            {
+              dxilInputIdx = j;
+              dxilArrayIdx = row - dxilParam.startRow;
+              break;
+            }
+          }
+          RDCASSERT(dxilInputIdx >= 0);
+          RDCASSERT(dxilArrayIdx >= 0);
+
+          inputDatas.emplace_back(dxilInputIdx, dxilArrayIdx, inputElement.numwords,
+                                  inputElement.sysattribute, inputElement.included, data);
+        }
+
+        if(inputElement.included)
+          data += inputElement.numwords * sizeof(uint32_t);
+      }
+
+      for(const DXILDebug::InputData &input : inputDatas)
+      {
+        int32_t *rawout = NULL;
+
+        ShaderVariable &invar = ins[input.input];
+        int outElement = 0;
+
+        if(input.sysattribute == ShaderBuiltin::VertexIndex)
+        {
+          invar.value.u32v[outElement] = lane->vert;
+        }
+        else if(input.sysattribute == ShaderBuiltin::InstanceIndex)
+        {
+          invar.value.u32v[outElement] = lane->vert;
+        }
+        else
+        {
+          if(invar.rows <= 1)
+            rawout = &invar.value.s32v[outElement];
+          else
+            rawout = &invar.members[input.array].value.s32v[outElement];
+
+          memcpy(rawout, input.data, input.numwords * 4);
+        }
+
+        if(input.sysattribute != ShaderBuiltin::Undefined)
+          state.m_Builtins[input.sysattribute] = invar;
+      }
+    }
+
+    // Fetch constant buffer data from root signature
+    DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.graphics, refl,
+                                       globalState, ret->sourceVars);
+
+    debugger->InitialiseWorkgroup(workgroupProperties);
+
+    ret->inputs = {debugger->GetActiveLane().m_Input};
+    ret->constantBlocks = globalState.constantBlocks;
   }
   else
   {
@@ -2468,7 +2713,6 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
 
     ret->inputs = {activeState.m_Input};
     ret->constantBlocks = globalState.constantBlocks;
-    delete[] instData;
   }
 
   if(ret)
@@ -2934,7 +3178,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
       // The initial values are packed into register and elements
       // DXIL Inputs are not packed and contain the register and element linkage
-      rdcarray<DXILDebug::PSInputData> psInputDatas;
+      rdcarray<DXILDebug::InputData> inputDatas;
       for(int i = 0; i < fetcher.inputs.count(); i++)
       {
         DXDebug::InputElement &inputElement = fetcher.inputs[i];
@@ -2960,8 +3204,8 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
           RDCASSERT(dxilInputIdx >= 0);
           RDCASSERT(dxilArrayIdx >= 0);
 
-          psInputDatas.emplace_back(dxilInputIdx, dxilArrayIdx, inputElement.numwords,
-                                    inputElement.sysattribute, inputElement.included, data);
+          inputDatas.emplace_back(dxilInputIdx, dxilArrayIdx, inputElement.numwords,
+                                  inputElement.sysattribute, inputElement.included, data);
         }
 
         if(inputElement.included)
@@ -2975,26 +3219,26 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       state.m_Builtins[ShaderBuiltin::IsFrontFace] =
           ShaderVariable(rdcstr(), lane->isFrontFace, 0U, 0U, 0U);
 
-      for(const DXILDebug::PSInputData &psInput : psInputDatas)
+      for(const DXILDebug::InputData &input : inputDatas)
       {
         int32_t *rawout = NULL;
 
-        ShaderVariable &invar = ins[psInput.input];
+        ShaderVariable &invar = ins[input.input];
         int outElement = 0;
 
-        if(psInput.sysattribute == ShaderBuiltin::PrimitiveIndex)
+        if(input.sysattribute == ShaderBuiltin::PrimitiveIndex)
         {
           invar.value.u32v[outElement] = lane->primitive;
         }
-        else if(psInput.sysattribute == ShaderBuiltin::MSAASampleIndex)
+        else if(input.sysattribute == ShaderBuiltin::MSAASampleIndex)
         {
           invar.value.u32v[outElement] = lane->sample;
         }
-        else if(psInput.sysattribute == ShaderBuiltin::MSAACoverage)
+        else if(input.sysattribute == ShaderBuiltin::MSAACoverage)
         {
           invar.value.u32v[outElement] = lane->coverage;
         }
-        else if(psInput.sysattribute == ShaderBuiltin::IsFrontFace)
+        else if(input.sysattribute == ShaderBuiltin::IsFrontFace)
         {
           invar.value.u32v[outElement] = lane->isFrontFace ? ~0U : 0;
         }
@@ -3003,13 +3247,13 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
           if(invar.rows <= 1)
             rawout = &invar.value.s32v[outElement];
           else
-            rawout = &invar.members[psInput.array].value.s32v[outElement];
+            rawout = &invar.members[input.array].value.s32v[outElement];
 
-          memcpy(rawout, psInput.data, psInput.numwords * 4);
+          memcpy(rawout, input.data, input.numwords * 4);
         }
 
-        if(psInput.sysattribute != ShaderBuiltin::Undefined)
-          state.m_Builtins[psInput.sysattribute] = invar;
+        if(input.sysattribute != ShaderBuiltin::Undefined)
+          state.m_Builtins[input.sysattribute] = invar;
       }
 
       // TODO: UPDATE INPUTS FROM SAMPLE CACHE
@@ -3063,7 +3307,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     return new ShaderDebugTrace();
   }
 
-  const D3D12RenderState &rs = m_pDevice->GetQueue()->GetCommandData()->m_RenderState;
+  D3D12RenderState &rs = m_pDevice->GetQueue()->GetCommandData()->m_RenderState;
 
   WrappedID3D12PipelineState *pso =
       m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12PipelineState>(rs.pipe);
@@ -3182,40 +3426,334 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     // get ourselves in pristine state before this dispatch (without any side effects it may have had)
     m_pDevice->ReplayLog(0, eventId, eReplay_WithoutDraw);
 
-    DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
-    ret = debugger->BeginDebug(eventId, dxbc, refl, 0, 1);
-    DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
-
-    rdcflatmap<ShaderBuiltin, ShaderVariable> &globalBuiltins = globalState.builtins;
-    rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
-    workgroupProperties.resize(1);
-
     uint32_t threadDim[3] = {
         refl.dispatchThreadsDimension[0],
         refl.dispatchThreadsDimension[1],
         refl.dispatchThreadsDimension[2],
     };
 
-    workgroupProperties[0][DXILDebug::ThreadProperty::Active] = 1;
+    uint32_t numThreads = 1;
+    uint32_t activeLaneIndex = 0;
 
-    // SV_DispatchThreadID
-    globalBuiltins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
-        rdcstr(), groupid[0] * threadDim[0] + threadid[0], groupid[1] * threadDim[1] + threadid[1],
-        groupid[2] * threadDim[2] + threadid[2], 0U);
+    rdcflatmap<ShaderBuiltin, ShaderVariable> globalBuiltins;
+    rdcarray<rdcflatmap<ShaderBuiltin, ShaderVariable>> threadBuiltins;
+    rdcarray<DXILDebug::ThreadProperties> workgroupProperties;
 
-    // SV_GroupID
-    globalBuiltins[ShaderBuiltin::GroupIndex] =
-        ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
+    // hard case - with subgroups we want the actual layout so read that from the GPU
+    if(D3D_Hack_EnableGroups() && (dxbc->GetThreadScope() & DXBC::ThreadScope::Subgroup))
+    {
+      DXDebug::InputFetcherConfig cfg;
+      DXDebug::InputFetcher fetcher;
 
-    // SV_GroupThreadID
-    globalBuiltins[ShaderBuiltin::GroupThreadIndex] =
-        ShaderVariable(rdcstr(), threadid[0], threadid[1], threadid[2], 0U);
+      D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC pipeDesc;
+      m_pDevice->GetResourceManager()->GetCurrentAs<WrappedID3D12PipelineState>(rs.pipe)->Fill(
+          pipeDesc);
 
-    // SV_GroupIndex
-    globalBuiltins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
-        rdcstr(),
-        threadid[2] * threadDim[0] * threadDim[1] + threadid[1] * threadDim[0] + threadid[0], 0U,
-        0U, 0U);
+      // Store a copy of the event's render state to restore later
+      D3D12RenderState prevState = rs;
+
+      uint32_t sigElem = 0;
+      ID3D12RootSignature *pRootSignature = CreateInputFetchRootSig(true, cfg.uavspace, sigElem);
+
+      if(pRootSignature == NULL)
+        return new ShaderDebugTrace;
+
+      rs.compute.rootsig = GetResID(pRootSignature);
+
+      cfg.threadid = {
+          groupid[0] * threadDim[0] + threadid[0],
+          groupid[1] * threadDim[1] + threadid[1],
+          groupid[2] * threadDim[2] + threadid[2],
+      };
+      cfg.uavslot = 1;
+      cfg.maxWaveSize = m_pDevice->GetOpts1().WaveLaneCountMax;
+
+      DXDebug::CreateInputFetcher(dxbc, NULL, cfg, fetcher);
+
+      // Create pixel shader to get initial values from previous stage output
+      ID3DBlob *csBlob = CompileShaderDebugFetcher(dxbc, fetcher.hlsl);
+
+      if(csBlob == NULL)
+        return new ShaderDebugTrace;
+
+      uint64_t laneDataOffset = 0;
+      uint64_t evalDataOffset = 0;
+      ID3D12Resource *dataBuffer = CreateInputFetchBuffer(fetcher, laneDataOffset, evalDataOffset);
+
+      if(dataBuffer == NULL)
+        return new ShaderDebugTrace;
+
+      // Add the descriptor for our UAV
+      std::set<ResourceId> copiedHeaps;
+      rdcarray<PortableHandle> debugHandles = {
+          ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_UAV)),
+          ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_MSAA_UAV)),
+          ToPortableHandle(GetDebugManager()->GetCPUHandle(SHADER_DEBUG_LANEDATA_UAV)),
+      };
+      AddDebugDescriptorsToRenderState(m_pDevice, rs, true, debugHandles,
+                                       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, sigElem, copiedHeaps);
+
+      pipeDesc.CS.BytecodeLength = csBlob->GetBufferSize();
+      pipeDesc.CS.pShaderBytecode = csBlob->GetBufferPointer();
+      pipeDesc.pRootSignature = pRootSignature;
+
+      ID3D12PipelineState *initialPso = NULL;
+      HRESULT hr = m_pDevice->CreatePipeState(pipeDesc, &initialPso);
+
+      SAFE_RELEASE(csBlob);
+
+      if(FAILED(hr))
+      {
+        RDCERR("Failed to create PSO for compute shader debugging HRESULT: %s", ToStr(hr).c_str());
+        SAFE_RELEASE(dataBuffer);
+        SAFE_RELEASE(pRootSignature);
+        return new ShaderDebugTrace;
+      }
+
+      rs.pipe = GetResID(initialPso);
+
+      ID3D12GraphicsCommandListX *cmdList = m_pDevice->GetDebugManager()->ResetDebugList();
+
+      // clear our UAVs
+      m_pDevice->GetDebugManager()->SetDescriptorHeaps(cmdList, true, false);
+      D3D12_GPU_DESCRIPTOR_HANDLE gpuUav =
+          m_pDevice->GetDebugManager()->GetGPUHandle(SHADER_DEBUG_UAV);
+      D3D12_CPU_DESCRIPTOR_HANDLE cpuUav =
+          m_pDevice->GetDebugManager()->GetUAVClearHandle(SHADER_DEBUG_UAV);
+      UINT zero[4] = {0, 0, 0, 0};
+      cmdList->ClearUnorderedAccessViewUint(gpuUav, cpuUav, dataBuffer, zero, 0, NULL);
+
+      rs.ApplyDescriptorHeaps(cmdList);
+
+      // Execute the command to ensure that UAV clear and resource creation occur before replay
+      hr = cmdList->Close();
+      if(FAILED(hr))
+      {
+        RDCERR("Failed to close command list HRESULT: %s", ToStr(hr).c_str());
+        SAFE_RELEASE(dataBuffer);
+        SAFE_RELEASE(pRootSignature);
+        SAFE_RELEASE(initialPso);
+        return new ShaderDebugTrace;
+      }
+
+      {
+        ID3D12CommandList *l = cmdList;
+        m_pDevice->GetQueue()->ExecuteCommandLists(1, &l);
+        m_pDevice->InternalQueueWaitForIdle();
+      }
+
+      {
+        D3D12MarkerRegion initState(m_pDevice->GetQueue()->GetReal(),
+                                    "Replaying event for initial states");
+
+        // Replay the event with our modified state
+        m_pDevice->ReplayLog(0, eventId, eReplay_OnlyDraw);
+      }
+
+      // Restore D3D12 state to what the event uses
+      rs = prevState;
+
+      bytebuf initialData;
+      m_pDevice->GetDebugManager()->GetBufferData(dataBuffer, 0, 0, initialData);
+
+      // Replaying the event has finished, and the data has been copied out.
+      // Free all the resources that were created.
+      SAFE_RELEASE(pRootSignature);
+      SAFE_RELEASE(dataBuffer);
+      SAFE_RELEASE(initialPso);
+
+      DXDebug::DebugHit *buf = (DXDebug::DebugHit *)initialData.data();
+
+      D3D12MarkerRegion::Set(m_pDevice->GetQueue()->GetReal(),
+                             StringFormat::Fmt("Got %u hits", buf[0].numHits));
+      if(buf[0].numHits == 0)
+      {
+        RDCLOG("No hit for this event");
+        return new ShaderDebugTrace;
+      }
+
+      if(buf[0].numHits > 1)
+        RDCLOG("Unexpected number of compute hits: %u!", buf[0].numHits);
+
+      numThreads = buf->subgroupSize;
+
+      // if we need the whole workgroup prepare for that, though we only read one subgroup's worth of data back
+      if(dxbc->GetThreadScope() & DXBC::ThreadScope::Workgroup)
+        numThreads = threadDim[0] * threadDim[1] * threadDim[2];
+
+      // SV_GroupID
+      globalBuiltins[ShaderBuiltin::GroupIndex] =
+          ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
+
+      threadBuiltins.resize(numThreads);
+      workgroupProperties.resize(numThreads);
+
+      // can't know our lane index from the hit if we are simulating the whole workgroup
+      if(dxbc->GetThreadScope() & DXBC::ThreadScope::Workgroup)
+        activeLaneIndex = ~0U;
+      else
+        activeLaneIndex = buf->laneIndex;
+
+      for(uint32_t t = 0; t < buf->subgroupSize; t++)
+      {
+        DXDebug::CSLaneData *value = (DXDebug::CSLaneData *)(initialData.data() + laneDataOffset +
+                                                             t * fetcher.laneDataBufferStride);
+
+        // should we try to verify that the GPU assigned subgroups as we expect? this assumes
+        // tightly wrapped subgroups
+        uint32_t lane = t;
+
+        if(value->active)
+          RDCASSERTEQUAL(value->laneIndex, lane);
+
+        if(dxbc->GetThreadScope() & DXBC::ThreadScope::Workgroup)
+        {
+          lane = value->threadid[2] * threadDim[0] * threadDim[1] +
+                 value->threadid[1] * threadDim[0] + value->threadid[0];
+        }
+
+        if(rdcfixedarray<uint32_t, 3>(value->threadid) == threadid)
+          activeLaneIndex = lane;
+
+        workgroupProperties[lane][DXILDebug::ThreadProperty::Active] = value->active;
+        RDCASSERT(value->active);
+
+        threadBuiltins[lane][ShaderBuiltin::DispatchThreadIndex] =
+            ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + value->threadid[0],
+                           groupid[1] * threadDim[1] + value->threadid[1],
+                           groupid[2] * threadDim[2] + value->threadid[2], 0U);
+        threadBuiltins[lane][ShaderBuiltin::GroupThreadIndex] =
+            ShaderVariable(rdcstr(), value->threadid[0], value->threadid[1], value->threadid[2], 0U);
+        threadBuiltins[lane][ShaderBuiltin::GroupFlatIndex] =
+            ShaderVariable(rdcstr(),
+                           value->threadid[2] * threadDim[0] * threadDim[1] +
+                               value->threadid[1] * threadDim[0] + value->threadid[0],
+                           0U, 0U, 0U);
+      }
+
+      if(activeLaneIndex == ~0U)
+      {
+        RDCERR("Didn't find desired lane in subgroup data");
+        activeLaneIndex = 0;
+      }
+
+      // if we're simulating the whole workgroup we need to fill in the thread IDs of other threads
+      if(dxbc->GetThreadScope() & DXBC::ThreadScope::Workgroup)
+      {
+        uint32_t i = 0;
+        for(uint32_t tz = 0; tz < threadDim[2]; tz++)
+        {
+          for(uint32_t ty = 0; ty < threadDim[1]; ty++)
+          {
+            for(uint32_t tx = 0; tx < threadDim[0]; tx++)
+            {
+              rdcflatmap<ShaderBuiltin, ShaderVariable> &thread_builtins = threadBuiltins[i];
+
+              if(workgroupProperties[i][DXILDebug::ThreadProperty::Active])
+              {
+                // assert that this is the thread we expect it to be
+                RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[0],
+                               groupid[0] * threadDim[0] + tx);
+                RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[1],
+                               groupid[1] * threadDim[1] + ty);
+                RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[2],
+                               groupid[2] * threadDim[2] + tz);
+              }
+              else
+              {
+                thread_builtins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
+                    rdcstr(), groupid[0] * threadDim[0] + tx, groupid[1] * threadDim[1] + ty,
+                    groupid[2] * threadDim[2] + tz, 0U);
+                thread_builtins[ShaderBuiltin::GroupThreadIndex] =
+                    ShaderVariable(rdcstr(), tx, ty, tz, 0U);
+                thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+                    rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
+                workgroupProperties[i][DXILDebug::ThreadProperty::Active] = 1;
+              }
+
+              i++;
+            }
+          }
+        }
+      }
+    }
+    else if(D3D_Hack_EnableGroups() && (dxbc->GetThreadScope() & DXBC::ThreadScope::Workgroup))
+    {
+      numThreads = threadDim[0] * threadDim[1] * threadDim[2];
+
+      // SV_GroupID
+      globalBuiltins[ShaderBuiltin::GroupIndex] =
+          ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
+
+      threadBuiltins.resize(numThreads);
+      workgroupProperties.resize(numThreads);
+
+      // if we have workgroup scope that means we need to simulate the whole workgroup but don't
+      // have subgroup ops. We assume the layout of this is irrelevant and don't attempt to read
+      // it back from the GPU like we do with subgroups. We lay things out in plain linear order,
+      // along X and then Y and then Z, with groups iterated together.
+
+      uint32_t i = 0;
+      for(uint32_t tz = 0; tz < threadDim[2]; tz++)
+      {
+        for(uint32_t ty = 0; ty < threadDim[1]; ty++)
+        {
+          for(uint32_t tx = 0; tx < threadDim[0]; tx++)
+          {
+            rdcflatmap<ShaderBuiltin, ShaderVariable> &thread_builtins = threadBuiltins[i];
+            thread_builtins[ShaderBuiltin::DispatchThreadIndex] =
+                ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + tx,
+                               groupid[1] * threadDim[1] + ty, groupid[2] * threadDim[2] + tz, 0U);
+            thread_builtins[ShaderBuiltin::GroupThreadIndex] =
+                ShaderVariable(rdcstr(), tx, ty, tz, 0U);
+            thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+                rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
+            workgroupProperties[i][DXILDebug::ThreadProperty::Active] = 1;
+
+            if(rdcfixedarray<uint32_t, 3>({tx, ty, tz}) == threadid)
+              activeLaneIndex = i;
+
+            i++;
+          }
+        }
+      }
+    }
+    else
+    {
+      workgroupProperties.resize(1);
+      workgroupProperties[0][DXILDebug::ThreadProperty::Active] = 1;
+
+      // put everything in globals, no per-thread values
+
+      // SV_GroupID
+      globalBuiltins[ShaderBuiltin::GroupIndex] =
+          ShaderVariable(rdcstr(), groupid[0], groupid[1], groupid[2], 0U);
+
+      // SV_DispatchThreadID
+      globalBuiltins[ShaderBuiltin::DispatchThreadIndex] = ShaderVariable(
+          rdcstr(), groupid[0] * threadDim[0] + threadid[0],
+          groupid[1] * threadDim[1] + threadid[1], groupid[2] * threadDim[2] + threadid[2], 0U);
+
+      // SV_GroupThreadID
+      globalBuiltins[ShaderBuiltin::GroupThreadIndex] =
+          ShaderVariable(rdcstr(), threadid[0], threadid[1], threadid[2], 0U);
+
+      // SV_GroupIndex
+      globalBuiltins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+          rdcstr(),
+          threadid[2] * threadDim[0] * threadDim[1] + threadid[1] * threadDim[0] + threadid[0], 0U,
+          0U, 0U);
+    }
+
+    // plain single thread case
+    DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
+    ret = debugger->BeginDebug(eventId, dxbc, refl, activeLaneIndex, numThreads);
+    DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
+
+    globalState.builtins.swap(globalBuiltins);
+
+    for(uint32_t i = 0; i < threadBuiltins.size(); i++)
+      debugger->GetLane(i).m_Builtins.swap(threadBuiltins[i]);
 
     // Fetch constant buffer data from root signature
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.compute, refl,

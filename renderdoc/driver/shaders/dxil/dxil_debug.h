@@ -64,10 +64,10 @@ void GetInterpolationModeForInputParams(const rdcarray<SigParameter> &stageInput
                                         const DXIL::Program *program,
                                         rdcarray<DXBC::InterpolationMode> &interpModes);
 
-struct PSInputData
+struct InputData
 {
-  PSInputData(int inputIndex, int arrayIndex, int numWords, ShaderBuiltin sysAttribute, bool inc,
-              void *pData)
+  InputData(int inputIndex, int arrayIndex, int numWords, ShaderBuiltin sysAttribute, bool inc,
+            void *pData)
   {
     input = inputIndex;
     array = arrayIndex;
