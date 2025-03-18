@@ -620,6 +620,33 @@ enum class AtomicBinOpCode : uint32_t
   Invalid    // Must be last.
 };
 
+// WaveOp / WavePrefixOp
+enum class WaveOpCode : uint32_t
+{
+  Sum = 0,
+  Product = 1,
+  Min = 2,
+  Max = 3,
+};
+
+// WaveBitOp
+enum class WaveBitOpCode : uint32_t
+{
+  And = 0,
+  Or = 1,
+  Xor = 2,
+};
+
+// WaveMultiPrefixOp
+enum class WaveMultiPrefixOpCode : uint32_t
+{
+  Sum = 0,
+  And = 1,
+  Or = 2,
+  Xor = 3,
+  Product = 4,
+};
+
 enum class QuadOpKind : uint32_t
 {
   ReadAcrossX = 0,           // returns the value from the other lane in the quad in the

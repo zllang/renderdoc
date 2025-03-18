@@ -1655,7 +1655,8 @@ bool IsNopInstruction(const Instruction &inst)
 }
 
 bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
-                                     const rdcarray<ThreadState> &workgroup)
+                                     const rdcarray<ThreadState> &workgroup,
+                                     const rdcarray<bool> &activeMask)
 {
   m_CurrentInstruction = m_FunctionInfo->function->instructions[m_FunctionInstructionIdx];
   const Instruction &inst = *m_CurrentInstruction;
@@ -3529,6 +3530,92 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u64v[0] = a.value.u64v[0];
             break;
           }
+          // Wave/Subgroup Operations
+          case DXOp::WaveGetLaneIndex:
+          {
+            // SV_PrimitiveID
+            result.value.u32v[0] = m_SubgroupIdx;
+            break;
+          }
+          case DXOp::WaveActiveOp:
+          {
+            // WaveActiveOp(value,op,sop)
+
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+            WaveOpCode waveOpCode = (WaveOpCode)arg.value.u32v[0];
+
+            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg));
+            bool isUnsigned = (arg.value.u32v[0] != 0);
+
+            // determine active lane indices in our subgroup
+            rdcarray<uint32_t> activeLanes;
+
+            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+            for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + m_GlobalState.subgroupSize;
+                lane++)
+            {
+              // wave operations exclude helpers
+              if(activeMask[lane])
+              {
+                if(!m_GlobalState.waveOpsIncludeHelpers && workgroup[lane - firstLaneInSub].m_Helper)
+                  continue;
+                activeLanes.push_back(lane - firstLaneInSub);
+              }
+            }
+
+            ShaderVariable accum;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, accum));
+
+            // set the identity
+            switch(waveOpCode)
+            {
+              default:
+                RDCERR("Unhandled wave opcode");
+                accum.value = {};
+                break;
+              case WaveOpCode::Sum: accum.value = {}; break;
+            }
+
+            for(uint32_t lane : activeLanes)
+            {
+              ShaderVariable x;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
+
+              switch(waveOpCode)
+              {
+                default: RDCERR("Unhandled wave opcode"); break;
+                case WaveOpCode::Sum:
+                {
+                  for(uint8_t c = 0; c < x.columns; c++)
+                  {
+                    if(isUnsigned)
+                    {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(accum, c) = comp<U>(accum, c) + comp<U>(x, c)
+                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    }
+                    else
+                    {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(accum, c) = comp<S>(accum, c) + comp<S>(x, c)
+                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+
+#undef _IMPL
+#define _IMPL(T) comp<T>(accum, c) = comp<T>(accum, c) + comp<T>(x, c)
+
+                      IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+
+            result = accum;
+
+            break;
+          }
           // Quad Operations
           case DXOp::QuadReadLaneAt:
           case DXOp::QuadOp:
@@ -3818,7 +3905,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
           // Wave/Subgroup Operations
           case DXOp::WaveIsFirstLane:
-          case DXOp::WaveGetLaneIndex:
           case DXOp::WaveGetLaneCount:
           case DXOp::WaveAnyTrue:
           case DXOp::WaveAllTrue:
@@ -3826,7 +3912,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::WaveActiveBallot:
           case DXOp::WaveReadLaneAt:
           case DXOp::WaveReadLaneFirst:
-          case DXOp::WaveActiveOp:
           case DXOp::WaveActiveBit:
           case DXOp::WavePrefixOp:
           case DXOp::WaveAllBitCount:
@@ -5321,7 +5406,7 @@ void ThreadState::StepOverNopInstructions()
 }
 
 void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
-                           const rdcarray<ThreadState> &workgroup)
+                           const rdcarray<ThreadState> &workgroup, const rdcarray<bool> &activeMask)
 {
   m_State = state;
 
@@ -5359,7 +5444,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       }
     }
   }
-  ExecuteInstruction(apiWrapper, workgroup);
+  ExecuteInstruction(apiWrapper, workgroup, activeMask);
 
   m_State = NULL;
 }
@@ -8360,6 +8445,7 @@ void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupPr
     }
 
     lane.m_Dead = workgroupProperties[i][ThreadProperty::Active] == 0;
+    lane.m_SubgroupIdx = workgroupProperties[i][ThreadProperty::SubgroupIdx];
   }
 
   // find quad neighbours
@@ -8486,12 +8572,12 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
         {
           hasDebugState = true;
           state.stepIndex = m_Steps;
-          thread.StepNext(&state, apiWrapper, m_Workgroup);
+          thread.StepNext(&state, apiWrapper, m_Workgroup, activeMask);
           m_Steps++;
         }
         else
         {
-          thread.StepNext(NULL, apiWrapper, m_Workgroup);
+          thread.StepNext(NULL, apiWrapper, m_Workgroup, activeMask);
         }
       }
     }

@@ -6154,6 +6154,11 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
                              groupid[1] * threadDim[1] + ty);
               RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[2],
                              groupid[2] * threadDim[2] + tz);
+
+              RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::IndexInSubgroup].value.u32v[0],
+                             i % winner->subgroupSize);
+              RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup].value.u32v[0],
+                             i / winner->subgroupSize);
             }
             else
             {
@@ -6165,8 +6170,10 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
               thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
                   rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
               // tightly wrap subgroups, this is likely not how the GPU actually assigns them
-              thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
+              thread_builtins[ShaderBuiltin::IndexInSubgroup] =
                   ShaderVariable(rdcstr(), i % winner->subgroupSize, 0U, 0U, 0U);
+              thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
+                  ShaderVariable(rdcstr(), i / winner->subgroupSize, 0U, 0U, 0U);
               apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active] = 1;
             }
 

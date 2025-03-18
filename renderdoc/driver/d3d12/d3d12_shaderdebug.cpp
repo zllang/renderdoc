@@ -2357,6 +2357,7 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
     const rdcarray<DXIL::EntryPointInterface::Signature> &dxilInputs =
         debugger->GetDXILEntryPointInputs();
 
+    globalState.subgroupSize = buf->subgroupSize;
     for(uint32_t t = 0; t < buf->subgroupSize; t++)
     {
       DXDebug::VSLaneData *lane = (DXDebug::VSLaneData *)(initialData.data() + laneDataOffset +
@@ -2369,6 +2370,7 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
       if(lane->active)
         RDCASSERTEQUAL(lane->laneIndex, t);
       workgroupProperties[t][DXILDebug::ThreadProperty::Active] = lane->active;
+      workgroupProperties[t][DXILDebug::ThreadProperty::SubgroupIdx] = t;
 
       rdcarray<DXILDebug::InputData> inputDatas;
       for(int i = 0; i < fetcher.inputs.count(); i++)
@@ -2403,6 +2405,8 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
         if(inputElement.included)
           data += inputElement.numwords * sizeof(uint32_t);
       }
+
+      state.m_Builtins[ShaderBuiltin::IndexInSubgroup] = ShaderVariable(rdcstr(), t, 0U, 0U, 0U);
 
       for(const DXILDebug::InputData &input : inputDatas)
       {
@@ -3159,6 +3163,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
     DXILDebug::FetchConstantBufferData(m_pDevice, dxbc->GetDXILByteCode(), rs.graphics, refl,
                                        globalState, ret->sourceVars);
 
+    globalState.subgroupSize = hit->subgroupSize;
     for(uint32_t q = 0; q < hit->subgroupSize; q++)
     {
       DXDebug::PSLaneData *lane = (DXDebug::PSLaneData *)data;
@@ -3170,6 +3175,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
       workgroupProperties[q][DXILDebug::ThreadProperty::Helper] = lane->isHelper;
       workgroupProperties[q][DXILDebug::ThreadProperty::QuadLane] = lane->quadLane;
       workgroupProperties[q][DXILDebug::ThreadProperty::QuadId] = lane->quadId;
+      workgroupProperties[q][DXILDebug::ThreadProperty::SubgroupIdx] = q;
 
       data += sizeof(DXDebug::PSLaneData);
 
@@ -3212,6 +3218,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
           data += inputElement.numwords * sizeof(uint32_t);
       }
 
+      state.m_Builtins[ShaderBuiltin::IndexInSubgroup] = ShaderVariable(rdcstr(), q, 0U, 0U, 0U);
       state.m_Builtins[ShaderBuiltin::PrimitiveIndex] =
           ShaderVariable(rdcstr(), lane->primitive, 0U, 0U, 0U);
       state.m_Builtins[ShaderBuiltin::MSAACoverage] =
@@ -3433,6 +3440,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     };
 
     uint32_t numThreads = 1;
+    uint32_t subgroupSize = 1;
     uint32_t activeLaneIndex = 0;
 
     rdcflatmap<ShaderBuiltin, ShaderVariable> globalBuiltins;
@@ -3594,6 +3602,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
       else
         activeLaneIndex = buf->laneIndex;
 
+      subgroupSize = buf->subgroupSize;
       for(uint32_t t = 0; t < buf->subgroupSize; t++)
       {
         DXDebug::CSLaneData *value = (DXDebug::CSLaneData *)(initialData.data() + laneDataOffset +
@@ -3616,6 +3625,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
           activeLaneIndex = lane;
 
         workgroupProperties[lane][DXILDebug::ThreadProperty::Active] = value->active;
+        workgroupProperties[lane][DXILDebug::ThreadProperty::SubgroupIdx] = t;
         RDCASSERT(value->active);
 
         threadBuiltins[lane][ShaderBuiltin::DispatchThreadIndex] =
@@ -3629,6 +3639,8 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
                            value->threadid[2] * threadDim[0] * threadDim[1] +
                                value->threadid[1] * threadDim[0] + value->threadid[0],
                            0U, 0U, 0U);
+        threadBuiltins[lane][ShaderBuiltin::IndexInSubgroup] =
+            ShaderVariable(rdcstr(), value->laneIndex, 0U, 0U, 0U);
       }
 
       if(activeLaneIndex == ~0U)
@@ -3658,6 +3670,9 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
                                groupid[1] * threadDim[1] + ty);
                 RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::DispatchThreadIndex].value.u32v[2],
                                groupid[2] * threadDim[2] + tz);
+
+                RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::IndexInSubgroup].value.u32v[0],
+                               i % buf->subgroupSize);
               }
               else
               {
@@ -3668,7 +3683,12 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
                     ShaderVariable(rdcstr(), tx, ty, tz, 0U);
                 thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
                     rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
+                // tightly wrap subgroups, this is likely not how the GPU actually assigns them
+                thread_builtins[ShaderBuiltin::IndexInSubgroup] =
+                    ShaderVariable(rdcstr(), i % buf->subgroupSize, 0U, 0U, 0U);
                 workgroupProperties[i][DXILDebug::ThreadProperty::Active] = 1;
+                workgroupProperties[i][DXILDebug::ThreadProperty::SubgroupIdx] =
+                    i % buf->subgroupSize;
               }
 
               i++;
@@ -3751,6 +3771,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
 
     globalState.builtins.swap(globalBuiltins);
+    globalState.subgroupSize = subgroupSize;
 
     for(uint32_t i = 0; i < threadBuiltins.size(); i++)
       debugger->GetLane(i).m_Builtins.swap(threadBuiltins[i]);

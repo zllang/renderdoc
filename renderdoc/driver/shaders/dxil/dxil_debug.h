@@ -222,13 +222,14 @@ struct ThreadState
   void EnterFunction(const DXIL::Function *function, const rdcarray<DXIL::Value *> &args);
   void EnterEntryPoint(const DXIL::Function *function, ShaderDebugState *state);
   void StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
-                const rdcarray<ThreadState> &workgroup);
+                const rdcarray<ThreadState> &workgroup, const rdcarray<bool> &activeMask);
   void StepOverNopInstructions();
 
   bool Finished() const;
   bool InUniformBlock() const;
 
-  bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroup);
+  bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroup,
+                          const rdcarray<bool> &activeMask);
 
   void MarkResourceAccess(const rdcstr &name, const ResourceReferenceInfo &resRefInfo,
                           bool directAccess, const ShaderDirectAccess &access,
@@ -347,6 +348,8 @@ struct ThreadState
   rdcfixedarray<uint32_t, 4> m_QuadNeighbours = {~0U, ~0U, ~0U, ~0U};
   // index in the workgroup
   uint32_t m_WorkgroupIndex = ~0U;
+  // index in the subgroup
+  uint32_t m_SubgroupIdx = ~0U;
   bool m_Dead = false;
   bool m_Ended = false;
   bool m_Helper = false;
@@ -357,6 +360,8 @@ struct GlobalState
   GlobalState() = default;
   ~GlobalState();
   BuiltinInputs builtins;
+  uint32_t subgroupSize = 1;
+  bool waveOpsIncludeHelpers = false;
 
   struct ViewFmt
   {
@@ -518,6 +523,7 @@ enum class ThreadProperty : uint32_t
   QuadId,
   QuadLane,
   Active,
+  SubgroupIdx,
   Count,
 };
 
