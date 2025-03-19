@@ -1785,6 +1785,13 @@ SPDBChunk::SPDBChunk(byte *data, uint32_t spdblength)
         // step through struct members
         while(!vartype->members.empty())
         {
+          if(vartype->leafType == LF_STRIDED_ARRAY)
+          {
+            uint32_t idx = varOffset / vartype->matArrayStride;
+            varOffset -= vartype->matArrayStride * idx;
+            mapping.var.name += StringFormat::Fmt("[%u]", idx);
+          }
+
           bool found = false;
 
           // find the child member this register corresponds to. We don't handle overlaps between
