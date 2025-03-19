@@ -2956,8 +2956,15 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, cond));
             if(cond.value.u32v[0] != 0)
             {
-              m_Dead = true;
-              return true;
+              // Active lane is demoted to helper invocation which for pixel debug terminates the debug
+              if(m_State)
+              {
+                m_Dead = true;
+                return true;
+              }
+              // Quick fix : need maximal reconvergence style control flow to handle discard properly
+              // * If the next instruction is a de-generate jump then skip over it
+              StepOverDegenerateBranch();
             }
             break;
           }
@@ -5446,6 +5453,52 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   }
 
   return true;
+}
+
+void ThreadState::StepOverDegenerateBranch()
+{
+  if(m_Ended)
+    return;
+
+  uint32_t funcInstrIdx = m_FunctionInstructionIdx;
+  while(true)
+  {
+    RDCASSERT(funcInstrIdx < m_FunctionInfo->function->instructions.size());
+    const Instruction *inst = m_FunctionInfo->function->instructions[funcInstrIdx];
+    if(IsNopInstruction(*inst))
+    {
+      funcInstrIdx++;
+      continue;
+    }
+    if(inst->op != Operation::Branch)
+    {
+      return;
+    }
+    const Block *target = cast<Block>(inst->args[0]);
+    RDCASSERT(target);
+    uint32_t blockId = target->id;
+    if(blockId < m_FunctionInfo->function->blocks.size())
+    {
+      if(blockId == m_Block + 1)
+      {
+        m_PreviousBlock = m_Block;
+        m_PhiVariables.clear();
+        auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
+        if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
+        {
+          const FunctionInfo::ReferencedIds &phiIds = it->second;
+          for(Id id : phiIds)
+            m_PhiVariables[id] = m_Variables[id];
+        }
+        m_Block = blockId;
+        m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
+        m_ActiveGlobalInstructionIdx =
+            m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
+        return;
+      }
+      return;
+    }
+  }
 }
 
 void ThreadState::StepOverNopInstructions()

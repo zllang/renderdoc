@@ -237,6 +237,7 @@ struct ThreadState
   void StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
                 const rdcarray<ThreadState> &workgroup, const rdcarray<bool> &activeMask);
   void StepOverNopInstructions();
+  void StepOverDegenerateBranch();
 
   bool Finished() const;
   bool InUniformBlock() const;
