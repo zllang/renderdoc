@@ -378,7 +378,15 @@ void CreateLegacyInputFetcher(const DXBC::DXBCContainer *dxbc, const InputFetche
       (sizeof(DXDebug::PSLaneData) + fetcher.laneDataBufferStride) * cfg.maxWaveSize;
   fetcher.laneDataBufferStride = 0;
 
-  fetcher.hlsl += GetEmbeddedResource(quadswizzle_hlsl);
+  bool dxil = dxbc->GetDXILByteCode() != NULL;
+
+  // work around NV driver bug - it miscompiles the quad swizzle helper sometimes, so use the wave op instead
+  if(!dxil || !cfg.waveOps)
+    fetcher.hlsl += GetEmbeddedResource(quadswizzle_hlsl);
+  else
+    fetcher.hlsl +=
+        "#define quadSwizzleHelper(value, quadLaneIndex, readIndex) "
+        "QuadReadLaneAt(value, readIndex)\n";
 
   fetcher.hlsl += R"(
 struct LaneData

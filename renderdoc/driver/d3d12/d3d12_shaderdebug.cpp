@@ -2235,6 +2235,7 @@ ShaderDebugTrace *D3D12Replay::DebugVertex(uint32_t eventId, uint32_t vertid, ui
     cfg.vert = sv_vertid;
     cfg.inst = instid;
     cfg.uavslot = 1;
+    cfg.waveOps = m_pDevice->GetOpts1().WaveOps != FALSE;
     cfg.maxWaveSize = m_pDevice->GetOpts1().WaveLaneCountMax;
 
     DXDebug::CreateInputFetcher(dxbc, NULL, cfg, fetcher);
@@ -2821,6 +2822,7 @@ ShaderDebugTrace *D3D12Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
   cfg.x = x;
   cfg.y = y;
   cfg.uavslot = 1;
+  cfg.waveOps = m_pDevice->GetOpts1().WaveOps != FALSE;
   cfg.maxWaveSize = 4;
   cfg.outputSampleCount = RDCMAX(1U, pipeDesc.SampleDesc.Count);
 
@@ -3474,6 +3476,7 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
           groupid[2] * threadDim[2] + threadid[2],
       };
       cfg.uavslot = 1;
+      cfg.waveOps = m_pDevice->GetOpts1().WaveOps != FALSE;
       cfg.maxWaveSize = m_pDevice->GetOpts1().WaveLaneCountMax;
 
       DXDebug::CreateInputFetcher(dxbc, NULL, cfg, fetcher);

@@ -1863,6 +1863,7 @@ ShaderDebugTrace *D3D11Replay::DebugPixel(uint32_t eventId, uint32_t x, uint32_t
 
   cfg.x = x;
   cfg.y = y;
+  cfg.waveOps = false;
   cfg.maxWaveSize = 4;
 
   ID3D11DepthStencilView *depthView = NULL;

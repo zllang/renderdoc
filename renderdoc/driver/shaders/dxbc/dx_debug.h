@@ -182,6 +182,7 @@ struct InputFetcherConfig
   uint32_t uavslot = 0;
   uint32_t uavspace = 0;
   uint32_t maxWaveSize = 64;
+  bool waveOps = false;
   uint32_t outputSampleCount = 1;
 };
 
