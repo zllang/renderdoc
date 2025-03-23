@@ -108,19 +108,143 @@ float4 main(IN input) : SV_Target0
 
 RWStructuredBuffer<float4> outbuf : register(u0);
 
+static uint3 tid;
+
+float4 funcD(uint id)
+{
+  return WaveActiveSum(id/2).xxxx;
+}
+
+float4 nestedFunc(uint id)
+{
+  float4 ret = funcD(id/3);
+  ret.w = WaveActiveSum(id);
+  return ret;
+}
+
+float4 funcA(uint id)
+{
+   return nestedFunc(id*2);
+}
+
+float4 funcB(uint id)
+{
+   return nestedFunc(id*4);
+}
+
+float4 funcTest(uint id)
+{
+  if ((id % 2) == 0)
+  {
+    return 0.xxxx;
+  }
+  else
+  {
+    float value = WaveActiveSum(id);
+    if (id < 10)
+    {
+      return value.xxxx;
+    }
+    value += WaveActiveSum(id/2);
+    return value.xxxx;
+  }
+}
+
+void SetOuput(float4 data)
+{
+  outbuf[root_test * 1024 + tid.y * GROUP_SIZE_X + tid.x] = data;
+}
+
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void main(uint3 tid : SV_DispatchThreadID)
+void main(uint3 inTid : SV_DispatchThreadID)
 {
   float4 data = 0.0f.xxxx;
+  tid = inTid;
 
-  uint wave = WaveGetLaneIndex();
+  uint id = WaveGetLaneIndex();
+
+  SetOuput(id);
 
   if(IsTest(0))
-    data = float4(wave, 0, 0, 0);
+  {
+    data.x = id;
+  }
   else if(IsTest(1))
-    data = float4(WaveActiveSum(wave), 0, 0, 0);
+  {
+    data.x = WaveActiveSum(id);
+  }
+  else if(IsTest(2))
+  {
+    // Diverged threads which reconverge 
+    if (id < 10)
+    {
+        // active threads 0-9
+        data.x = WaveActiveSum(id);
 
-  outbuf[root_test * 1024 + tid.y * GROUP_SIZE_X + tid.x] = data;
+        if ((id % 2) == 0)
+          data.y = WaveActiveSum(id);
+        else
+          data.y = WaveActiveSum(id);
+
+        data.x += WaveActiveSum(id);
+    }
+    else
+    {
+        // active threads 10...
+        data.x = WaveActiveSum(id);
+    }
+    data.y = WaveActiveSum(id);
+  }
+  else if(IsTest(3))
+  {
+    // Converged threads calling a function 
+    data = funcTest(id);
+    data.y = WaveActiveSum(id);
+  }
+  else if(IsTest(4))
+  {
+    // Converged threads calling a function which has a nested function call in it
+    data = nestedFunc(id);
+    data.y = WaveActiveSum(id);
+  }
+  else if(IsTest(5))
+  {
+    // Diverged threads calling the same function
+    if (id < 10)
+    {
+      data = funcD(id);
+    }
+    else
+    {
+      data = funcD(id);
+    }
+    data.y = WaveActiveSum(id);
+  }
+  else if(IsTest(6))
+  {
+    // Diverged threads calling the same function which has a nested function call in it
+    if (id < 10)
+    {
+      data = funcA(id);
+    }
+    else
+    {
+      data = funcB(id);
+    }
+    data.y = WaveActiveSum(id);
+  }
+  else if(IsTest(7))
+  {
+    // Diverged threads which early exit
+    if (id < 10)
+    {
+      data.x = WaveActiveSum(id+10);
+      SetOuput(data);
+      return;
+    }
+    data.x = WaveActiveSum(id);
+  }
+  SetOuput(data);
 }
 
 )EOSHADER";
