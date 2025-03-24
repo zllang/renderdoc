@@ -562,6 +562,11 @@ private:
         rdcspv::Id semantics =
             editor.AddConstantImmediate<uint32_t>((uint32_t)rdcspv::MemorySemantics::AcquireRelease);
 
+        rdcspv::OperationList ops;
+
+        rdcspv::Id bufLoaded = editor.LoadBufferVariable(ops, bufVar);
+        ops.add(rdcspv::OpAtomicUMax(uint32Type, editor.MakeId(), bufLoaded, scope, semantics, uint1));
+
         // patch every function to include a BDA write just to be safe
         for(rdcspv::Iter it = editor.Begin(rdcspv::Section::Functions),
                          end = editor.End(rdcspv::Section::Functions);
@@ -584,11 +589,10 @@ private:
                   it.opcode() == rdcspv::Op::NoLine)
               ++it;
 
-            rdcspv::OperationList ops;
-
-            ops.add(rdcspv::OpAtomicUMax(uint32Type, editor.MakeId(),
-                                         editor.LoadBufferVariable(ops, bufVar), scope, semantics,
-                                         uint1));
+            // give the umax a new result each time
+            rdcspv::OpAtomicUMax umax(ops.back().AsIter());
+            umax.result = editor.MakeId();
+            ops.back() = umax;
 
             it = editor.AddOperations(it, ops);
           }
