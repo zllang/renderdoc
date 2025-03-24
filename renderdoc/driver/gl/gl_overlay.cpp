@@ -2118,6 +2118,7 @@ ResourceId GLReplay::RenderOverlay(ResourceId texid, FloatVector clearCol, Debug
           {
             drv.glGetNamedRenderbufferParameterivEXT(curDepth, eGL_RENDERBUFFER_INTERNAL_FORMAT,
                                                      (GLint *)&fmt);
+            depthEnum = eGL_RENDERBUFFER;
           }
         }
 
