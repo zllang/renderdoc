@@ -963,7 +963,7 @@ CaptureSettings CaptureDialog::Settings()
 
   ret.executable = ui->exePath->text();
   ret.workingDir = ui->workDirPath->text();
-  ret.commandLine = ui->cmdline->text();
+  ret.commandLine = GetCommandLine();
 
   ret.environment = m_EnvModifications;
 
@@ -1079,6 +1079,13 @@ void CaptureDialog::SetWorkingDirectory(const rdcstr &dir)
 void CaptureDialog::SetCommandLine(const rdcstr &cmd)
 {
   ui->cmdline->setText(cmd);
+}
+
+QString CaptureDialog::GetCommandLine()
+{
+  return ui->cmdline->text()
+      .replace(QLatin1Char('\n'), QLatin1Char(' '))
+      .replace(QLatin1Char('\r'), QLatin1Char(' '));
 }
 
 void CaptureDialog::LoadSettings(const rdcstr &filename)
@@ -1227,7 +1234,7 @@ void CaptureDialog::TriggerCapture()
         workingDir = ui->workDirPath->text();
     }
 
-    QString cmdLine = ui->cmdline->text();
+    QString cmdLine = GetCommandLine();
 
     SaveSettings(mostRecentFilename());
 

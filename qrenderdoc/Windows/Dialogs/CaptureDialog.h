@@ -67,6 +67,7 @@ public:
 
   void SetWorkingDirectory(const rdcstr &dir) override;
   void SetCommandLine(const rdcstr &cmd) override;
+  QString GetCommandLine();
   void SetEnvironmentModifications(const rdcarray<EnvironmentModification> &modifications) override;
 
   void SetSettings(CaptureSettings settings) override;
