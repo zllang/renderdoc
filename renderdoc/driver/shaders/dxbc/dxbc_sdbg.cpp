@@ -123,11 +123,6 @@ void SDBGChunk::GetCallstack(size_t instruction, uintptr_t offset, rdcarray<rdcs
   }
 }
 
-bool SDBGChunk::HasSourceMapping() const
-{
-  return false;
-}
-
 void SDBGChunk::GetLocals(const DXBC::DXBCContainer *dxbc, size_t instruction, uintptr_t offset,
                           rdcarray<SourceVariableMapping> &locals) const
 {

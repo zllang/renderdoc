@@ -516,7 +516,6 @@ public:
   virtual void GetCallstack(size_t instruction, uintptr_t offset,
                             rdcarray<rdcstr> &callstack) const = 0;
 
-  virtual bool HasSourceMapping() const = 0;
   virtual void GetLocals(const DXBC::DXBCContainer *dxbc, size_t instruction, uintptr_t offset,
                          rdcarray<SourceVariableMapping> &locals) const = 0;
 

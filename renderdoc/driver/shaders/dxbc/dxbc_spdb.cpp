@@ -2329,11 +2329,6 @@ void SPDBChunk::GetCallstack(size_t, uintptr_t offset, rdcarray<rdcstr> &callsta
     callstack = it->second.callstack;
 }
 
-bool SPDBChunk::HasSourceMapping() const
-{
-  return true;
-}
-
 void SPDBChunk::GetLocals(const DXBC::DXBCContainer *dxbc, size_t, uintptr_t offset,
                           rdcarray<SourceVariableMapping> &locals) const
 {
