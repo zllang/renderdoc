@@ -706,7 +706,7 @@ class TestCase:
 
             raise KeyError("Couldn't find {} in debug vars".format(path))
 
-        raise KeyError("Couldn't parse path {}".format(path))
+        raise KeyError(f"Couldn't find '{path}' in debug vars or parse it")
 
 
     def evaluate_source_var(self, sourceVar: rd.SourceVariableMapping, debugVars) -> rd.ShaderVariable:

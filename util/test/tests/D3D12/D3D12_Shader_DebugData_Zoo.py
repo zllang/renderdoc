@@ -125,7 +125,19 @@ class D3D12_Shader_DebugData_Zoo(rdtest.TestCase):
                     shaderSrcRaw = debugInfo.files[0].contents
                     varsToCheck = self.parse_shader_source(shaderSrcRaw, realTestResult, test)
                     for name, varType, expectedValue in varsToCheck:
-                        debuggedValue = self.get_source_shader_var_value(trace.instInfo[-1].sourceVars, name, varType, variables)
+                        debuggedValue = None
+                        countInst = len(trace.instInfo)
+                        for inst in range(countInst):
+                            sourceVars = trace.instInfo[countInst-1-inst].sourceVars
+                            try:
+                                debuggedValue = self.get_source_shader_var_value(sourceVars, name, varType, variables)
+                            except KeyError as ex:
+                                continue
+                            except rdtest.TestFailureException as ex:
+                                continue
+                            break
+                        if debuggedValue is None:
+                            raise rdtest.TestFailureException(f"Couldn't find source variable {name} {varType}")
                         if not rdtest.value_compare(expectedValue, debuggedValue):
                             raise rdtest.TestFailureException(f"'{name}' {varType} debugger {debuggedValue} doesn't match expected {expectedValue}")
                     rdtest.log.success(f"{len(varsToCheck)} source variables matched as expected")
@@ -184,7 +196,19 @@ class D3D12_Shader_DebugData_Zoo(rdtest.TestCase):
                 varsToCheck = self.parse_shader_source(shaderSrcRaw, realTestResult, test)
                 try:
                     for name, varType, expectedValue in varsToCheck:
-                        debuggedValue = self.get_source_shader_var_value(trace.instInfo[-1].sourceVars, name, varType, variables)
+                        debuggedValue = None
+                        countInst = len(trace.instInfo)
+                        for inst in range(countInst):
+                            sourceVars = trace.instInfo[countInst-1-inst].sourceVars
+                            try:
+                                debuggedValue = self.get_source_shader_var_value(sourceVars, name, varType, variables)
+                            except KeyError as ex:
+                                continue
+                            except rdtest.TestFailureException as ex:
+                                continue
+                            break
+                        if debuggedValue is None:
+                            raise rdtest.TestFailureException(f"Couldn't find source variable {name} {varType}")
                         if not rdtest.value_compare(expectedValue, debuggedValue):
                             raise rdtest.TestFailureException(f"'{name}' {varType} debugger {debuggedValue} doesn't match expected {expectedValue}")
                     rdtest.log.success(f"{len(varsToCheck)} source variables matched as expected")

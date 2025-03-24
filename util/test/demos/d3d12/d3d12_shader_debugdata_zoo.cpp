@@ -150,6 +150,13 @@ struct TestStruct
     testResult.x = testStruct.anon.a.x;
     testResult.y = testStruct.anon.b.x;
   }
+  else if(testIndex == 4)
+  {
+    testResult.x = intVal * 7;
+    testResult.y = intVal * 5;
+    SET_DATA(testIndex, testResult);
+    EARLY_RETURN;
+  }
   else
   {
     testResult = 0.4f;
@@ -161,6 +168,8 @@ struct TestStruct
 
   std::string pixel = R"EOSHADER(
 
+#define SET_DATA(INDEX, DATA)
+#define EARLY_RETURN return testResult
 #define TEST_INDEX IN.tri
 )EOSHADER" + testDefines +
                       R"EOSHADER(
@@ -178,11 +187,18 @@ float4 main(v2f IN) : SV_Target0
 
   std::string compute = R"EOSHADER(
 
+RWStructuredBuffer<float4> bufOut : register(u0);
+
+void SetOutput(uint index, float4 data)
+{
+  bufOut[index] = data;
+}
+
+#define SET_DATA(INDEX, DATA) SetOutput(INDEX, DATA)
+#define EARLY_RETURN return
 #define TEST_INDEX inTestIndex
 )EOSHADER" + testDefines +
                         R"EOSHADER(
-
-RWStructuredBuffer<float4> bufOut : register(u0);
 
 [numthreads(1,1,1)]
 void main(int inTestIndex: SV_GroupID)
@@ -191,7 +207,7 @@ void main(int inTestIndex: SV_GroupID)
 )EOSHADER" + testsBody +
                         R"EOSHADER(
 
-  bufOut[testIndex] = testResult;
+  SetOutput(testIndex, testResult);
 }
 
 )EOSHADER";
