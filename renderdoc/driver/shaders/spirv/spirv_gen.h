@@ -1531,17 +1531,17 @@ struct ImageOperandsAndParamDatas
 {
   ImageOperandsAndParamDatas(ImageOperands f = ImageOperands::None) : flags(f) {}
   ImageOperands flags;
-  Id bias;
-  Id lod;
+  Id bias = {};
+  Id lod = {};
   GradParams grad;
-  Id constOffset;
-  Id offset;
-  Id constOffsets;
-  Id sample;
-  Id minLod;
-  IdScope makeTexelAvailable;
-  IdScope makeTexelVisible;
-  Id offsets;
+  Id constOffset = {};
+  Id offset = {};
+  Id constOffsets = {};
+  Id sample = {};
+  Id minLod = {};
+  IdScope makeTexelAvailable = {};
+  IdScope makeTexelVisible = {};
+  Id offsets = {};
   
   operator ImageOperands() const { return flags; }
   bool operator &(const ImageOperands v) const { return bool(flags & v); }
@@ -1585,21 +1585,21 @@ struct LoopControlAndParamDatas
 {
   LoopControlAndParamDatas(LoopControl f = LoopControl::None) : flags(f) {}
   LoopControl flags;
-  uint32_t dependencyLength;
-  uint32_t minIterations;
-  uint32_t maxIterations;
-  uint32_t iterationMultiple;
-  uint32_t peelCount;
-  uint32_t partialCount;
-  uint32_t initiationIntervalINTEL;
-  uint32_t maxConcurrencyINTEL;
-  uint32_t dependencyArrayINTEL;
-  uint32_t pipelineEnableINTEL;
-  uint32_t loopCoalesceINTEL;
-  uint32_t maxInterleavingINTEL;
-  uint32_t speculatedIterationsINTEL;
-  uint32_t loopCountINTEL;
-  uint32_t maxReinvocationDelayINTEL;
+  uint32_t dependencyLength = {};
+  uint32_t minIterations = {};
+  uint32_t maxIterations = {};
+  uint32_t iterationMultiple = {};
+  uint32_t peelCount = {};
+  uint32_t partialCount = {};
+  uint32_t initiationIntervalINTEL = {};
+  uint32_t maxConcurrencyINTEL = {};
+  uint32_t dependencyArrayINTEL = {};
+  uint32_t pipelineEnableINTEL = {};
+  uint32_t loopCoalesceINTEL = {};
+  uint32_t maxInterleavingINTEL = {};
+  uint32_t speculatedIterationsINTEL = {};
+  uint32_t loopCountINTEL = {};
+  uint32_t maxReinvocationDelayINTEL = {};
   
   operator LoopControl() const { return flags; }
   bool operator &(const LoopControl v) const { return bool(flags & v); }
@@ -1649,11 +1649,11 @@ struct MemoryAccessAndParamDatas
 {
   MemoryAccessAndParamDatas(MemoryAccess f = MemoryAccess::None) : flags(f) {}
   MemoryAccess flags;
-  uint32_t aligned;
-  IdScope makePointerAvailable;
-  IdScope makePointerVisible;
-  Id aliasScopeINTELMask;
-  Id noAliasINTELMask;
+  uint32_t aligned = {};
+  IdScope makePointerAvailable = {};
+  IdScope makePointerVisible = {};
+  Id aliasScopeINTELMask = {};
+  Id noAliasINTELMask = {};
   
   operator MemoryAccess() const { return flags; }
   bool operator &(const MemoryAccess v) const { return bool(flags & v); }
@@ -1740,10 +1740,11 @@ struct FPFastMathDefaultParams
 
 struct ExecutionModeAndParamData
 {
-  ExecutionModeAndParamData(ExecutionMode v = ExecutionMode::Invalid) : value(v) {}
+  ExecutionModeAndParamData(ExecutionMode v = ExecutionMode::Invalid) : value(v), _init(0) {}
   ExecutionMode value;
   union
   {
+    uint64_t _init;
     uint32_t invocations;
     LocalSizeParams localSize;
     LocalSizeHintParams localSizeHint;
@@ -1833,10 +1834,11 @@ struct CacheControlStoreINTELParams
 
 struct DecorationAndParamData
 {
-  DecorationAndParamData(Decoration v = Decoration::Invalid) : value(v) {}
+  DecorationAndParamData(Decoration v = Decoration::Invalid) : value(v), _init(0) {}
   Decoration value;
   union
   {
+    uint64_t _init;
     uint32_t specId;
     uint32_t arrayStride;
     uint32_t matrixStride;
@@ -1913,8 +1915,8 @@ struct TensorAddressingOperandsAndParamDatas
 {
   TensorAddressingOperandsAndParamDatas(TensorAddressingOperands f = TensorAddressingOperands::None) : flags(f) {}
   TensorAddressingOperands flags;
-  Id tensorView;
-  Id decodeFunc;
+  Id tensorView = {};
+  Id decodeFunc = {};
   
   operator TensorAddressingOperands() const { return flags; }
   bool operator &(const TensorAddressingOperands v) const { return bool(flags & v); }

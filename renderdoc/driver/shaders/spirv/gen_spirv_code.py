@@ -581,7 +581,10 @@ for operand_kind in spirv['operand_kinds']:
                 param = value['parameters'][0]
                 size += kinds[param['kind']]['size']
                 param_type = kinds[param['kind']]['type']
-                member = "{} {};\n".format(param_type, param_name)
+                if bit_enum:
+                    member = "{} {} = {{}};\n".format(param_type, param_name)
+                else:
+                    member = "{} {};\n".format(param_type, param_name)
 
                 if value_enum:
                     values += '  '
@@ -713,10 +716,11 @@ rdcstr ParamToStr(const std::function<rdcstr(rdcspv::Id)> &idName, const rdcspv:
 
         header.write('''struct {name}AndParamData
 {{
-  {name}AndParamData({name} v = {name}::Invalid) : value(v) {{}}
+  {name}AndParamData({name} v = {name}::Invalid) : value(v), _init(0) {{}}
   {name} value;
   union
   {{
+    uint64_t _init;
 {values}
   }};
   
