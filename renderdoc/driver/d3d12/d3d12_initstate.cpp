@@ -1069,6 +1069,16 @@ bool D3D12ResourceManager::Serialise_InitialState(SerialiserType &ser, ResourceI
           if(!m_Device->IsSparseResource(GetResID(liveRes)))
             liveRes->GetHeapProperties(&heapProps, NULL);
 
+          // if the resource is sparse, create on default heap
+          if(sparseBinds)
+          {
+            heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+            heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+            heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+            heapProps.CreationNodeMask = 1;
+            heapProps.VisibleNodeMask = 1;
+          }
+
           ID3D12GraphicsCommandList *list = Unwrap(m_Device->GetInitialStateList());
 
           if(!list)

@@ -236,6 +236,14 @@ void main()
 
     ID3D12PipelineStatePtr psoDepth = psoCreator;
 
+    psoCreator.DSV(DXGI_FORMAT_UNKNOWN);
+    psoCreator.RTVs({DXGI_FORMAT_R16G16B16A16_FLOAT});
+    psoCreator.SampleCount(4);
+
+    ID3D12PipelineStatePtr psoMSAA = psoCreator;
+
+    psoCreator.RTVs({DXGI_FORMAT_R8G8B8A8_UNORM_SRGB});
+
     ID3D12ResourcePtr dsvtex = MakeTexture(DXGI_FORMAT_D32_FLOAT, screenWidth, screenHeight)
                                    .DSV()
                                    .InitialState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -381,6 +389,25 @@ void main()
 
     ID3D12ResourcePtr bufout = MakeBuffer().Size(1024).UAV();
 
+    ID3D12ResourcePtr sparseMSAA;
+    {
+      D3D12_RESOURCE_DESC desc;
+      desc.Alignment = 0;
+      desc.DepthOrArraySize = 1;
+      desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+      desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+      desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+      desc.Height = 256;
+      desc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
+      desc.Width = 256;
+      desc.MipLevels = 1;
+      desc.SampleDesc.Count = 4;
+      desc.SampleDesc.Quality = 0;
+
+      dev->CreateReservedResource(&desc, D3D12_RESOURCE_STATE_RENDER_TARGET, NULL,
+                                  __uuidof(ID3D12Resource), (void **)&sparseMSAA);
+    }
+
     while(Running())
     {
       ID3D12GraphicsCommandListPtr cmd = GetCommandBuffer();
@@ -504,6 +531,11 @@ void main()
       setMarker(cmd, "Temp heap Draw");
 
       cmd->SetPipelineState(psoDepth);
+      cmd->DrawIndexedInstanced(3, 1, 0, 0, 0);
+
+      D3D12_CPU_DESCRIPTOR_HANDLE msrtv = MakeRTV(sparseMSAA).CreateCPU(1);
+      cmd->SetPipelineState(psoMSAA);
+      cmd->OMSetRenderTargets(1, &msrtv, FALSE, NULL);
       cmd->DrawIndexedInstanced(3, 1, 0, 0, 0);
 
       FinishUsingBackbuffer(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
