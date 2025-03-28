@@ -36,7 +36,9 @@ public:
 
 signals:
   void keyPress(QKeyEvent *e);
+  void focusOut(QFocusEvent *e);
 
 private:
   void keyPressEvent(QKeyEvent *e) override;
+  void focusOutEvent(QFocusEvent *e) override;
 };

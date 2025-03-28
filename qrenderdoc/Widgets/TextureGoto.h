@@ -42,9 +42,11 @@ signals:
 
 public slots:
   void location_keyPress(QKeyEvent *);
+  void focusOut(QFocusEvent *event);
 
 private:
   void leaveEvent(QEvent *event) override;
+  void focusOutEvent(QFocusEvent *event) override;
 
   RDDoubleSpinBox *m_X, *m_Y;
   std::function<void(QPoint)> m_Callback;

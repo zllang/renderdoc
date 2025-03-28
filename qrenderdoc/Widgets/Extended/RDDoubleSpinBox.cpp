@@ -37,3 +37,9 @@ void RDDoubleSpinBox::keyPressEvent(QKeyEvent *e)
   emit keyPress(e);
   QDoubleSpinBox::keyPressEvent(e);
 }
+
+void RDDoubleSpinBox::focusOutEvent(QFocusEvent *e)
+{
+  emit focusOut(e);
+  QDoubleSpinBox::focusOutEvent(e);
+}
