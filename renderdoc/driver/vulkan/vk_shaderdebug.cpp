@@ -3639,23 +3639,41 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
 
       uint32_t width = (base.width / 8);
 
+      rdcspv::Id loadType;
+
+      if(param.compCount == 1)
+        loadType = editor.DeclareType(base);
+      else
+        loadType = editor.DeclareType(rdcspv::Vector(base, param.compCount));
+
+      rdcspv::Id valueType;
+
       // treat bools as uints
       if(base.type == rdcspv::Op::TypeBool)
         width = 4;
 
-      rdcspv::Id valueType;
+      // we immediately upconvert any sub-32-bit types
+      if(width < 4)
+      {
+        width = 4;
+        base.width = 32;
 
-      if(param.compCount == 1)
-        valueType = editor.DeclareType(base);
+        if(param.compCount == 1)
+          valueType = editor.DeclareType(base);
+        else
+          valueType = editor.DeclareType(rdcspv::Vector(base, param.compCount));
+      }
       else
-        valueType = editor.DeclareType(rdcspv::Vector(base, param.compCount));
+      {
+        valueType = loadType;
+      }
 
       rdcarray<rdcspv::Id> accessIndices;
       for(uint32_t idx : access.accessChain)
         accessIndices.push_back(editor.AddConstantImmediate<uint32_t>(idx));
 
-      rdcspv::Id ptrType =
-          editor.DeclareType(rdcspv::Pointer(valueType, rdcspv::StorageClass::Input));
+      rdcspv::Id inputPtrType =
+          editor.DeclareType(rdcspv::Pointer(loadType, rdcspv::StorageClass::Input));
 
       laneValue value;
       value.name = param.varName;
@@ -3672,9 +3690,9 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
         ptr = access.ID;
       else
         ptr = value.loadOps.add(
-            rdcspv::OpAccessChain(ptrType, editor.MakeId(), access.ID, accessIndices));
+            rdcspv::OpAccessChain(inputPtrType, editor.MakeId(), access.ID, accessIndices));
 
-      value.base = value.loadOps.add(rdcspv::OpLoad(valueType, editor.MakeId(), ptr));
+      value.base = value.loadOps.add(rdcspv::OpLoad(loadType, editor.MakeId(), ptr));
       if(valueType == boolType)
       {
         valueType = uint32Type;
@@ -3682,6 +3700,15 @@ static void CreateInputFetcher(rdcarray<uint32_t> &spv,
         value.base = value.loadOps.add(rdcspv::OpSelect(valueType, editor.MakeId(), value.base,
                                                         editor.AddConstantImmediate<uint32_t>(1),
                                                         editor.AddConstantImmediate<uint32_t>(0)));
+      }
+      if(valueType != loadType)
+      {
+        if(VarTypeCompType(param.varType) == CompType::Float)
+          value.base = value.loadOps.add(rdcspv::OpFConvert(valueType, editor.MakeId(), value.base));
+        else if(VarTypeCompType(param.varType) == CompType::SInt)
+          value.base = value.loadOps.add(rdcspv::OpSConvert(valueType, editor.MakeId(), value.base));
+        else if(VarTypeCompType(param.varType) == CompType::UInt)
+          value.base = value.loadOps.add(rdcspv::OpUConvert(valueType, editor.MakeId(), value.base));
       }
       editor.SetName(value.base, StringFormat::Fmt("__rd_base_%zu_%s", i, param.varName.c_str()));
       // non-float inputs are considered flat
@@ -5772,12 +5799,34 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
         var.columns = param.compCount & 0xff;
         var.type = param.varType;
 
-        const uint32_t comp = Bits::CountTrailingZeroes(uint32_t(param.regChannelMask));
+        const uint32_t firstComp = Bits::CountTrailingZeroes(uint32_t(param.regChannelMask));
         const uint32_t elemSize = VarTypeByteSize(param.varType);
 
-        const size_t sz = elemSize * param.compCount;
+        // we always store in 32-bit types
+        const size_t sz = RDCMAX(4U, elemSize) * param.compCount;
 
-        memcpy((var.value.u8v.data()) + elemSize * comp, value + i * paramAlign, sz);
+        memcpy((var.value.u8v.data()) + elemSize * firstComp, value + i * paramAlign, sz);
+
+        // convert down from stored 32-bit types if they were smaller
+        if(elemSize == 1)
+        {
+          ShaderVariable tmp = var;
+
+          for(uint32_t comp = 0; comp < param.compCount; comp++)
+            var.value.u8v[comp] = tmp.value.u32v[comp] & 0xff;
+        }
+        else if(elemSize == 2)
+        {
+          ShaderVariable tmp = var;
+
+          for(uint32_t comp = 0; comp < param.compCount; comp++)
+          {
+            if(VarTypeCompType(param.varType) == CompType::Float)
+              var.value.f16v[comp] = rdhalf::make(tmp.value.f32v[comp]);
+            else
+              var.value.u16v[comp] = tmp.value.u32v[comp] & 0xffff;
+          }
+        }
       }
     }
 
