@@ -29,6 +29,7 @@
 namespace DXIL
 {
 typedef rdcpair<uint32_t, uint32_t> BlockLink;
+typedef rdcpair<uint32_t, uint32_t> ConvergentBlockData;
 
 struct ControlFlow
 {
@@ -38,11 +39,14 @@ public:
   void Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links);
   rdcarray<uint32_t> GetUniformBlocks() const { return m_UniformBlocks; }
   rdcarray<uint32_t> GetLoopBlocks() const { return m_LoopBlocks; }
+  rdcarray<uint32_t> GetDivergentBlocks() const { return m_DivergentBlocks; }
+  rdcarray<ConvergentBlockData> GetConvergentBlocks() const { return m_ConvergentBlocks; }
   uint32_t GetNextUniformBlock(uint32_t from) const;
   bool IsForwardConnection(uint32_t from, uint32_t to) const;
 
 private:
   typedef rdcarray<uint32_t> BlockPath;
+  typedef rdcarray<uint32_t> BlockArray;
 
   enum class ConnectionState : uint8_t
   {
@@ -51,23 +55,37 @@ private:
     Connected,
   };
 
-  bool TraceBlockFlow(const uint32_t from, BlockPath &path);
-  bool BlockInAllPaths(uint32_t block, uint32_t pathIdx, int32_t startIdx) const;
-  int32_t BlockInAnyPath(uint32_t block, uint32_t pathIdx, int32_t startIdx, int32_t steps) const;
-  bool ControlFlow::IsBlockConnected(uint32_t from, uint32_t to) const;
+  enum PathType : uint32_t
+  {
+    IncLoops = 0,
+    NoLoops = 1,
+    Count = 2
 
-  const uint32_t PATH_END = ~0U;
+  };
+
+  bool TraceBlockFlow(const size_t pathsType, const uint32_t from, BlockPath &path);
+  bool BlockInAllPaths(const size_t pathsType, uint32_t block, uint32_t pathIdx,
+                       int32_t startIdx) const;
+  int32_t BlockInAnyPath(const size_t pathsType, uint32_t block, uint32_t pathIdx, int32_t startIdx,
+                         int32_t steps) const;
+  bool IsBlockConnected(const size_t pathsType, uint32_t from, uint32_t to) const;
+
+  uint32_t PATH_END = ~0U;
 
   std::unordered_set<uint32_t> m_Blocks;
-  rdcarray<BlockPath> m_BlockLinks;
+  rdcarray<BlockArray> m_BlockOutLinks;
+  rdcarray<BlockArray> m_BlockInLinks;
 
-  rdcarray<rdcarray<uint32_t>> m_BlockPathLinks;
   mutable rdcarray<bool> m_TracedBlocks;
   mutable rdcarray<bool> m_CheckedPaths;
-  rdcarray<BlockPath> m_Paths;
+  const size_t COUNT_PATHS_TYPES = 2;
+  rdcarray<rdcarray<uint32_t>> m_BlockPathLinks[PathType::Count];
+  rdcarray<BlockPath> m_PathSets[PathType::Count];
 
   rdcarray<uint32_t> m_UniformBlocks;
   rdcarray<uint32_t> m_LoopBlocks;
+  rdcarray<uint32_t> m_DivergentBlocks;
+  rdcarray<ConvergentBlockData> m_ConvergentBlocks;
   mutable rdcarray<rdcarray<ConnectionState>> m_Connections;
 };
 };    // namespace DXIL
