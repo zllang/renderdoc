@@ -1,4 +1,8 @@
-cmake_minimum_required(VERSION 2.8.12)
+if (NOT CMAKE_VERSION VERSION_LESS "4.0")
+  cmake_minimum_required(VERSION 4.0)
+else()
+  cmake_minimum_required(VERSION 2.8.12)
+endif()
 
 if(APPLE)
   # Building for Apple requires at least CMake 3.23.0
