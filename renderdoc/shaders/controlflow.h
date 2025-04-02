@@ -28,7 +28,7 @@
 #include "api/replay/rdcflatmap.h"
 #include "os/os_specific.h"
 
-namespace rdcspv
+namespace rdcshaders
 {
 class Tangle;
 class ControlFlow;
@@ -211,4 +211,4 @@ private:
   static int32_t s_NextTangleId;
 };
 
-};    // namespace rdcspv
+};    // namespace rdcshaders

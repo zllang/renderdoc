@@ -26,8 +26,8 @@
 
 #include "api/replay/rdcarray.h"
 #include "maths/vec.h"
+#include "shaders/controlflow.h"
 #include "spirv_common.h"
-#include "spirv_controlflow.h"
 #include "spirv_processor.h"
 
 struct SPIRVInterfaceAccess;
@@ -536,7 +536,7 @@ private:
     rdcarray<LocalMapping> activeLocalMappings;
   } m_DebugInfo;
 
-  rdcspv::ControlFlow controlFlow;
+  rdcshaders::ControlFlow controlFlow;
 
   const ScopeData *GetScope(size_t offset) const;
 };

@@ -33,6 +33,8 @@
 #include "replay/common/var_dispatch_helpers.h"
 #include "spirv_op_helpers.h"
 
+using namespace rdcshaders;
+
 static bool ContainsNaNInf(const ShaderVariable &var)
 {
   bool ret = false;

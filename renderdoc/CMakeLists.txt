@@ -214,6 +214,8 @@ set(sources
     serialise/comp_io_tests.cpp
     serialise/serialiser_tests.cpp
     serialise/streamio_tests.cpp
+    shaders/controlflow.cpp
+    shaders/controlflow.h
     strings/grisu2.cpp
     strings/string_utils.cpp
     strings/string_utils.h

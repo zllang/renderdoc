@@ -36,6 +36,8 @@ RDOC_DEBUG_CONFIG(
     bool, Vulkan_Hack_EnableGroupCaps, false,
     "Work in progress allow shaders to be debugged with subgroup/workgroup requirements.");
 
+using namespace rdcshaders;
+
 // this could be cleaner if ShaderVariable wasn't a very public struct, but it's not worth it so
 // we just reserve value slots that we know won't be used in opaque variables.
 // there's significant wasted space to keep things simple with one property = one slot
@@ -1561,7 +1563,7 @@ ShaderDebugTrace *Debugger::BeginDebug(DebugAPIWrapper *api, const ShaderStage s
 
   std::sort(liveGlobals.begin(), liveGlobals.end());
 
-  rdcarray<rdcspv::ThreadIndex> threadIds;
+  rdcarray<ThreadIndex> threadIds;
   for(uint32_t i = 0; i < threadsInWorkgroup; i++)
   {
     ThreadState &lane = workgroup[i];
@@ -2547,7 +2549,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
       if(!tangle.IsAliveActive())
         continue;
 
-      rdcarray<rdcspv::ThreadReference> threadRefs = tangle.GetThreadRefs();
+      rdcarray<ThreadReference> threadRefs = tangle.GetThreadRefs();
       // calculate the current active thread mask from the threads in the tangle
       {
         // one bool per workgroup thread
@@ -2558,7 +2560,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
           activeMask[i] = false;
 
         // activate the threads in the tangle
-        for(const rdcspv::ThreadReference &ref : threadRefs)
+        for(const ThreadReference &ref : threadRefs)
         {
           uint32_t idx = ref.id;
           RDCASSERT(idx < workgroup.size(), idx, workgroup.size());

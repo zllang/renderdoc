@@ -22,7 +22,7 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#include "spirv_controlflow.h"
+#include "controlflow.h"
 #include "api/replay/rdcstr.h"
 #include "api/replay/stringise.h"
 #include "common/common.h"
@@ -30,7 +30,7 @@
 
 #include <unordered_set>
 
-RDOC_CONFIG(bool, Vulkan_Debug_ControlFlow_Logging, false,
+RDOC_CONFIG(bool, Shader_Debug_ControlFlow_Logging, false,
             "Debug logging for shader debugger controlflow");
 
 /*
@@ -112,7 +112,7 @@ UpdateState():
 * Prune deactivated tangles from the TangleGroup
 */
 
-namespace rdcspv
+namespace rdcshaders
 {
 int32_t ControlFlow::s_NextTangleId = 0;
 
@@ -258,7 +258,7 @@ TangleGroup ControlFlow::DivergeTangle(Tangle &tangle)
   tangle.SetAlive(false);
   RDCASSERTEQUAL(tangle.GetThreadCount(), 0U);
 
-  if(Vulkan_Debug_ControlFlow_Logging())
+  if(Shader_Debug_ControlFlow_Logging())
   {
     RDCLOG("Tangle:%u ThreadCount:%u diverged", tangle.GetId(), tangle.GetThreadCount());
     for(Tangle &newTangle : newTangles)
@@ -342,7 +342,7 @@ void ControlFlow::ActivateIndependentTangles()
       RDCASSERTNOTEQUAL(tangle.GetMergePoint(), INVALID_EXECUTION_POINT);
       tangle.PopMergePoint();
       tangle.SetStateChanged(true);
-      if(Vulkan_Debug_ControlFlow_Logging())
+      if(Shader_Debug_ControlFlow_Logging())
       {
         RDCLOG("Tangle:%u ThreadCount:%u at ExecPoint:%u activated new MergePoint:%u", tangle.GetId(),
                tangle.GetThreadCount(), tangle.GetExecutionPoint(), tangle.GetMergePoint());
@@ -377,7 +377,7 @@ void ControlFlow::ProcessTangleConvergence()
         // if the tangle converged to a function return point
         if(tangle.GetExecutionPoint() == tangle.GetFunctionReturnPoint())
         {
-          if(Vulkan_Debug_ControlFlow_Logging())
+          if(Shader_Debug_ControlFlow_Logging())
           {
             RDCLOG(
                 "Tangle:%u ThreadCount:%u is converged at ExecPoint:%u FunctionReturnPoint:%u "
@@ -404,7 +404,7 @@ void ControlFlow::MergeConvergedTangles()
     if(!tangle.IsConverged())
       continue;
 
-    if(Vulkan_Debug_ControlFlow_Logging())
+    if(Shader_Debug_ControlFlow_Logging())
     {
       RDCLOG("Tangle:%u ThreadCount:%u is converged at ExecPoint:%u Next MergePoint:%u",
              tangle.GetId(), tangle.GetThreadCount(), tangle.GetExecutionPoint(),
@@ -435,7 +435,7 @@ void ControlFlow::MergeConvergedTangles()
         convTangle.SetConverged(false);
         convTangle.SetDiverged(false);
         convTangle.SetAlive(false);
-        if(Vulkan_Debug_ControlFlow_Logging())
+        if(Shader_Debug_ControlFlow_Logging())
         {
           RDCLOG(
               "Tangle:%u ThreadCount:%u converged with Tangle:%u ThreadCount:%u ExecPoint:%u at "
@@ -543,7 +543,7 @@ void ControlFlow::UpdateState(const ThreadExecutionStates &threadExecutionStates
           tangle.PruneMergePoints(tangle.GetFunctionReturnPoint());
           tangle.PopFunctionReturnPoint();
           tangle.SetStateChanged(true);
-          if(Vulkan_Debug_ControlFlow_Logging())
+          if(Shader_Debug_ControlFlow_Logging())
           {
             RDCLOG(
                 "Tangle:%u ThreadCount:% at ExecPoint:%u auto-activated FunctionReturnPoint:%u "
@@ -560,7 +560,7 @@ void ControlFlow::UpdateState(const ThreadExecutionStates &threadExecutionStates
           tangle.SetConverged(true);
           tangle.SetDiverged(false);
           tangle.SetStateChanged(true);
-          if(Vulkan_Debug_ControlFlow_Logging())
+          if(Shader_Debug_ControlFlow_Logging())
           {
             RDCLOG("Tangle:%u ThreadCount:%u at ExecPoint:%u auto-activated new MergePoint:%u",
                    tangle.GetId(), tangle.GetThreadCount(), tangle.GetExecutionPoint(),
@@ -626,14 +626,14 @@ void ControlFlow::Construct(const rdcarray<ThreadIndex> &threadIds)
   m_Tangles.clear();
   m_Tangles.push_back(rootTangle);
 }
-};    // namespace rdcspv
+};    // namespace rdcshaders
 
 #if ENABLED(ENABLE_UNIT_TESTS)
 
 #include <limits>
 #include "catch/catch.hpp"
 
-using namespace rdcspv;
+using namespace rdcshaders;
 
 const ExecutionPoint EXEC_POINT_1 = 1;
 const ExecutionPoint EXEC_POINT_2 = 2;
@@ -843,7 +843,7 @@ void RunTest(const Program &program, const rdcarray<TestTangles> &expected)
   }
 }
 
-TEST_CASE("SPIRV Control Flow", "[spirv][controlflow]")
+TEST_CASE("Shader Control Flow", "[shader][controlflow]")
 {
   SECTION("Maximal Reconvergence")
   {
