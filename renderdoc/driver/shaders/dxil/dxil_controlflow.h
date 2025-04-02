@@ -87,5 +87,7 @@ private:
   rdcarray<uint32_t> m_DivergentBlocks;
   rdcarray<ConvergentBlockData> m_ConvergentBlocks;
   mutable rdcarray<rdcarray<ConnectionState>> m_Connections;
+
+  friend void OutputGraph(const char *const name, const ControlFlow *graph);
 };
 };    // namespace DXIL

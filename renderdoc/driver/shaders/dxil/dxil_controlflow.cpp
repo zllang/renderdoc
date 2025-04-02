@@ -71,6 +71,38 @@ already computed
 
 namespace DXIL
 {
+void OutputGraph(const char *const name, const ControlFlow *graph)
+{
+  ControlFlow::BlockArray divergentBlocks = graph->GetDivergentBlocks();
+  rdcarray<ConvergentBlockData> convergentBlocks = graph->GetConvergentBlocks();
+
+  rdcstr fname = StringFormat::Fmt("%s.txt", name);
+  FILE *f = FileIO::fopen(fname.c_str(), FileIO::WriteText);
+  rdcstr line = StringFormat::Fmt("digraph %s {\n", name);
+  fprintf(f, line.c_str());
+  for(uint32_t from : graph->m_Blocks)
+  {
+    line = StringFormat::Fmt("%u", from);
+    if(divergentBlocks.contains(from))
+      line += StringFormat::Fmt(" [shape=diamond color=red]");
+    line += ";\n";
+
+    for(uint32_t to : graph->m_BlockOutLinks[from])
+      line += StringFormat::Fmt("%u -> %u [weight=1];\n", from, to);
+
+    fprintf(f, line.c_str());
+  }
+  for(ConvergentBlockData data : convergentBlocks)
+  {
+    line = StringFormat::Fmt("%u -> %u [weight=0 style=dashed color=blue constraint=false];\n",
+                             data.first, data.second, data.first, data.second);
+
+    fprintf(f, line.c_str());
+  }
+  fprintf(f, "}\n");
+  FileIO::fclose(f);
+}
+
 bool ControlFlow::IsBlockConnected(const size_t pathsType, uint32_t from, uint32_t to) const
 {
   const rdcarray<BlockPath> &paths = m_PathSets[pathsType];
@@ -627,6 +659,7 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
     }
     RDCLOG("Convergent Blocks: %s", output.c_str());
   }
+  // OutputGraph("dxil_cfg", this);
 
   // Clear temporary data
   m_TracedBlocks.clear();
@@ -1813,6 +1846,8 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
       REQUIRE(expectedCountDivergentBlocks == convergentBlocks.count());
       CheckDivergentBlocks(expectedConvergentBlocks, divergentBlocks);
       CheckConvergentBlocks(expectedConvergentBlocks, convergentBlocks);
+
+      // OutputGraph("complex_case", &controlFlow);
     }
   };
 };
