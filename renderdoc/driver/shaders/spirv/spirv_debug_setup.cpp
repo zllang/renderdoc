@@ -2471,7 +2471,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
   if(steps == 0)
   {
     ShaderDebugState initial;
-    uint32_t startBlock = INVALID_EXECUTION_POINT;
+    uint32_t startPoint = INVALID_EXECUTION_POINT;
 
     // we should be sitting at the entry point function prologue, step forward into the first block
     // and past any function-local variable declarations
@@ -2484,7 +2484,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
         thread.EnterEntryPoint(&initial);
         FillCallstack(thread, initial);
         initial.nextInstruction = thread.nextInstruction;
-        startBlock = thread.callstack.back()->curBlock.value();
+        startPoint = initial.nextInstruction;
       }
       else
       {
@@ -2506,18 +2506,18 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
 
     ret.push_back(std::move(initial));
 
-    // Set the initial block for the threads in the root tangle
+    // Set the initial execution point for the threads in the root tangle
     ThreadExecutionStates threadExecutionStates;
     TangleGroup &tangles = controlFlow.GetTangles();
     RDCASSERTEQUAL(tangles.size(), 1);
-    RDCASSERTNOTEQUAL(startBlock, INVALID_EXECUTION_POINT);
+    RDCASSERTNOTEQUAL(startPoint, INVALID_EXECUTION_POINT);
     for(Tangle &tangle : tangles)
     {
       RDCASSERT(tangle.IsAliveActive());
       for(uint32_t threadIdx = 0; threadIdx < workgroup.size(); ++threadIdx)
       {
         if(!workgroup[threadIdx].Finished())
-          threadExecutionStates[threadIdx].push_back(startBlock);
+          threadExecutionStates[threadIdx].push_back(startPoint);
       }
     }
     controlFlow.UpdateState(threadExecutionStates);
