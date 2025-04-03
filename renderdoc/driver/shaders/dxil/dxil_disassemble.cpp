@@ -4160,6 +4160,27 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   break;
                 }
+                case DXOp::WaveActiveOp:
+                {
+                  // WaveActiveOp(value, i8 waveOp, i8 sign)
+                  WaveOpCode waveOpCode;
+                  SignedOpKind sop;
+                  if(getival<SignedOpKind>(inst.args[3], sop))
+                    commentStr += ToStr(sop);
+
+                  if(getival<WaveOpCode>(inst.args[2], waveOpCode))
+                  {
+                    lineStr += "WaveActive" + ToStr(waveOpCode);
+                    lineStr += "(";
+                    lineStr += GetArgId(inst, 1);
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::Pack4x8:
                 {
                   // Pack4x8(packMode,x,y,z,w)

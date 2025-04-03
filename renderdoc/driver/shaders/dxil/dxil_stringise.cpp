@@ -828,3 +828,27 @@ rdcstr DoStringise(const DXIL::ResourceKind &el)
   }
   END_ENUM_STRINGISE();
 };
+
+template <>
+rdcstr DoStringise(const DXIL::WaveOpCode &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::WaveOpCode)
+  {
+    STRINGISE_ENUM_CLASS(Sum)
+    STRINGISE_ENUM_CLASS(Product)
+    STRINGISE_ENUM_CLASS(Min)
+    STRINGISE_ENUM_CLASS(Max)
+  }
+  END_ENUM_STRINGISE();
+}
+
+template <>
+rdcstr DoStringise(const DXIL::SignedOpKind &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::SignedOpKind)
+  {
+    STRINGISE_ENUM_CLASS(Signed)
+    STRINGISE_ENUM_CLASS(Unsigned)
+  }
+  END_ENUM_STRINGISE();
+}

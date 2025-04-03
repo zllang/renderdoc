@@ -647,6 +647,12 @@ enum class WaveMultiPrefixOpCode : uint32_t
   Product = 4,
 };
 
+enum class SignedOpKind : uint32_t
+{
+  Signed = 0,      // signed integer or floating-point operands
+  Unsigned = 1,    // unsigned integer operands
+};
+
 enum class QuadOpKind : uint32_t
 {
   ReadAcrossX = 0,           // returns the value from the other lane in the quad in the
@@ -1844,6 +1850,8 @@ void SanitiseName(rdcstr &name);
 DECLARE_REFLECTION_ENUM(DXIL::Attribute);
 DECLARE_STRINGISE_TYPE(DXIL::InstructionFlags);
 DECLARE_STRINGISE_TYPE(DXIL::AtomicBinOpCode);
+DECLARE_STRINGISE_TYPE(DXIL::WaveOpCode);
+DECLARE_STRINGISE_TYPE(DXIL::SignedOpKind);
 DECLARE_STRINGISE_TYPE(DXIL::QuadOpKind);
 DECLARE_STRINGISE_TYPE(DXIL::PackMode);
 DECLARE_STRINGISE_TYPE(DXIL::UnpackMode);
