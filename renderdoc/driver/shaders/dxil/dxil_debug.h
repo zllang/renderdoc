@@ -50,11 +50,13 @@ struct GlobalState;
 // D3D12 descriptors are equal sized and treated as effectively one byte in size
 const uint32_t D3D12_DESCRIPTOR_BYTESIZE = 1;
 
-struct ExecutionPoint
+struct ExecPointReference
 {
-  ExecutionPoint() : block(~0U), instruction(~0U) {}
-  ExecutionPoint(uint32_t block, uint32_t instruction) : block(block), instruction(instruction) {}
-  bool IsAfter(const ExecutionPoint &from, const DXIL::ControlFlow &controlFlow) const;
+  ExecPointReference() : block(~0U), instruction(~0U) {}
+  ExecPointReference(uint32_t block, uint32_t instruction) : block(block), instruction(instruction)
+  {
+  }
+  bool IsAfter(const ExecPointReference &from, const DXIL::ControlFlow &controlFlow) const;
 
   uint32_t block;
   uint32_t instruction;
@@ -88,7 +90,7 @@ struct InputData
 struct FunctionInfo
 {
   typedef std::set<Id> ReferencedIds;
-  typedef std::map<Id, ExecutionPoint> ExecutionPointPerId;
+  typedef std::map<Id, ExecPointReference> ExecutionPointPerId;
   typedef std::map<uint32_t, ReferencedIds> PhiReferencedIdsPerBlock;
   typedef rdcarray<rdcstr> Callstack;
 

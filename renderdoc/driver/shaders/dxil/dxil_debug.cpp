@@ -1429,7 +1429,8 @@ static void FillViewFmtFromVarType(VarType type, DXILDebug::GlobalState::ViewFmt
 
 namespace DXILDebug
 {
-bool ExecutionPoint::IsAfter(const ExecutionPoint &from, const ControlFlow &controlFlow) const
+bool ExecPointReference::IsAfter(const ExecPointReference &from,
+                                 const DXIL::ControlFlow &controlFlow) const
 {
   if(block == from.block)
     return instruction > from.instruction;
@@ -5533,7 +5534,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
     m_State->changes.clear();
 
     // Remove variables which have gone out of scope
-    ExecutionPoint current(m_Block, m_FunctionInstructionIdx);
+    ExecPointReference current(m_Block, m_FunctionInstructionIdx);
     for(uint32_t id = 0; id < m_Live.size(); ++id)
     {
       if(!m_Live[id])
@@ -5547,7 +5548,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
 
       auto itRange = m_FunctionInfo->maxExecPointPerId.find(id);
       RDCASSERT(itRange != m_FunctionInfo->maxExecPointPerId.end());
-      const ExecutionPoint maxPoint = itRange->second;
+      const ExecPointReference maxPoint = itRange->second;
       // Use control flow to determine if the current execution point is after the maximum point
       if(current.IsAfter(maxPoint, m_FunctionInfo->controlFlow))
       {
@@ -6980,7 +6981,7 @@ void Debugger::ParseDebugData()
           {
             const LocalMapping &mapping = scope->localMappings[m];
 
-            // TODO: this should be using ExecutionPoint::IsAfter()
+            // TODO: this should be using ExecPointReference::IsAfter()
             if(mapping.instIndex > instructionIndex)
               continue;
 
@@ -6996,11 +6997,11 @@ void Debugger::ParseDebugData()
               {
                 const LocalMapping &laterMapping = scope->localMappings[n];
 
-                // TODO: this should be using ExecutionPoint::IsAfter()
+                // TODO: this should be using ExecPointReference::IsAfter()
                 if(laterMapping.instIndex > instructionIndex)
                   continue;
 
-                // TODO: this should be using ExecutionPoint::IsAfter()
+                // TODO: this should be using ExecPointReference::IsAfter()
                 // if this mapping will supercede and starts later
                 if(laterMapping.isSourceSupersetOf(mapping) &&
                    laterMapping.instIndex > mapping.instIndex)
@@ -7995,7 +7996,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       info.instructionToBlock.resize(countInstructions);
       for(uint32_t i = 0; i < countInstructions; ++i)
       {
-        const ExecutionPoint current(curBlock, i);
+        const ExecPointReference current(curBlock, i);
         info.instructionToBlock[i] = current.block;
         const Instruction &inst = *(f->instructions[i]);
         if(IsLLVMDebugCall(inst) || DXIL::IsLLVMIntrinsicCall(inst))
@@ -8024,7 +8025,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
           continue;
 
         // If the current block is in a loop, set the execution point to the next uniform block
-        ExecutionPoint maxPoint(curBlock, maxInst);
+        ExecPointReference maxPoint(curBlock, maxInst);
         if(loopBlocks.contains(curBlock))
         {
           uint32_t nextUniformBlock = controlFlow.GetNextUniformBlock(curBlock);
@@ -8221,11 +8222,11 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         auto it = info.maxExecPointPerId.find(localMapping.debugVarSSAId);
         if(it != info.maxExecPointPerId.end())
         {
-          const ExecutionPoint &current = it->second;
+          const ExecPointReference &current = it->second;
           uint32_t scopeEndInst = scope->maxInstruction + 1;
           scopeEndInst = RDCMIN(scopeEndInst, (uint32_t)info.instructionToBlock.size() - 1);
           const uint32_t scopeEndBlock = info.instructionToBlock[scopeEndInst];
-          ExecutionPoint scopeEnd(scopeEndBlock, scopeEndInst);
+          ExecPointReference scopeEnd(scopeEndBlock, scopeEndInst);
           if(loopBlocks.contains(scopeEnd.block))
           {
             uint32_t nextUniformBlock = controlFlow.GetNextUniformBlock(scopeEnd.block);
