@@ -3644,7 +3644,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             WaveOpCode waveOpCode = (WaveOpCode)arg.value.u32v[0];
 
             RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg));
-            bool isUnsigned = (arg.value.u32v[0] != 0);
+            bool isUnsigned = (arg.value.u32v[0] != (uint32_t)SignedOpKind::Signed);
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
@@ -3710,7 +3710,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               }
             }
 
+            // Copy the whole variable to ensure we get the correct type information
+            rdcstr name = result.name;
             result = accum;
+            result.name = name;
 
             break;
           }
