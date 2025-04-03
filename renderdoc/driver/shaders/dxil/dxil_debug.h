@@ -244,6 +244,7 @@ struct ThreadState
   bool Finished() const;
   bool InUniformBlock() const;
 
+  bool JumpToBlock(const DXIL::Block *target);
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroup,
                           const rdcarray<bool> &activeMask);
 

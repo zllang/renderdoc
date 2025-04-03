@@ -1655,6 +1655,36 @@ bool IsNopInstruction(const Instruction &inst)
   return false;
 }
 
+bool ThreadState::JumpToBlock(const Block *target)
+{
+  m_PreviousBlock = m_Block;
+  m_PhiVariables.clear();
+  auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
+  if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
+  {
+    const FunctionInfo::ReferencedIds &phiIds = it->second;
+    for(Id id : phiIds)
+      m_PhiVariables[id] = m_Variables[id];
+  }
+
+  RDCASSERT(target);
+  uint32_t blockId = target->id;
+  if(blockId < m_FunctionInfo->function->blocks.size())
+  {
+    m_Block = blockId;
+    m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
+  }
+  else
+  {
+    return false;
+  }
+
+  uint32_t nextInstruction = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
+  if(m_State && !m_Ended)
+    m_State->nextInstruction = nextInstruction;
+  return true;
+}
+
 bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                                      const rdcarray<ThreadState> &workgroup,
                                      const rdcarray<bool> &activeMask)
@@ -4113,16 +4143,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     }
     case Operation::Branch:
     {
-      m_PreviousBlock = m_Block;
-      m_PhiVariables.clear();
-      auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
-      if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
-      {
-        const FunctionInfo::ReferencedIds &phiIds = it->second;
-        for(Id id : phiIds)
-          m_PhiVariables[id] = m_Variables[id];
-      }
-
       // Branch <label>
       // Branch <label_true> <label_false> <BOOL_VAR>
       uint32_t targetArg = 0;
@@ -4133,20 +4153,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         if(!cond.value.u32v[0])
           targetArg = 1;
       }
-      const Block *block = cast<Block>(inst.args[targetArg]);
-      RDCASSERT(block);
-      uint32_t blockId = block->id;
-      if(blockId < m_FunctionInfo->function->blocks.size())
-      {
-        m_Block = blockId;
-        m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
-      }
-      else
-      {
+
+      const Block *target = cast<Block>(inst.args[targetArg]);
+      if(!JumpToBlock(target))
         RDCERR("Unknown branch target %u '%s'", m_Block, GetArgumentName(targetArg).c_str());
-      }
-      if(m_State && !m_Ended)
-        m_State->nextInstruction = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
       break;
     }
     case Operation::Phi:
@@ -5190,16 +5200,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     }
     case Operation::Switch:
     {
-      m_PreviousBlock = m_Block;
-      m_PhiVariables.clear();
-      auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
-      if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
-      {
-        const FunctionInfo::ReferencedIds &phiIds = it->second;
-        for(Id id : phiIds)
-          m_PhiVariables[id] = m_Variables[id];
-      }
-
       // Value, Default_Label then Pairs of { targetValue, label }
       ShaderVariable val;
       RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, val));
@@ -5223,17 +5223,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
 
       const Block *target = cast<Block>(inst.args[targetArg]);
-      RDCASSERT(target);
-      uint32_t blockId = target->id;
-      if(blockId < m_FunctionInfo->function->blocks.size())
-      {
-        m_Block = blockId;
-        m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
-      }
-      else
-      {
+      if(!JumpToBlock(target))
         RDCERR("Unknown switch target %u '%s'", m_Block, GetArgumentName(targetArg).c_str());
-      }
       break;
     }
     case Operation::Fence:
@@ -5478,27 +5469,12 @@ void ThreadState::StepOverDegenerateBranch()
     const Block *target = cast<Block>(inst->args[0]);
     RDCASSERT(target);
     uint32_t blockId = target->id;
-    if(blockId < m_FunctionInfo->function->blocks.size())
+    if(blockId == m_Block + 1)
     {
-      if(blockId == m_Block + 1)
-      {
-        m_PreviousBlock = m_Block;
-        m_PhiVariables.clear();
-        auto it = m_FunctionInfo->phiReferencedIdsPerBlock.find(m_PreviousBlock);
-        if(it != m_FunctionInfo->phiReferencedIdsPerBlock.end())
-        {
-          const FunctionInfo::ReferencedIds &phiIds = it->second;
-          for(Id id : phiIds)
-            m_PhiVariables[id] = m_Variables[id];
-        }
-        m_Block = blockId;
-        m_FunctionInstructionIdx = m_FunctionInfo->function->blocks[m_Block]->startInstructionIdx;
-        m_ActiveGlobalInstructionIdx =
-            m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
-        return;
-      }
+      RDCASSERT(!JumpToBlock(target));
       return;
     }
+    return;
   }
 }
 
