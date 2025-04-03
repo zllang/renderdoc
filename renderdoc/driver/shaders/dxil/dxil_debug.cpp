@@ -7673,7 +7673,7 @@ void Debugger::ParseDebugData()
 
 ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContainer *dxbcContainer,
                                        const ShaderReflection &reflection, uint32_t activeLaneIndex,
-                                       uint32_t workgroupSize)
+                                       uint32_t threadsInWorkgroup)
 {
   ShaderStage shaderStage = reflection.stage;
 
@@ -7689,7 +7689,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   ShaderDebugTrace *ret = new ShaderDebugTrace;
   ret->stage = shaderStage;
 
-  for(uint32_t i = 0; i < workgroupSize; i++)
+  for(uint32_t i = 0; i < threadsInWorkgroup; i++)
     m_Workgroup.push_back(ThreadState(*this, m_GlobalState, nextSSAId));
 
   ThreadState &state = GetActiveLane();
@@ -8473,7 +8473,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   ret->samplers = m_GlobalState.samplers;
   ret->debugger = this;
 
-  for(uint32_t i = 0; i < workgroupSize; i++)
+  for(uint32_t i = 0; i < threadsInWorkgroup; i++)
   {
     ThreadState &lane = m_Workgroup[i];
     lane.m_WorkgroupIndex = i;
@@ -8497,19 +8497,19 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
 
 void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupProperties)
 {
-  const uint32_t workgroupSize = (uint32_t)m_Workgroup.size();
+  const uint32_t threadsInWorkgroup = (uint32_t)m_Workgroup.size();
 
-  if(workgroupSize == 1)
+  if(threadsInWorkgroup == 1)
     return;
 
-  if(workgroupSize != workgroupProperties.size())
+  if(threadsInWorkgroup != workgroupProperties.size())
   {
     RDCERR("Workgroup properties has wrong count %zu, expected %u", workgroupProperties.size(),
-           workgroupSize);
+           threadsInWorkgroup);
     return;
   }
 
-  for(uint32_t i = 0; i < workgroupSize; i++)
+  for(uint32_t i = 0; i < threadsInWorkgroup; i++)
   {
     ThreadState &lane = m_Workgroup[i];
 
@@ -8527,7 +8527,7 @@ void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupPr
   // find quad neighbours
   {
     rdcarray<uint32_t> processedQuads;
-    for(uint32_t i = 0; i < workgroupSize; i++)
+    for(uint32_t i = 0; i < threadsInWorkgroup; i++)
     {
       uint32_t desiredQuad = m_Workgroup[i].m_QuadId;
 
@@ -8549,7 +8549,7 @@ void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupPr
           ~0U,
           ~0U,
       };
-      for(uint32_t j = i + 1, t = 1; j < workgroupSize && t < 4; j++)
+      for(uint32_t j = i + 1, t = 1; j < threadsInWorkgroup && t < 4; j++)
       {
         if(m_Workgroup[j].m_QuadId == desiredQuad)
           threads[t++] = j;

@@ -571,7 +571,7 @@ public:
   Debugger() : DXBCContainerDebugger(true){};
   ShaderDebugTrace *BeginDebug(uint32_t eventId, const DXBC::DXBCContainer *dxbcContainer,
                                const ShaderReflection &reflection, uint32_t activeLaneIndex,
-                               uint32_t workgroupSize);
+                               uint32_t threadsInWorkgroup);
   void InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupProperties);
   rdcarray<ShaderDebugState> ContinueDebug(DebugAPIWrapper *apiWrapper);
   GlobalState &GetGlobalState() { return m_GlobalState; }
