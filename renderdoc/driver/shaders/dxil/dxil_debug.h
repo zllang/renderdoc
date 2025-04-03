@@ -29,6 +29,7 @@
 #include "driver/shaders/dxbc/dx_debug.h"
 #include "driver/shaders/dxbc/dxbc_bytecode.h"
 #include "driver/shaders/dxbc/dxbc_container.h"
+#include "shaders/controlflow.h"
 #include "dxil_bytecode.h"
 #include "dxil_controlflow.h"
 #include "dxil_debuginfo.h"
@@ -100,6 +101,8 @@ struct FunctionInfo
   PhiReferencedIdsPerBlock phiReferencedIdsPerBlock;
   uint32_t globalInstructionOffset = ~0U;
   rdcarray<uint32_t> uniformBlocks;
+  rdcarray<uint32_t> divergentBlocks;
+  rdcarray<DXIL::ConvergentBlockData> convergentBlocks;
   DXIL::ControlFlow controlFlow;
   std::map<uint32_t, Callstack> callstacks;
   rdcarray<uint32_t> instructionToBlock;
@@ -239,12 +242,11 @@ struct ThreadState
   void StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
                 const rdcarray<ThreadState> &workgroup, const rdcarray<bool> &activeMask);
   void StepOverNopInstructions();
-  void StepOverDegenerateBranch();
 
   bool Finished() const;
   bool InUniformBlock() const;
 
-  bool JumpToBlock(const DXIL::Block *target);
+  bool JumpToBlock(const DXIL::Block *target, bool divergencePoint);
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroup,
                           const rdcarray<bool> &activeMask);
 
@@ -352,6 +354,12 @@ struct ThreadState
   uint32_t m_PreviousBlock = ~0U;
   // The global PC of the active instruction that was or will be executed on the current simulation step
   uint32_t m_ActiveGlobalInstructionIdx = 0;
+
+  // true if executed an operation which could trigger divergence
+  bool m_Diverged;
+  // list of potential convergence points that were entered in a single step (used for tracking thread convergence)
+  rdcarray<uint32_t> m_EnteredPoints;
+  uint32_t m_ConvergencePoint;
 
   // SSA Ids guaranteed to be greater than 0 and less than this value
   uint32_t m_MaxSSAId;
@@ -592,7 +600,6 @@ public:
   }
 
 private:
-  void CalcActiveMask(rdcarray<bool> &activeMask);
   void ParseDbgOpDeclare(const DXIL::Instruction &inst, uint32_t instructionIndex);
   void ParseDbgOpValue(const DXIL::Instruction &inst, uint32_t instructionIndex);
   const DXIL::Metadata *GetMDScope(const DXIL::Metadata *scopeMD) const;
@@ -604,6 +611,7 @@ private:
 
   rdcarray<ThreadState> m_Workgroup;
   std::map<const DXIL::Function *, FunctionInfo> m_FunctionInfos;
+  rdcshaders::ControlFlow m_ControlFlow;
 
   // the live mutable global variables, to initialise a stack frame's live list
   rdcarray<bool> m_LiveGlobals;

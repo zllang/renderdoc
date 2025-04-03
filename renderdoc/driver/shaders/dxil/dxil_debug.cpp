@@ -27,9 +27,12 @@
 #include "core/settings.h"
 #include "maths/formatpacking.h"
 #include "replay/common/var_dispatch_helpers.h"
+#include "shaders/controlflow.h"
 
 RDOC_CONFIG(bool, D3D12_DXILShaderDebugger_Logging, false,
             "Debug logging for the DXIL shader debugger");
+
+using namespace rdcshaders;
 
 // TODO: Extend support for Compound Constants: arithmetic, logical ops
 // TODO: Assert m_Block in ThreadState is correct per instruction
@@ -1653,7 +1656,7 @@ bool IsNopInstruction(const Instruction &inst)
   return false;
 }
 
-bool ThreadState::JumpToBlock(const Block *target)
+bool ThreadState::JumpToBlock(const Block *target, bool divergencePoint)
 {
   m_PreviousBlock = m_Block;
   m_PhiVariables.clear();
@@ -1680,6 +1683,24 @@ bool ThreadState::JumpToBlock(const Block *target)
   uint32_t nextInstruction = m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx;
   if(m_State && !m_Ended)
     m_State->nextInstruction = nextInstruction;
+
+  m_EnteredPoints.push_back(m_Block);
+  RDCASSERTEQUAL(m_FunctionInfo->divergentBlocks.contains(m_PreviousBlock), divergencePoint);
+  if(divergencePoint)
+  {
+    m_Diverged = true;
+    RDCASSERTEQUAL(m_ConvergencePoint, INVALID_EXECUTION_POINT);
+    for(const ConvergentBlockData &convergentBlock : m_FunctionInfo->convergentBlocks)
+    {
+      if(convergentBlock.first == m_PreviousBlock)
+      {
+        m_ConvergencePoint = convergentBlock.second;
+        break;
+      }
+    }
+    RDCASSERTNOTEQUAL(m_ConvergencePoint, INVALID_EXECUTION_POINT);
+  }
+
   return true;
 }
 
@@ -2991,9 +3012,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 m_Dead = true;
                 return true;
               }
-              // Quick fix : need maximal reconvergence style control flow to handle discard properly
-              // * If the next instruction is a de-generate jump then skip over it
-              StepOverDegenerateBranch();
             }
             break;
           }
@@ -4147,8 +4165,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       // Branch <label>
       // Branch <label_true> <label_false> <BOOL_VAR>
       uint32_t targetArg = 0;
+      bool divergencePoint = false;
       if(inst.args.size() > 1)
       {
+        divergencePoint = cast<Block>(inst.args[0])->id != cast<Block>(inst.args[1])->id;
         ShaderVariable cond;
         RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, cond));
         if(!cond.value.u32v[0])
@@ -4156,7 +4176,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
 
       const Block *target = cast<Block>(inst.args[targetArg]);
-      if(!JumpToBlock(target))
+      if(!JumpToBlock(target, divergencePoint))
         RDCERR("Unknown branch target %u '%s'", m_Block, GetArgumentName(targetArg).c_str());
       break;
     }
@@ -5205,6 +5225,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       ShaderVariable val;
       RDCASSERT(GetShaderVariable(inst.args[0], opCode, dxOpCode, val));
       uint32_t targetArg = 1;
+      bool divergencePoint = false;
+      const uint32_t defaultBlockId = cast<Block>(inst.args[1])->id;
+      for(uint32_t a = 2; a < inst.args.size(); a += 2)
+      {
+        const uint32_t targetBlockId = cast<Block>(inst.args[a + 1])->id;
+        if(targetBlockId != defaultBlockId)
+        {
+          divergencePoint = true;
+          break;
+        }
+      }
       for(uint32_t a = 2; a < inst.args.size(); a += 2)
       {
         ShaderVariable targetVal;
@@ -5224,7 +5255,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       }
 
       const Block *target = cast<Block>(inst.args[targetArg]);
-      if(!JumpToBlock(target))
+      if(!JumpToBlock(target, divergencePoint))
         RDCERR("Unknown switch target %u '%s'", m_Block, GetArgumentName(targetArg).c_str());
       break;
     }
@@ -5448,37 +5479,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
   return true;
 }
 
-void ThreadState::StepOverDegenerateBranch()
-{
-  if(m_Ended)
-    return;
-
-  uint32_t funcInstrIdx = m_FunctionInstructionIdx;
-  while(true)
-  {
-    RDCASSERT(funcInstrIdx < m_FunctionInfo->function->instructions.size());
-    const Instruction *inst = m_FunctionInfo->function->instructions[funcInstrIdx];
-    if(IsNopInstruction(*inst))
-    {
-      funcInstrIdx++;
-      continue;
-    }
-    if(inst->op != Operation::Branch)
-    {
-      return;
-    }
-    const Block *target = cast<Block>(inst->args[0]);
-    RDCASSERT(target);
-    uint32_t blockId = target->id;
-    if(blockId == m_Block + 1)
-    {
-      RDCASSERT(!JumpToBlock(target));
-      return;
-    }
-    return;
-  }
-}
-
 void ThreadState::StepOverNopInstructions()
 {
   if(m_Ended)
@@ -5502,6 +5502,9 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
                            const rdcarray<ThreadState> &workgroup, const rdcarray<bool> &activeMask)
 {
   m_State = state;
+  m_Diverged = false;
+  m_EnteredPoints.clear();
+  m_ConvergencePoint = INVALID_EXECUTION_POINT;
 
   RDCASSERTEQUAL(m_ActiveGlobalInstructionIdx,
                  m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx);
@@ -6452,43 +6455,6 @@ rdcstr Debugger::GetResourceReferenceName(const DXIL::Program *program,
   RDCERR("Failed to find DXIL %s Resource Space %d Register %d", ToStr(resClass).c_str(),
          slot.registerSpace, slot.shaderRegister);
   return "UNKNOWN_RESOURCE_HANDLE";
-}
-
-// member functions
-void Debugger::CalcActiveMask(rdcarray<bool> &activeMask)
-{
-  // one bool per workgroup thread
-  activeMask.resize(m_Workgroup.size());
-
-  // mark any threads that have finished as inactive, otherwise they're active
-  for(size_t i = 0; i < m_Workgroup.size(); i++)
-    activeMask[i] = !m_Workgroup[i].Finished();
-
-  // only pixel shaders automatically converge workgroups, compute shaders need explicit sync
-  if(m_Stage != ShaderStage::Pixel)
-    return;
-
-  // Not diverged then all active
-  if(!ThreadState::WorkgroupIsDiverged(m_Workgroup))
-    return;
-
-  bool anyActive = false;
-  for(size_t i = 0; i < m_Workgroup.size(); i++)
-  {
-    if(!activeMask[i])
-      continue;
-    // Run any thread that is not in a uniform block
-    // Stop any thread that is not in a uniform block
-    activeMask[i] = !m_Workgroup[i].InUniformBlock();
-    anyActive |= activeMask[i];
-  }
-  if(!anyActive)
-  {
-    RDCERR("No active threads, forcing all unfinished threads to run");
-    for(size_t i = 0; i < m_Workgroup.size(); i++)
-      activeMask[i] = !m_Workgroup[i].Finished();
-  }
-  return;
 }
 
 ScopedDebugData *Debugger::FindScopedDebugData(const DXIL::Metadata *md) const
@@ -7955,6 +7921,8 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
 
       controlFlow.Construct(links);
       info.uniformBlocks = controlFlow.GetUniformBlocks();
+      info.divergentBlocks = controlFlow.GetDivergentBlocks();
+      info.convergentBlocks = controlFlow.GetConvergentBlocks();
       const rdcarray<uint32_t> loopBlocks = controlFlow.GetLoopBlocks();
 
       // Handle de-generate case when a single block
@@ -8499,7 +8467,12 @@ void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupPr
   const uint32_t threadsInWorkgroup = (uint32_t)m_Workgroup.size();
 
   if(threadsInWorkgroup == 1)
+  {
+    rdcarray<ThreadIndex> threadIds;
+    threadIds.push_back(0);
+    m_ControlFlow.Construct(threadIds);
     return;
+  }
 
   if(threadsInWorkgroup != workgroupProperties.size())
   {
@@ -8508,6 +8481,7 @@ void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupPr
     return;
   }
 
+  rdcarray<ThreadIndex> threadIds;
   for(uint32_t i = 0; i < threadsInWorkgroup; i++)
   {
     ThreadState &lane = m_Workgroup[i];
@@ -8521,7 +8495,13 @@ void Debugger::InitialiseWorkgroup(const rdcarray<ThreadProperties> &workgroupPr
 
     lane.m_Dead = workgroupProperties[i][ThreadProperty::Active] == 0;
     lane.m_SubgroupIdx = workgroupProperties[i][ThreadProperty::SubgroupIdx];
+
+    // Only add active lanes to control flow
+    if(!lane.m_Dead)
+      threadIds.push_back(i);
   }
+
+  m_ControlFlow.Construct(threadIds);
 
   // find quad neighbours
   {
@@ -8584,6 +8564,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
   if(m_Steps == 0)
   {
     ShaderDebugState initial;
+    uint32_t startPoint = INVALID_EXECUTION_POINT;
 
     for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
     {
@@ -8594,6 +8575,7 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
         thread.EnterEntryPoint(m_EntryPointFunction, &initial);
         thread.FillCallstack(initial);
         initial.nextInstruction = thread.m_ActiveGlobalInstructionIdx;
+        startPoint = initial.nextInstruction;
       }
       else
       {
@@ -8611,6 +8593,21 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
 
     ret.push_back(std::move(initial));
 
+    // Set the initial execution point for the threads in the root tangle
+    ThreadExecutionStates threadExecutionStates;
+    TangleGroup &tangles = m_ControlFlow.GetTangles();
+    RDCASSERTEQUAL(tangles.size(), 1);
+    RDCASSERTNOTEQUAL(startPoint, INVALID_EXECUTION_POINT);
+    for(Tangle &tangle : tangles)
+    {
+      RDCASSERT(tangle.IsAliveActive());
+      for(uint32_t threadIdx = 0; threadIdx < m_Workgroup.size(); ++threadIdx)
+      {
+        if(!m_Workgroup[threadIdx].Finished())
+          threadExecutionStates[threadIdx].push_back(startPoint);
+      }
+    }
+    m_ControlFlow.UpdateState(threadExecutionStates);
     m_Steps++;
   }
 
@@ -8625,21 +8622,59 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
     if(active.Finished())
       break;
 
-    // calculate the current mask of which threads are active
-    CalcActiveMask(activeMask);
+    // Execute the threads in each active tangle
+    ThreadExecutionStates threadExecutionStates;
+    TangleGroup &tangles = m_ControlFlow.GetTangles();
 
-    // step all active members of the workgroup
-    ShaderDebugState state;
-    bool hasDebugState = false;
-    for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
+    bool anyActiveThreads = false;
+    for(Tangle &tangle : tangles)
     {
-      if(activeMask[lane])
+      if(!tangle.IsAliveActive())
+        continue;
+
+      rdcarray<ThreadReference> threadRefs = tangle.GetThreadRefs();
+      // calculate the current active thread mask from the threads in the tangle
       {
+        // one bool per workgroup thread
+        activeMask.resize(m_Workgroup.size());
+
+        // start with all threads as inactive
+        for(size_t i = 0; i < m_Workgroup.size(); i++)
+          activeMask[i] = false;
+
+        // activate the threads in the tangle
+        for(const ThreadReference &ref : threadRefs)
+        {
+          uint32_t idx = ref.id;
+          RDCASSERT(idx < m_Workgroup.size(), idx, m_Workgroup.size());
+          RDCASSERT(!m_Workgroup[idx].Finished());
+          activeMask[idx] = true;
+          anyActiveThreads = true;
+        }
+      }
+
+      ExecutionPoint newConvergencePoint = INVALID_EXECUTION_POINT;
+      uint32_t countActiveThreads = 0;
+      uint32_t countDivergedThreads = 0;
+      uint32_t countConvergePointThreads = 0;
+
+      // step all active members of the workgroup
+      ShaderDebugState state;
+      bool hasDebugState = false;
+      for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
+      {
+        if(!activeMask[lane])
+          continue;
+        ++countActiveThreads;
+
         ThreadState &thread = m_Workgroup[lane];
+        const uint32_t threadId = (uint32_t)lane;
         if(thread.Finished())
         {
           if(lane == m_ActiveLaneIndex)
             ret.emplace_back();
+
+          tangle.SetThreadDead(threadId);
           continue;
         }
 
@@ -8654,21 +8689,64 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
         {
           thread.StepNext(NULL, apiWrapper, m_Workgroup, activeMask);
         }
+
+        threadExecutionStates[threadId] = thread.m_EnteredPoints;
+
+        uint32_t threadConvergencePoint = thread.m_ConvergencePoint;
+        // the thread activated a new convergence point
+        if(threadConvergencePoint != INVALID_EXECUTION_POINT)
+        {
+          if(newConvergencePoint == INVALID_EXECUTION_POINT)
+          {
+            newConvergencePoint = threadConvergencePoint;
+            RDCASSERTNOTEQUAL(newConvergencePoint, INVALID_EXECUTION_POINT);
+          }
+          else
+          {
+            // All the threads in the tangle should set the same convergence point
+            RDCASSERTEQUAL(threadConvergencePoint, newConvergencePoint);
+          }
+          ++countConvergePointThreads;
+        }
+        if(thread.Finished())
+          tangle.SetThreadDead(threadId);
+
+        if(thread.m_Diverged)
+          ++countDivergedThreads;
+      }
+      for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
+      {
+        if(activeMask[lane])
+          m_Workgroup[lane].StepOverNopInstructions();
+      }
+      // Update UI state after the execute and step over nops to make sure state.nextInstruction is in sync
+      if(hasDebugState)
+      {
+        ThreadState &thread = m_Workgroup[m_ActiveLaneIndex];
+        state.nextInstruction = thread.m_ActiveGlobalInstructionIdx;
+        thread.FillCallstack(state);
+        ret.push_back(std::move(state));
+      }
+      if(countConvergePointThreads)
+      {
+        // all the active threads should have a convergence point if any have one
+        RDCASSERTEQUAL(countConvergePointThreads, countActiveThreads);
+        tangle.AddMergePoint(newConvergencePoint);
+      }
+      if(countDivergedThreads)
+      {
+        // all the active threads should have diverged if any diverges
+        RDCASSERTEQUAL(countDivergedThreads, countActiveThreads);
+        tangle.SetDiverged(true);
       }
     }
-    for(size_t lane = 0; lane < m_Workgroup.size(); lane++)
+    if(!anyActiveThreads)
     {
-      if(activeMask[lane])
-        m_Workgroup[lane].StepOverNopInstructions();
+      active.m_Dead = true;
+      m_ControlFlow.UpdateState(threadExecutionStates);
+      RDCERR("No active threads in any tangle, killing active thread to terminate the debugger");
     }
-    // Update UI state after the execute and step over nops to make sure state.nextInstruction is in sync
-    if(hasDebugState)
-    {
-      ThreadState &thread = m_Workgroup[m_ActiveLaneIndex];
-      state.nextInstruction = thread.m_ActiveGlobalInstructionIdx;
-      thread.FillCallstack(state);
-      ret.push_back(std::move(state));
-    }
+    m_ControlFlow.UpdateState(threadExecutionStates);
   }
   return ret;
 }
