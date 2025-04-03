@@ -7976,7 +7976,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         }
       }
 
-      ControlFlow &controlFlow = info.controlFlow;
+      DXIL::ControlFlow &controlFlow = info.controlFlow;
 
       controlFlow.Construct(links);
       info.uniformBlocks = controlFlow.GetUniformBlocks();
@@ -8213,7 +8213,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
   for(auto funcInfosIt = m_FunctionInfos.begin(); funcInfosIt != m_FunctionInfos.end(); ++funcInfosIt)
   {
     FunctionInfo &info = funcInfosIt->second;
-    const ControlFlow &controlFlow = info.controlFlow;
+    const DXIL::ControlFlow &controlFlow = info.controlFlow;
     const rdcarray<uint32_t> loopBlocks = controlFlow.GetLoopBlocks();
     for(ScopedDebugData *scope : m_DebugInfo.scopedDebugDatas)
     {
