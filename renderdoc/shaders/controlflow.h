@@ -71,7 +71,9 @@ public:
   }
   void AddMergePoint(ExecutionPoint execPoint)
   {
-    m_MergePoints.push_back(execPoint);
+    // only add a new merge point
+    if(execPoint != m_MergePoints.back())
+      m_MergePoints.push_back(execPoint);
     m_StateChanged = true;
   }
   void AddFunctionReturnPoint(ExecutionPoint execPoint)
