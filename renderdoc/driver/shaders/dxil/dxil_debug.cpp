@@ -1616,7 +1616,6 @@ void ThreadState::FillCallstack(ShaderDebugState &state)
   auto it = m_FunctionInfo->callstacks.upper_bound(state.nextInstruction);
   if(it == m_FunctionInfo->callstacks.end())
   {
-    RDCWARN("No callstack entry found for instruction %u", state.nextInstruction);
     state.callstack.clear();
     state.callstack.push_back(m_FunctionInfo->function->name);
     return;
@@ -1631,7 +1630,6 @@ void ThreadState::FillCallstack(ShaderDebugState &state)
   }
   else
   {
-    RDCWARN("No callstack entry found for instruction %u", state.nextInstruction);
     state.callstack.clear();
     state.callstack.push_back(m_FunctionInfo->function->name);
     return;
