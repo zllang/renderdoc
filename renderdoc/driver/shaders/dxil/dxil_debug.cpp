@@ -5639,12 +5639,10 @@ bool ThreadState::GetShaderVariableHelper(const DXIL::Value *dxilValue, DXIL::Op
   else if(const GlobalVar *gv = cast<GlobalVar>(dxilValue))
   {
     if(gv->initialiser)
-    {
       var.value.u64v[0] = gv->initialiser->getU64();
-      return true;
-    }
-    RDCERR("Unhandled DXIL GlobalVar no initialiser");
-    return false;
+    else
+      memset(&var.value, 0, sizeof(var.value));
+    return true;
   }
 
   if(const Instruction *inst = cast<Instruction>(dxilValue))
