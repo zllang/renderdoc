@@ -90,14 +90,34 @@ struct IN
 
 float4 main(IN input) : SV_Target0
 {
-  uint wave = WaveGetLaneIndex();
+  uint subgroupId = WaveGetLaneIndex();
 
   float4 pixdata = 0.0f.xxxx;
 
   if(IsTest(1) || IsTest(2))
-    pixdata = float4(wave, 0, 0, 1);
+  {
+    pixdata = float4(subgroupId, 0, 0, 1);
+  }
   else if(IsTest(4))
-    pixdata = float4(WaveActiveSum(wave), 0, 0, 0);
+  {
+    pixdata = float4(WaveActiveSum(subgroupId), 0, 0, 0);
+  }
+  else if(IsTest(5))
+  {
+    // QuadReadLaneAt : unit tests
+    pixdata.x = float(QuadReadLaneAt(subgroupId, 0));
+    pixdata.y = float(QuadReadLaneAt(subgroupId, 1));
+    pixdata.z = float(QuadReadLaneAt(subgroupId, 2));
+    pixdata.w = float(QuadReadLaneAt(subgroupId, 3));
+  }
+  else if(IsTest(6))
+  {
+    // QuadReadAcrossDiagonal, QuadReadAcrossX, QuadReadAcrossY: unit tests
+    pixdata.x = float(QuadReadAcrossDiagonal(subgroupId));
+    pixdata.y = float(QuadReadAcrossX(subgroupId));
+    pixdata.z = float(QuadReadAcrossY(subgroupId));
+    pixdata.w = QuadReadLaneAt(pixdata.x, 2);
+  }
 
   return input.data + pixdata;
 }
