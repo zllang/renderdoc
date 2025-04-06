@@ -252,6 +252,13 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.x += WaveActiveSum(id);
     }
   }
+  else if(IsTest(9))
+  {
+    // Query function : unit tests
+    data.x = float(WaveGetLaneCount());
+    data.y = float(WaveGetLaneIndex());
+    data.z = float(WaveIsFirstLane());
+  }
   SetOuput(data);
 }
 
