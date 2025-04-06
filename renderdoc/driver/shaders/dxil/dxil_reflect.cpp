@@ -1874,6 +1874,9 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WaveGetLaneIndex:
               case DXOp::WaveIsFirstLane:
               case DXOp::WaveActiveOp:
+              case DXOp::WaveAnyTrue:
+              case DXOp::WaveAllTrue:
+              case DXOp::WaveActiveBallot:
                 if(!D3D_Hack_EnableGroups())
                   return StringFormat::Fmt("Unsupported dx.op call `%s` %s", callFunc->name.c_str(),
                                            ToStr(dxOpCode).c_str());
@@ -1898,10 +1901,7 @@ rdcstr Program::GetDebugStatus()
               case DXOp::StorePatchConstant:
               case DXOp::OutputControlPointID:
               case DXOp::CycleCounterLegacy:
-              case DXOp::WaveAnyTrue:
-              case DXOp::WaveAllTrue:
               case DXOp::WaveActiveAllEqual:
-              case DXOp::WaveActiveBallot:
               case DXOp::WaveReadLaneAt:
               case DXOp::WaveReadLaneFirst:
               case DXOp::WaveActiveBit:

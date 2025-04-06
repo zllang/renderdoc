@@ -3682,74 +3682,106 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[0] = (m_WorkgroupIndex == activeLanes[0]) ? 1 : 0;
             break;
           }
+          case DXOp::WaveAnyTrue:
+          case DXOp::WaveAllTrue:
+          case DXOp::WaveActiveBallot:
           case DXOp::WaveActiveOp:
           {
-            // WaveActiveOp(value,op,sop)
+            ShaderVariable accum;
+            bool isUnsigned = true;
+            WaveOpCode waveOpCode = WaveOpCode::Sum;
 
-            ShaderVariable arg;
-            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
-            WaveOpCode waveOpCode = (WaveOpCode)arg.value.u32v[0];
+            if(dxOpCode == DXOp::WaveActiveOp)
+            {
+              // WaveActiveOp(value,op,sop)
+              ShaderVariable arg;
+              RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+              waveOpCode = (WaveOpCode)arg.value.u32v[0];
 
-            RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg));
-            bool isUnsigned = (arg.value.u32v[0] != (uint32_t)SignedOpKind::Signed);
+              RDCASSERT(GetShaderVariable(inst.args[3], opCode, dxOpCode, arg));
+              isUnsigned = (arg.value.u32v[0] != (uint32_t)SignedOpKind::Signed);
+
+              // set the identity
+              switch(waveOpCode)
+              {
+                default:
+                  RDCERR("Unhandled wave opcode");
+                  accum.value = {};
+                  break;
+                case WaveOpCode::Sum: accum.value = {}; break;
+              }
+            }
+            else if(dxOpCode == DXOp::WaveAnyTrue)
+            {
+              // WaveAnyTrue(cond)
+              accum.value.u32v[0] = 0;
+            }
+            else if(dxOpCode == DXOp::WaveAllTrue)
+            {
+              // WaveAllTrue(cond)
+              accum.value.u32v[0] = 1;
+            }
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
             GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
-
-            ShaderVariable accum;
-            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, accum));
-
-            // set the identity
-            switch(waveOpCode)
-            {
-              default:
-                RDCERR("Unhandled wave opcode");
-                accum.value = {};
-                break;
-              case WaveOpCode::Sum: accum.value = {}; break;
-            }
+            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
 
             for(uint32_t lane : activeLanes)
             {
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
-              switch(waveOpCode)
+              if(dxOpCode == DXOp::WaveActiveOp)
               {
-                default: RDCERR("Unhandled wave opcode"); break;
-                case WaveOpCode::Sum:
+                switch(waveOpCode)
                 {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  default: RDCERR("Unhandled wave opcode"); break;
+                  case WaveOpCode::Sum:
                   {
-                    if(isUnsigned)
+                    for(uint8_t c = 0; c < x.columns; c++)
                     {
+                      if(isUnsigned)
+                      {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<U>(accum, c) = comp<U>(accum, c) + comp<U>(x, c)
-                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
-                    }
-                    else
-                    {
+                        IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                      }
+                      else
+                      {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(accum, c) = comp<S>(accum, c) + comp<S>(x, c)
-                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                        IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
 
 #undef _IMPL
 #define _IMPL(T) comp<T>(accum, c) = comp<T>(accum, c) + comp<T>(x, c)
 
-                      IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
+                        IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
+                      }
                     }
+                    break;
                   }
-                  break;
                 }
+              }
+              else if(dxOpCode == DXOp::WaveAnyTrue)
+              {
+                accum.value.u32v[0] |= x.value.u32v[0];
+              }
+              else if(dxOpCode == DXOp::WaveAllTrue)
+              {
+                accum.value.u32v[0] &= x.value.u32v[0];
+              }
+              else if(dxOpCode == DXOp::WaveActiveBallot)
+              {
+                uint32_t c = (lane - firstLaneInSub) / 32;
+                uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
+
+                if(x.value.u32v[0])
+                  accum.value.u32v[c] |= bit;
               }
             }
 
-            // Copy the whole variable to ensure we get the correct type information
-            rdcstr name = result.name;
-            result = accum;
-            result.name = name;
-
+            result.value = accum.value;
             break;
           }
           // Quad Operations
@@ -4058,11 +4090,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::CutStream:
           case DXOp::EmitThenCutStream:
 
-          // Wave/Subgroup Operations
-          case DXOp::WaveAnyTrue:
-          case DXOp::WaveAllTrue:
+          // Wave Operations
           case DXOp::WaveActiveAllEqual:
-          case DXOp::WaveActiveBallot:
           case DXOp::WaveReadLaneAt:
           case DXOp::WaveReadLaneFirst:
           case DXOp::WaveActiveBit:
