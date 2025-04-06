@@ -290,10 +290,28 @@ void main()
   }
   else if(IsTest(9))
   {
-    // Query function : unit tests
+    // Query functions : unit tests
     data.x = float(gl_SubgroupSize);
     data.y = float(gl_SubgroupInvocationID);
     data.z = float(subgroupElect());
+  }
+  else if(IsTest(10))
+  {
+    // Vote functions : unit tests
+    data.x = float(subgroupAny(id*2 > id+10));
+    data.y = float(subgroupAll(id < gl_SubgroupSize));
+    if (id > 10)
+    {
+      data.z = float(subgroupAll(id > 10));
+      uvec4 ballot = subgroupBallot(id > 20);
+      data.w = bitCount(ballot.x) + bitCount(ballot.y) + bitCount(ballot.z) + bitCount(ballot.w);
+    }
+    else
+    {
+      data.z = float(subgroupAll(id > 3));
+      uvec4 ballot = subgroupBallot(id > 4);
+      data.w = bitCount(ballot.x) + bitCount(ballot.y) + bitCount(ballot.z) + bitCount(ballot.w);
+    }
   }
   SetOuput(data);
 }
