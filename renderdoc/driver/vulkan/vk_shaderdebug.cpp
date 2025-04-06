@@ -5135,6 +5135,8 @@ ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, u
         memcpy((var.value.u8v.data()) + elemSize * comp, value + i * paramAlign, sz);
       }
     }
+    apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
+        ShaderVariable(rdcstr(), numThreads, 0U, 0U, 0U);
 
     ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Vertex, entryPoint, spec,
                                                  shadRefl.instructionLines, shadRefl.patchData,
@@ -5311,6 +5313,10 @@ ShaderDebugTrace *VulkanReplay::DebugVertex(uint32_t eventId, uint32_t vertid, u
 
     rdcspv::Debugger *debugger = new rdcspv::Debugger;
     debugger->Parse(shader.spirv.GetSPIRV());
+
+    apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
+        ShaderVariable(rdcstr(), numThreads, 0U, 0U, 0U);
+
     ShaderDebugTrace *ret = debugger->BeginDebug(apiWrapper, ShaderStage::Vertex, entryPoint, spec,
                                                  shadRefl.instructionLines, shadRefl.patchData,
                                                  laneIndex, numThreads, numThreads);
@@ -5830,6 +5836,9 @@ ShaderDebugTrace *VulkanReplay::DebugPixel(uint32_t eventId, uint32_t x, uint32_
       }
     }
 
+    apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
+        ShaderVariable(rdcstr(), numThreads, 0U, 0U, 0U);
+
     ret = debugger->BeginDebug(apiWrapper, ShaderStage::Pixel, entryPoint, spec,
                                shadRefl.instructionLines, shadRefl.patchData, winner->laneIndex,
                                numThreads, numThreads);
@@ -6232,6 +6241,9 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
       }
     }
 
+    apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
+        ShaderVariable(rdcstr(), winner->subgroupSize, 0U, 0U, 0U);
+
     ShaderDebugTrace *ret = debugger->BeginDebug(
         apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines, shadRefl.patchData,
         winner->laneIndex, numThreads, winner->subgroupSize);
@@ -6294,6 +6306,10 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
 
     rdcspv::Debugger *debugger = new rdcspv::Debugger;
     debugger->Parse(shader.spirv.GetSPIRV());
+
+    apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
+        ShaderVariable(rdcstr(), 1U, 0U, 0U, 0U);
+
     ShaderDebugTrace *ret =
         debugger->BeginDebug(apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines,
                              shadRefl.patchData, laneIndex, numThreads, 1);
