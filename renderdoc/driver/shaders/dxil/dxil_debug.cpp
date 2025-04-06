@@ -7785,7 +7785,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
     if(gv->initialiser)
     {
       const Constant *initialData = gv->initialiser;
-      if(!initialData->isNULL())
+      if(!initialData->isNULL() && !initialData->isUndef())
       {
         RDCASSERT(ConvertDXILConstantToShaderVariable(initialData, globalVar.var));
         // Write ShaderVariable data back to memory
