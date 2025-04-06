@@ -274,10 +274,28 @@ void main(uint3 inTid : SV_DispatchThreadID)
   }
   else if(IsTest(9))
   {
-    // Query function : unit tests
+    // Query functions : unit tests
     data.x = float(WaveGetLaneCount());
     data.y = float(WaveGetLaneIndex());
     data.z = float(WaveIsFirstLane());
+  }
+  else if(IsTest(10))
+  {
+    // Vote functions : unit tests
+    data.x = float(WaveActiveAnyTrue(id*2 > id+10));
+    data.y = float(WaveActiveAllTrue(id < WaveGetLaneCount()));
+    if (id > 10)
+    {
+      data.z = float(WaveActiveAllTrue(id > 10));
+      uint4 ballot = WaveActiveBallot(id > 20);
+      data.w = countbits(ballot.x) + countbits(ballot.y) + countbits(ballot.z) + countbits(ballot.w);
+    }
+    else
+    {
+      data.z = float(WaveActiveAllTrue(id > 3));
+      uint4 ballot = WaveActiveBallot(id > 4);
+      data.w = countbits(ballot.x) + countbits(ballot.y) + countbits(ballot.z) + countbits(ballot.w);
+    }
   }
   SetOuput(data);
 }
