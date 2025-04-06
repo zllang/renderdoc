@@ -258,6 +258,14 @@ void main()
     }
     data.x = subgroupAdd(id);
   }
+  else if(IsTest(8))
+  {
+     // Loops with different number of iterations per thread
+    for (uint i = 0; i < id; i++)
+    {
+      data.x += subgroupAdd(id);
+    }
+  }
   SetOuput(data);
 }
 
