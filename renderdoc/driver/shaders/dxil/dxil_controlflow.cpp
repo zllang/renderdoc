@@ -673,7 +673,7 @@ uint32_t ControlFlow::GetNextUniformBlock(uint32_t from) const
   uint32_t bestBlock = from;
   for(uint32_t uniform : m_UniformBlocks)
   {
-    const rdcarray<BlockPath> &paths = m_PathSets[PathType::NoLoops];
+    const rdcarray<BlockPath> &paths = m_PathSets[PathType::IncLoops];
     for(uint32_t pathIdx = 0; pathIdx < paths.size(); ++pathIdx)
     {
       m_CheckedPaths.clear();
@@ -684,7 +684,7 @@ uint32_t ControlFlow::GetNextUniformBlock(uint32_t from) const
       // BlockInAnyPath will also check all paths linked to from the end node of the path
       if(startIdx != -1)
       {
-        int32_t steps = BlockInAnyPath(PathType::NoLoops, uniform, pathIdx, startIdx + 1, 0);
+        int32_t steps = BlockInAnyPath(PathType::IncLoops, uniform, pathIdx, startIdx + 1, 0);
         if(steps != -1)
         {
           if(steps < minSteps)
@@ -699,12 +699,12 @@ uint32_t ControlFlow::GetNextUniformBlock(uint32_t from) const
   return bestBlock;
 }
 
-// Ignores loops
+// Include loops
 bool ControlFlow::IsForwardConnection(uint32_t from, uint32_t to) const
 {
   if(m_Connections[from][to] == ConnectionState::Unknown)
   {
-    if(IsBlockConnected(PathType::NoLoops, from, to))
+    if(IsBlockConnected(PathType::IncLoops, from, to))
       m_Connections[from][to] = ConnectionState::Connected;
     else
       m_Connections[from][to] = ConnectionState::NotConnected;
