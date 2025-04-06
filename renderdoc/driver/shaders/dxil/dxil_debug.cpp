@@ -3761,52 +3761,71 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // QuadReadLaneAt(value,quadLane)
             ShaderVariable b;
             RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
-            uint32_t lane = UINT32_MAX;
+            uint32_t lane = ~0U;
             if(dxOpCode == DXOp::QuadOp)
             {
-              QuadOpKind quadOp = (QuadOpKind)b.value.u32v[0];
-              switch(quadOp)
+              if(m_QuadLaneIndex == ~0U)
               {
-                case QuadOpKind::ReadAcrossX:
+                RDCERR("Quad operation without proper quad neighbours");
+                lane = m_WorkgroupIndex;
+              }
+              else
+              {
+                QuadOpKind quadOp = (QuadOpKind)b.value.u32v[0];
+                switch(quadOp)
                 {
-                  // 0->1
-                  // 1->0
-                  // 2->3
-                  // 3->2
-                  if(m_WorkgroupIndex % 2 == 0)
-                    lane = m_WorkgroupIndex + 1;
-                  else
-                    lane = m_WorkgroupIndex - 1;
-                  break;
+                  case QuadOpKind::ReadAcrossX:
+                  {
+                    // 0->1
+                    // 1->0
+                    // 2->3
+                    // 3->2
+                    lane = m_QuadLaneIndex ^ 1;
+                    break;
+                  }
+                  case QuadOpKind::ReadAcrossY:
+                  {
+                    // 0->2
+                    // 1->3
+                    // 2->0
+                    // 3->1
+                    lane = m_QuadLaneIndex ^ 2;
+                    break;
+                  }
+                  case QuadOpKind::ReadAcrossDiagonal:
+                  {
+                    // 0->3
+                    // 1->2
+                    // 2->1
+                    // 3->0
+                    lane = m_QuadLaneIndex ^ 3;
+                    break;
+                  }
+                  default: RDCERR("Unhandled QuadOpKind %s", ToStr(quadOp).c_str()); break;
                 }
-                case QuadOpKind::ReadAcrossY:
+                if(lane < 4)
+                  lane = m_QuadNeighbours[lane];
+
+                if(lane == ~0U)
                 {
-                  // 0->2
-                  // 1->3
-                  // 2->0
-                  // 3->1
-                  if(m_WorkgroupIndex < 2)
-                    lane = m_WorkgroupIndex + 2;
-                  else
-                    lane = m_WorkgroupIndex - 2;
-                  break;
+                  RDCERR("QuadOp %s without proper quad neighbours", ToStr(quadOp).c_str());
+                  lane = m_WorkgroupIndex;
                 }
-                case QuadOpKind::ReadAcrossDiagonal:
-                {
-                  // 0->3
-                  // 1->2
-                  // 2->1
-                  // 3->0
-                  lane = 3 - m_WorkgroupIndex;
-                  break;
-                }
-                default: RDCERR("Unhandled QuadOpKind %s", ToStr(quadOp).c_str()); break;
               }
             }
             else if(dxOpCode == DXOp::QuadReadLaneAt)
             {
               // QuadReadLaneAt(value,quadLane)
               lane = b.value.u32v[0];
+              RDCASSERT(lane < 4, lane);
+              lane = RDCMIN(lane, 3U);
+              lane = m_QuadNeighbours[lane];
+
+              if(lane == ~0U)
+              {
+                RDCERR("QuadReadLaneAt without proper quad neighbours");
+                lane = m_WorkgroupIndex;
+              }
             }
             else
             {
