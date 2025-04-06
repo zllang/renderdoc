@@ -266,6 +266,13 @@ void main()
       data.x += subgroupAdd(id);
     }
   }
+  else if(IsTest(9))
+  {
+    // Query function : unit tests
+    data.x = float(gl_SubgroupSize);
+    data.y = float(gl_SubgroupInvocationID);
+    data.z = float(subgroupElect());
+  }
   SetOuput(data);
 }
 
