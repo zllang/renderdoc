@@ -104,12 +104,34 @@ layout(location = 0, index = 0) out vec4 Color;
 
 void main()
 {
+  uint subgroupId = gl_SubgroupInvocationID;
+
   vec4 fragdata = vec4(0);
 
   if(IsTest(1) || IsTest(2))
-    fragdata = vec4(gl_SubgroupInvocationID, 0, 0, 1);
+  {
+    fragdata = vec4(subgroupId, 0, 0, 1);
+  }
   else if(IsTest(4))
-    fragdata = vec4(subgroupAdd(gl_SubgroupInvocationID), 0, 0, 0);
+  {
+    fragdata = vec4(subgroupAdd(subgroupId), 0, 0, 0);
+  }
+  else if(IsTest(5))
+  {
+    // subgroupQuadBroadcast : unit tests
+    fragdata.x = float(subgroupQuadBroadcast(subgroupId, 0));
+    fragdata.y = float(subgroupQuadBroadcast(subgroupId, 1));
+    fragdata.z = float(subgroupQuadBroadcast(subgroupId, 2));
+    fragdata.w = float(subgroupQuadBroadcast(subgroupId, 3));
+  }
+  else if(IsTest(6))
+  {
+    // subgroupQuadSwapDiagonal, subgroupQuadSwapHorizontal, subgroupQuadSwapVertical : unit tests
+    fragdata.x = float(subgroupQuadSwapDiagonal(subgroupId));
+    fragdata.y = float(subgroupQuadSwapHorizontal(subgroupId));
+    fragdata.z = float(subgroupQuadSwapVertical(subgroupId));
+    fragdata.w = subgroupQuadBroadcast(fragdata.x, 2);
+  }
 
   Color = vertdata + fragdata;
 }
