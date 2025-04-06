@@ -244,6 +244,14 @@ void main(uint3 inTid : SV_DispatchThreadID)
     }
     data.x = WaveActiveSum(id);
   }
+  else if(IsTest(8))
+  {
+     // Loops with different number of iterations per thread
+    for (uint i = 0; i < id; i++)
+    {
+      data.x += WaveActiveSum(id);
+    }
+  }
   SetOuput(data);
 }
 
