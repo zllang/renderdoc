@@ -302,6 +302,9 @@ struct ThreadState
   bool IsVariableAssigned(const Id id) const;
 
   ShaderVariable GetBuiltin(ShaderBuiltin builtin);
+  void GetSubgroupActiveLanes(const rdcarray<bool> &activeMask,
+                              const rdcarray<ThreadState> &workgroup,
+                              rdcarray<uint32_t> &activeLanes) const;
 
   struct AnnotationProperties
   {

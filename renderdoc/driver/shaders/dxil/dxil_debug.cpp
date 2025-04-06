@@ -1704,6 +1704,23 @@ bool ThreadState::JumpToBlock(const Block *target, bool divergencePoint)
   return true;
 }
 
+void ThreadState::GetSubgroupActiveLanes(const rdcarray<bool> &activeMask,
+                                         const rdcarray<ThreadState> &workgroup,
+                                         rdcarray<uint32_t> &activeLanes) const
+{
+  const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+  for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + m_GlobalState.subgroupSize; lane++)
+  {
+    // wave operations exclude helpers
+    if(activeMask[lane])
+    {
+      if(!m_GlobalState.waveOpsIncludeHelpers && workgroup[lane - firstLaneInSub].m_Helper)
+        continue;
+      activeLanes.push_back(lane - firstLaneInSub);
+    }
+  }
+}
+
 bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                                      const rdcarray<ThreadState> &workgroup,
                                      const rdcarray<bool> &activeMask)
@@ -3647,10 +3664,22 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             break;
           }
           // Wave/Subgroup Operations
+          case DXOp::WaveGetLaneCount:
+          {
+            result.value.u32v[0] = m_GlobalState.subgroupSize;
+            break;
+          }
           case DXOp::WaveGetLaneIndex:
           {
-            // SV_PrimitiveID
             result.value.u32v[0] = m_SubgroupIdx;
+            break;
+          }
+          case DXOp::WaveIsFirstLane:
+          {
+            // determine active lane indices in our subgroup
+            rdcarray<uint32_t> activeLanes;
+            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
+            result.value.u32v[0] = (m_WorkgroupIndex == activeLanes[0]) ? 1 : 0;
             break;
           }
           case DXOp::WaveActiveOp:
@@ -3666,19 +3695,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
-
-            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
-            for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + m_GlobalState.subgroupSize;
-                lane++)
-            {
-              // wave operations exclude helpers
-              if(activeMask[lane])
-              {
-                if(!m_GlobalState.waveOpsIncludeHelpers && workgroup[lane - firstLaneInSub].m_Helper)
-                  continue;
-                activeLanes.push_back(lane - firstLaneInSub);
-              }
-            }
+            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
 
             ShaderVariable accum;
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, accum));
@@ -4023,8 +4040,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::EmitThenCutStream:
 
           // Wave/Subgroup Operations
-          case DXOp::WaveIsFirstLane:
-          case DXOp::WaveGetLaneCount:
           case DXOp::WaveAnyTrue:
           case DXOp::WaveAllTrue:
           case DXOp::WaveActiveAllEqual:
