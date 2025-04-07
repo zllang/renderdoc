@@ -313,6 +313,17 @@ void main()
       data.w = bitCount(ballot.x) + bitCount(ballot.y) + bitCount(ballot.z) + bitCount(ballot.w);
     }
   }
+  else if(IsTest(11))
+  {
+    // Broadcast functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      data.x = subgroupBroadcastFirst(id);
+      data.y = subgroupBroadcast(id, 5);
+      data.z = subgroupShuffle(id, id);
+      data.w = subgroupShuffle(data.x, 2+id%3);
+    }
+  }
   SetOuput(data);
 }
 
