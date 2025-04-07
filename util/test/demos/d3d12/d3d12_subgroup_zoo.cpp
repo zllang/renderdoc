@@ -297,6 +297,17 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = countbits(ballot.x) + countbits(ballot.y) + countbits(ballot.z) + countbits(ballot.w);
     }
   }
+  else if(IsTest(11))
+  {
+    // Broadcast functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      data.x = WaveReadLaneFirst(id);
+      data.y = WaveReadLaneAt(id, 5);
+      data.z = WaveReadLaneAt(id, id);
+      data.w = WaveReadLaneAt(data.x, 2+id%3);
+    }
+  }
   SetOuput(data);
 }
 
