@@ -2414,6 +2414,8 @@ void WrappedVulkan::StartFrameCapture(DeviceOwnedWindow devWnd)
     // and its backing memory
     GetResourceManager()->MarkMemoryFrameReferenced((*it)->baseResourceMem, (*it)->memOffset,
                                                     (*it)->memSize, eFrameRef_ReadBeforeWrite);
+    // and sparse memory (yuck yuck yuck)
+    GetResourceManager()->MarkSparseMapReferenced((*it)->resInfo);
   }
 }
 

@@ -1788,12 +1788,6 @@ bool WrappedVulkan::Serialise_vkCreateBuffer(SerialiserType &ser, VkDevice devic
 
     VkResult ret = ObjDisp(device)->CreateBuffer(Unwrap(device), &patched, NULL, &buf);
 
-    if(CreateInfo.flags &
-       (VK_BUFFER_CREATE_SPARSE_BINDING_BIT | VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT))
-    {
-      APIProps.SparseResources = true;
-    }
-
     SetBufferUsageFlags(&CreateInfo, origusage);
 
     if(ret != VK_SUCCESS)
@@ -1809,6 +1803,34 @@ bool WrappedVulkan::Serialise_vkCreateBuffer(SerialiserType &ser, VkDevice devic
 
       m_CreationInfo.m_Buffer[live].Init(GetResourceManager(), m_CreationInfo, &CreateInfo,
                                          memoryRequirements);
+    }
+
+    if(CreateInfo.flags &
+       (VK_BUFFER_CREATE_SPARSE_BINDING_BIT | VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT))
+    {
+      APIProps.SparseResources = true;
+
+      // for sparse BDA buffers we can and must request the address now since it won't be queried on memory bind
+      if(CreateInfo.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+      {
+        VulkanCreationInfo::Buffer &bufInfo = m_CreationInfo.m_Buffer[GetResID(buf)];
+
+        VkBufferDeviceAddressInfo getInfo = {
+            VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            NULL,
+            Unwrap(buf),
+        };
+
+        RDCCOMPILE_ASSERT(VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO ==
+                              VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT,
+                          "KHR and EXT buffer_device_address should be interchangeable here.");
+
+        if(GetExtensions(GetRecord(device)).ext_KHR_buffer_device_address)
+          bufInfo.gpuAddress = ObjDisp(device)->GetBufferDeviceAddress(Unwrap(device), &getInfo);
+        else if(GetExtensions(GetRecord(device)).ext_EXT_buffer_device_address)
+          bufInfo.gpuAddress = ObjDisp(device)->GetBufferDeviceAddressEXT(Unwrap(device), &getInfo);
+        m_CreationInfo.m_BufferAddresses[bufInfo.gpuAddress] = GetResID(buf);
+      }
     }
 
     AddResource(Buffer, ResourceType::Buffer, "Buffer");
