@@ -1870,13 +1870,15 @@ rdcstr Program::GetDebugStatus()
                       "Only supported when debugging pixel shaders dx.op call `%s` %s",
                       callFunc->name.c_str(), ToStr(dxOpCode).c_str());
                 continue;
-              case DXOp::WaveGetLaneCount:
-              case DXOp::WaveGetLaneIndex:
               case DXOp::WaveIsFirstLane:
-              case DXOp::WaveActiveOp:
+              case DXOp::WaveGetLaneIndex:
+              case DXOp::WaveGetLaneCount:
               case DXOp::WaveAnyTrue:
               case DXOp::WaveAllTrue:
               case DXOp::WaveActiveBallot:
+              case DXOp::WaveReadLaneAt:
+              case DXOp::WaveReadLaneFirst:
+              case DXOp::WaveActiveOp:
                 if(!D3D_Hack_EnableGroups())
                   return StringFormat::Fmt("Unsupported dx.op call `%s` %s", callFunc->name.c_str(),
                                            ToStr(dxOpCode).c_str());
@@ -1902,8 +1904,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::OutputControlPointID:
               case DXOp::CycleCounterLegacy:
               case DXOp::WaveActiveAllEqual:
-              case DXOp::WaveReadLaneAt:
-              case DXOp::WaveReadLaneFirst:
               case DXOp::WaveActiveBit:
               case DXOp::WavePrefixOp:
               case DXOp::WaveAllBitCount:

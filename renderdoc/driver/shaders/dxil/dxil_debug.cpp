@@ -3682,6 +3682,45 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             result.value.u32v[0] = (m_WorkgroupIndex == activeLanes[0]) ? 1 : 0;
             break;
           }
+          case DXOp::WaveReadLaneAt:
+          {
+            // WaveReadLaneAt(value,lane)
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+            uint32_t lane = firstLaneInSub + arg.value.u32v[0];
+
+            if(lane < workgroup.size())
+            {
+              ShaderVariable var;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, var));
+              result.value = var.value;
+            }
+            else
+            {
+              RDCERR("Invalid workgroup lane %u", lane);
+            }
+            break;
+          }
+          case DXOp::WaveReadLaneFirst:
+          {
+            // WaveReadLaneFirst(value)
+            // determine active lane indices in our subgroup
+            rdcarray<uint32_t> activeLanes;
+            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
+            uint32_t lane = activeLanes[0];
+            if(lane < workgroup.size())
+            {
+              ShaderVariable var;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, var));
+              result.value = var.value;
+            }
+            else
+            {
+              RDCERR("Invalid workgroup lane %u", lane);
+            }
+            break;
+          }
           case DXOp::WaveAnyTrue:
           case DXOp::WaveAllTrue:
           case DXOp::WaveActiveBallot:
@@ -4092,8 +4131,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
           // Wave Operations
           case DXOp::WaveActiveAllEqual:
-          case DXOp::WaveReadLaneAt:
-          case DXOp::WaveReadLaneFirst:
           case DXOp::WaveActiveBit:
           case DXOp::WavePrefixOp:
           case DXOp::WaveAllBitCount:
