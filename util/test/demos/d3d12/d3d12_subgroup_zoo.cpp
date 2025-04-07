@@ -319,6 +319,44 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = WavePrefixProduct(1 + data.y);
     }
   }
+  else if(IsTest(13))
+  {
+    // Reduction functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      data.x = float(WaveActiveMax(id));
+      data.y = float(WaveActiveMin(id));
+      data.z = float(WaveActiveProduct(id));
+      data.w = float(WaveActiveSum(id));
+    }
+  }
+  else if(IsTest(14))
+  {
+    // Reduction functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      data.x = float(WaveActiveCountBits(id > 23));
+      data.y = float(WaveActiveBitAnd(id));
+      data.z = float(WaveActiveBitOr(id));
+      data.w = float(WaveActiveBitXor(id));
+    }
+  }
+  else if(IsTest(15))
+  {
+    // Reduction functions : unit tests
+    if (id > 13)
+    {
+      bool test1 = (id > 15).x;
+      bool2 test2 = bool2(test1, (id < 23));
+      bool3 test3 = bool3(test1, (id < 23), (id >= 25));
+      bool4 test4 = bool4(test1, (id < 23), (id >= 25), (id >= 28));
+
+      data.x = float(WaveActiveAllEqual(test1).x);
+      data.y = float(WaveActiveAllEqual(test2).y);
+      data.z = float(WaveActiveAllEqual(test3).z);
+      data.w = float(WaveActiveAllEqual(test4).w);
+    }
+  }
   SetOuput(data);
 }
 
