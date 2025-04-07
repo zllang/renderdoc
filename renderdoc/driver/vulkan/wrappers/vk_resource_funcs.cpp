@@ -514,19 +514,29 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
   // will be bound against since there's no requirement for the buffer to be marked as BDA. This
   // means that when RT is enabled ALL MEMORY IN THE ENTIRE PROGRAM must be marked as BDA just in
   // case.
+  //
+  // we don't force this on for memory allocations that are going to be used for dedicated images
+  bool forceBDA = false;
   if(IsCaptureMode(m_State) && AccelerationStructures())
   {
-    // force BDA flag when creating, by adding the struct if needed
-    if(memFlags)
+    VkMemoryDedicatedAllocateInfo *dedicated = (VkMemoryDedicatedAllocateInfo *)FindNextStruct(
+        pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+    if(dedicated == NULL || dedicated->image == VK_NULL_HANDLE)
     {
-      memFlags->flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
-    }
-    else
-    {
-      rtForcedFlags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT |
-                            VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT;
-      rtForcedFlags.pNext = unwrapped.pNext;
-      unwrapped.pNext = &rtForcedFlags;
+      // force BDA flag when creating, by adding the struct if needed
+      forceBDA = true;
+
+      if(memFlags)
+      {
+        memFlags->flags |= VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+      }
+      else
+      {
+        rtForcedFlags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT |
+                              VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT;
+        rtForcedFlags.pNext = unwrapped.pNext;
+        unwrapped.pNext = &rtForcedFlags;
+      }
     }
   }
 
@@ -690,7 +700,7 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
           &serialisedInfo, VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO);
 
       // see above for this gross workaround we have to do
-      if(AccelerationStructures())
+      if(forceBDA)
       {
         if(memFlags)
         {
