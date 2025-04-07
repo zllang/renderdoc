@@ -324,6 +324,19 @@ void main()
       data.w = subgroupShuffle(data.x, 2+id%3);
     }
   }
+  else if(IsTest(12))
+  {
+    // Scan and Prefix functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      uvec4 bits = subgroupBallot(id > 4);
+      data.x = subgroupBallotExclusiveBitCount(bits);
+      bits = subgroupBallot(id > 10);
+      data.y = subgroupBallotExclusiveBitCount(bits);
+      data.z = subgroupExclusiveAdd(data.x);
+      data.w = subgroupExclusiveMul(1 + data.y);
+    }
+  }
   SetOuput(data);
 }
 
