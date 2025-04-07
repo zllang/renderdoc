@@ -337,6 +337,40 @@ void main()
       data.w = subgroupExclusiveMul(1 + data.y);
     }
   }
+  else if(IsTest(13))
+  {
+    // Reduction functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      data.x = float(subgroupMax(id));
+      data.y = float(subgroupMin(id));
+      data.z = float(subgroupMul(id));
+      data.w = float(subgroupAdd(id));
+    }
+  }
+  else if(IsTest(14))
+  {
+    // Reduction functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      uvec4 bits = subgroupBallot(id > 23);
+      data.x = float(subgroupBallotBitCount(bits));
+      data.y = float(subgroupAnd(id));
+      data.z = float(subgroupOr(id));
+      data.w = float(subgroupXor(id));
+    }
+  }
+  else if(IsTest(15))
+  {
+    // Reduction functions : unit tests
+    if (id > 13)
+    {
+      data.x = float(subgroupAllEqual(id > 15));
+      data.y = float(subgroupAllEqual(id < 23));
+      data.z = float(subgroupAllEqual(id >= 25));
+      data.w = float(subgroupAllEqual(id >= 28));
+    }
+  }
   SetOuput(data);
 }
 
