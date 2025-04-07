@@ -1071,12 +1071,12 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
   {
     createFlags.flags = flags;
 
-    createFlags.pNext = rs.pNext;
-    rs.pNext = &createFlags;
+    createFlags.pNext = ret.pNext;
+    ret.pNext = &createFlags;
   }
   else
   {
-    rs.flags = (uint32_t)flags;
+    createFlags.flags = (uint32_t)flags;
   }
 
   pipeCreateInfo = ret;
