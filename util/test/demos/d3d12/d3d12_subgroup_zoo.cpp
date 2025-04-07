@@ -308,6 +308,17 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = WaveReadLaneAt(data.x, 2+id%3);
     }
   }
+  else if(IsTest(12))
+  {
+    // Scan and Prefix functions : unit tests
+    if (id >= 2 && id <= 20)
+    {
+      data.x = WavePrefixCountBits(id > 4);
+      data.y = WavePrefixCountBits(id > 10);
+      data.z = WavePrefixSum(data.x);
+      data.w = WavePrefixProduct(1 + data.y);
+    }
+  }
   SetOuput(data);
 }
 
