@@ -168,9 +168,10 @@ static void ConvertToMeshOutputCompute(const ShaderReflection &refl,
       {
         editor.Remove(it);
       }
-      // same with flat/noperspective
+      // same with flat/noperspective/centroid
       else if(decorate.decoration == rdcspv::Decoration::Flat ||
-              decorate.decoration == rdcspv::Decoration::NoPerspective)
+              decorate.decoration == rdcspv::Decoration::NoPerspective ||
+              decorate.decoration == rdcspv::Decoration::Centroid)
       {
         editor.Remove(it);
       }
