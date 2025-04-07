@@ -852,3 +852,15 @@ rdcstr DoStringise(const DXIL::SignedOpKind &el)
   }
   END_ENUM_STRINGISE();
 }
+
+template <>
+rdcstr DoStringise(const DXIL::WaveBitOpCode &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::WaveBitOpCode)
+  {
+    STRINGISE_ENUM_CLASS(And)
+    STRINGISE_ENUM_CLASS(Or)
+    STRINGISE_ENUM_CLASS(Xor)
+  }
+  END_ENUM_STRINGISE();
+}

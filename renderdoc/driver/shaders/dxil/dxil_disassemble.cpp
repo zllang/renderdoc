@@ -4181,6 +4181,23 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   break;
                 }
+                case DXOp::WaveActiveBit:
+                {
+                  // WaveActiveBit(value, i8 waveBitOp)
+                  WaveBitOpCode waveBitOpCode;
+                  if(getival<WaveBitOpCode>(inst.args[2], waveBitOpCode))
+                  {
+                    lineStr += "WaveActiveBit" + ToStr(waveBitOpCode);
+                    lineStr += "(";
+                    lineStr += GetArgId(inst, 1);
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::Pack4x8:
                 {
                   // Pack4x8(packMode,x,y,z,w)
