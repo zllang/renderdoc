@@ -1879,6 +1879,8 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WaveReadLaneAt:
               case DXOp::WaveReadLaneFirst:
               case DXOp::WaveActiveOp:
+              case DXOp::WavePrefixOp:
+              case DXOp::WavePrefixBitCount:
                 if(!D3D_Hack_EnableGroups())
                   return StringFormat::Fmt("Unsupported dx.op call `%s` %s", callFunc->name.c_str(),
                                            ToStr(dxOpCode).c_str());
@@ -1905,9 +1907,7 @@ rdcstr Program::GetDebugStatus()
               case DXOp::CycleCounterLegacy:
               case DXOp::WaveActiveAllEqual:
               case DXOp::WaveActiveBit:
-              case DXOp::WavePrefixOp:
               case DXOp::WaveAllBitCount:
-              case DXOp::WavePrefixBitCount:
               case DXOp::AttributeAtVertex:
               case DXOp::InstanceID:
               case DXOp::InstanceIndex:
