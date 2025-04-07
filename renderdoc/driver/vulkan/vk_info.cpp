@@ -1097,7 +1097,7 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
   if(graphicsLibraryCreate)
     availStages = graphicsLibraryCreate->flags;
 
-  vertLayout = fragLayout = GetResID(pCreateInfo->layout);
+  ownLayout = vertLayout = fragLayout = GetResID(pCreateInfo->layout);
   renderpass = GetResID(pCreateInfo->renderPass);
   subpass = pCreateInfo->subpass;
 

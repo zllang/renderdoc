@@ -977,7 +977,9 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
 
       // don't have to handle separate vert/frag layouts as push constant ranges must be identical
       const VulkanCreationInfo::PipelineLayout &pipeLayoutInfo =
-          m_pDriver->m_CreationInfo.m_PipelineLayout[pipeInfo.vertLayout];
+          m_pDriver->m_CreationInfo
+              .m_PipelineLayout[pipeInfo.ownLayout != ResourceId() ? pipeInfo.ownLayout
+                                                                   : pipeInfo.vertLayout];
       const rdcarray<VkPushConstantRange> &push = pipeLayoutInfo.pushRanges;
 
       VkPipelineLayoutCreateInfo pipeLayoutCreateInfo = {

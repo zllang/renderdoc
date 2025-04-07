@@ -269,6 +269,10 @@ struct VulkanCreationInfo
 
     ResourceId compLayout;
 
+    // the pipeline's own specified layout, independent of vertLayout/fragLayout below when linking
+    // graphics pipeline libraries
+    ResourceId ownLayout;
+
     // these will be the same in some cases, but can be different if the application is using
     // INDEPENDENT_SETS_BIT_KHR
     ResourceId vertLayout;
