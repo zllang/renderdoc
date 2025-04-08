@@ -41,6 +41,19 @@ cbuffer rootconsts : register(b0)
 
 )EOSHADER";
 
+  const std::string compCommon = common + R"EOSHADER(
+
+RWStructuredBuffer<float4> outbuf : register(u0);
+
+static uint3 tid;
+
+void SetOuput(float4 data)
+{
+  outbuf[root_test * 1024 + tid.y * GROUP_SIZE_X + tid.x] = data;
+}
+
+)EOSHADER";
+
   const std::string vertex = common + R"EOSHADER(
 
 struct OUT
@@ -124,11 +137,7 @@ float4 main(IN input) : SV_Target0
 
 )EOSHADER";
 
-  const std::string comp = common + R"EOSHADER(
-
-RWStructuredBuffer<float4> outbuf : register(u0);
-
-static uint3 tid;
+  const std::string comp = compCommon + R"EOSHADER(
 
 float4 funcD(uint id)
 {
@@ -168,11 +177,6 @@ float4 funcTest(uint id)
     value += WaveActiveSum(id/2);
     return value.xxxx;
   }
-}
-
-void SetOuput(float4 data)
-{
-  outbuf[root_test * 1024 + tid.y * GROUP_SIZE_X + tid.x] = data;
 }
 
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
@@ -362,12 +366,53 @@ void main(uint3 inTid : SV_DispatchThreadID)
 
 )EOSHADER";
 
+  const std::string comp65 = compCommon + R"EOSHADER(
+
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void main(uint3 inTid : SV_DispatchThreadID)
+{
+  float4 data = 0.0f.xxxx;
+  tid = inTid;
+
+  uint id = WaveGetLaneIndex();
+
+  SetOuput(id);
+
+  if(IsTest(0))
+  {
+    // SM6.5 functions : unit tests
+    uint4 mask = WaveMatch(id);
+    data.x = countbits(mask.x) + countbits(mask.y) + countbits(mask.z) + countbits(mask.w);
+    mask = WaveMatch(id%3 == 1);
+    data.y = countbits(mask.x) + countbits(mask.y) + countbits(mask.z) + countbits(mask.w);
+    mask = WaveMatch(id%5 == 1);
+		data.z = WaveMultiPrefixSum(id, mask);
+		data.w = WaveMultiPrefixProduct(id, mask);
+  }
+  if(IsTest(1))
+  {
+    // SM6.5 functions : unit tests
+    uint4 mask = WaveMatch(id%7 == 1);
+		data.x = WaveMultiPrefixCountBits(id, mask);
+		data.y = WaveMultiPrefixBitAnd((id+7)*3, mask);
+		data.z = WaveMultiPrefixBitOr(id, mask);
+		data.w = WaveMultiPrefixBitXor(id, mask);
+  }
+  SetOuput(data);
+}
+
+)EOSHADER";
+
   void Prepare(int argc, char **argv)
   {
     D3D12GraphicsTest::Prepare(argc, argv);
 
     if(opts1.WaveLaneCountMax < 16)
       Avail = "Subgroup size is less than 16";
+
+    bool supportSM60 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_0) && m_DXILSupport;
+    if(!supportSM60)
+      Avail = "SM 6.0 not supported";
   }
 
   int main()
@@ -389,7 +434,8 @@ void main(uint3 inTid : SV_DispatchThreadID)
     D3D12_GPU_DESCRIPTOR_HANDLE fltSRV = MakeSRV(fltTex).CreateGPU(8);
 
     int vertTests = 0, pixTests = 0;
-    int numCompTests = 0;
+    int numCompTests60 = 0;
+    int numCompTests65 = 0;
 
     {
       size_t pos = 0;
@@ -419,11 +465,21 @@ void main(uint3 inTid : SV_DispatchThreadID)
         if(pos == std::string::npos)
           break;
         pos += sizeof("IsTest(") - 1;
-        numCompTests = std::max(numCompTests, atoi(comp.c_str() + pos) + 1);
+        numCompTests60 = std::max(numCompTests60, atoi(comp.c_str() + pos) + 1);
+      }
+      pos = 0;
+      while(pos != std::string::npos)
+      {
+        pos = comp65.find("IsTest(", pos);
+        if(pos == std::string::npos)
+          break;
+        pos += sizeof("IsTest(") - 1;
+        numCompTests65 = std::max(numCompTests65, atoi(comp65.c_str() + pos) + 1);
       }
     }
 
     const uint32_t numGraphicsTests = std::max(vertTests, pixTests);
+    int numCompTests = std::max(numCompTests60, numCompTests65);
 
     struct
     {
@@ -436,15 +492,22 @@ void main(uint3 inTid : SV_DispatchThreadID)
     };
     std::string comppipe_name[ARRAY_COUNT(compsize)];
     ID3D12PipelineStatePtr comppipe[ARRAY_COUNT(compsize)];
+    ID3D12PipelineStatePtr comppipe65[ARRAY_COUNT(compsize)];
 
-    std::string defines;
-    defines += fmt::format("#define COMP_TESTS {}\n", numCompTests);
-    defines += "\n";
+    std::string defines60;
+    defines60 += fmt::format("#define COMP_TESTS {}\n", numCompTests60);
+    defines60 += "\n";
+
+    std::string defines65;
+    defines65 += fmt::format("#define COMP_TESTS {}\n", numCompTests65);
+    defines65 += "\n";
+
+    bool supportSM65 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_5) && m_DXILSupport;
 
     ID3D12PipelineStatePtr graphics = MakePSO()
                                           .RootSig(sig)
-                                          .VS(Compile(defines + vertex, "main", "vs_6_0"))
-                                          .PS(Compile(defines + pixel, "main", "ps_6_0"))
+                                          .VS(Compile(defines60 + vertex, "main", "vs_6_0"))
+                                          .PS(Compile(defines60 + pixel, "main", "ps_6_0"))
                                           .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
 
     for(int i = 0; i < ARRAY_COUNT(comppipe); i++)
@@ -455,8 +518,15 @@ void main(uint3 inTid : SV_DispatchThreadID)
       comppipe_name[i] = fmt::format("{}x{}", compsize[i].x, compsize[i].y);
 
       comppipe[i] =
-          MakePSO().RootSig(sig).CS(Compile(defines + sizedefine + comp, "main", "cs_6_0"));
+          MakePSO().RootSig(sig).CS(Compile(defines60 + sizedefine + comp, "main", "cs_6_0"));
       comppipe[i]->SetName(UTF82Wide(comppipe_name[i]).c_str());
+
+      if(supportSM65)
+      {
+        comppipe65[i] =
+            MakePSO().RootSig(sig).CS(Compile(defines65 + sizedefine + comp65, "main", "cs_6_5"));
+        comppipe65[i]->SetName(UTF82Wide(comppipe_name[i]).c_str());
+      }
     }
 
     ID3D12ResourcePtr bufOut = MakeBuffer().Size(sizeof(Vec4f) * 1024 * numCompTests).UAV();
@@ -518,7 +588,30 @@ void main(uint3 inTid : SV_DispatchThreadID)
         cmd->SetComputeRootSignature(sig);
         cmd->SetComputeRootUnorderedAccessView(1, bufOut->GetGPUVirtualAddress());
 
-        for(int i = 0; i < numCompTests; i++)
+        for(int i = 0; i < numCompTests60; i++)
+        {
+          cmd->SetComputeRoot32BitConstant(0, i, 0);
+          cmd->Dispatch(1, 1, 1);
+        }
+
+        popMarker(cmd);
+      }
+
+      for(size_t p = 0; p < ARRAY_COUNT(comppipe65); p++)
+      {
+        ResourceBarrier(cmd);
+
+        UINT zero[4] = {};
+        cmd->ClearUnorderedAccessViewUint(uavgpu, uavcpu, bufOut, zero, 0, NULL);
+
+        ResourceBarrier(cmd);
+        pushMarker(cmd, comppipe_name[p]);
+
+        cmd->SetPipelineState(comppipe65[p]);
+        cmd->SetComputeRootSignature(sig);
+        cmd->SetComputeRootUnorderedAccessView(1, bufOut->GetGPUVirtualAddress());
+
+        for(int i = 0; i < numCompTests65; i++)
         {
           cmd->SetComputeRoot32BitConstant(0, i, 0);
           cmd->Dispatch(1, 1, 1);
