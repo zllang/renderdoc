@@ -4890,8 +4890,7 @@ bool WrappedVulkan::Serialise_vkCmdExecuteCommands(SerialiserType &ser, VkComman
       parentCmdBufInfo.curEventID++;
 
       // should we add framebuffer usage to the child draws.
-      bool framebufferUsage = parentCmdBufInfo.state.GetRenderPass() != ResourceId() &&
-                              parentCmdBufInfo.state.GetFramebuffer() != ResourceId();
+      bool framebufferUsage = parentCmdBufInfo.state.ActiveRenderPass();
 
       for(uint32_t c = 0; c < commandBufferCount; c++)
       {
