@@ -427,6 +427,16 @@ void ControlFlow::MergeConvergedTangles()
       // merge tangles if they have the same merge stack
       if(convTangle.GetMergePoints() == tangle.GetMergePoints())
       {
+        RDCASSERTEQUAL(tangle.GetExecutionPoint(), convTangle.GetExecutionPoint());
+        if(Shader_Debug_ControlFlow_Logging())
+        {
+          RDCLOG(
+              "Tangle:%u ThreadCount:%u converged with Tangle:%u ThreadCount:%u ExecPoint:%u,%u at "
+              "MergePoint:%u,%u",
+              tangle.GetId(), tangle.GetThreadCount(), convTangle.GetId(),
+              convTangle.GetThreadCount(), tangle.GetExecutionPoint(),
+              convTangle.GetExecutionPoint(), tangle.GetMergePoint(), convTangle.GetMergePoint());
+        }
         tangle.AppendThreadReferences(convTangle.GetThreadRefs());
         convTangle.ClearMergePoints();
         convTangle.ClearFunctionReturnPoints();
@@ -435,14 +445,6 @@ void ControlFlow::MergeConvergedTangles()
         convTangle.SetConverged(false);
         convTangle.SetDiverged(false);
         convTangle.SetAlive(false);
-        if(Shader_Debug_ControlFlow_Logging())
-        {
-          RDCLOG(
-              "Tangle:%u ThreadCount:%u converged with Tangle:%u ThreadCount:%u ExecPoint:%u at "
-              "MergePoint:%u",
-              tangle.GetId(), tangle.GetThreadCount(), convTangle.GetId(), tangle.GetThreadCount(),
-              tangle.GetExecutionPoint(), tangle.GetMergePoint());
-        }
       }
     }
   }
@@ -508,13 +510,13 @@ void ControlFlow::UpdateState(const ThreadExecutionStates &threadExecutionStates
       if(!tangle.IsAlive())
         continue;
 
-      const ExecutionPoint mergePoint = tangle.GetMergePoint();
-      bool atMergePoint =
-          (tangle.GetExecutionPoint() == mergePoint) && (mergePoint != INVALID_EXECUTION_POINT);
       const ExecutionPoint functionReturnPoint = tangle.GetFunctionReturnPoint();
+      bool atMergePoint = tangle.m_MergePoints.contains(tangle.GetExecutionPoint());
       bool atFunctionReturnPoint = (tangle.GetExecutionPoint() == functionReturnPoint) &&
                                    (functionReturnPoint != INVALID_EXECUTION_POINT);
       bool threadExecuted = false;
+      const ExecutionPoint mergePoint =
+          atMergePoint ? tangle.GetExecutionPoint() : tangle.GetMergePoint();
 
       for(const ThreadReference &threadRef : tangle.GetThreadRefs())
       {
@@ -541,21 +543,20 @@ void ControlFlow::UpdateState(const ThreadExecutionStates &threadExecutionStates
           RDCASSERTEQUAL(tangle.GetExecutionPoint(), tangle.GetFunctionReturnPoint());
           RDCASSERTNOTEQUAL(tangle.GetFunctionReturnPoint(), INVALID_EXECUTION_POINT);
           tangle.PruneMergePoints(tangle.GetFunctionReturnPoint());
-          tangle.PopFunctionReturnPoint();
-          tangle.SetStateChanged(true);
           if(Shader_Debug_ControlFlow_Logging())
           {
             RDCLOG(
-                "Tangle:%u ThreadCount:% at ExecPoint:%u auto-activated FunctionReturnPoint:%u "
+                "Tangle:%u ThreadCount:%u at ExecPoint:%u auto-activated FunctionReturnPoint:%u "
                 "Next MergePoint:%u",
                 tangle.GetId(), tangle.GetThreadCount(), tangle.GetExecutionPoint(),
-                tangle.GetFunctionReturnPoint());
+                tangle.GetFunctionReturnPoint(), tangle.GetMergePoint());
           }
+          tangle.PopFunctionReturnPoint();
+          tangle.SetStateChanged(true);
         }
         else if(atMergePoint)
         {
-          RDCASSERTEQUAL(tangle.GetExecutionPoint(), tangle.GetMergePoint());
-          RDCASSERTNOTEQUAL(tangle.GetMergePoint(), INVALID_EXECUTION_POINT);
+          tangle.PruneMergePoints(tangle.GetExecutionPoint());
           tangle.SetActive(false);
           tangle.SetConverged(true);
           tangle.SetDiverged(false);
