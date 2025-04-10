@@ -4139,7 +4139,7 @@ MeshFormat D3D12Replay::GetPostVSBuffers(uint32_t eventId, uint32_t instID, uint
 
     ret.dispatchSize = s.dispatchSize;
 
-    if(stage == MeshDataStage::MeshOut)
+    if(stage == MeshDataStage::MeshOut || stage == MeshDataStage::Count)
     {
       ret.meshletSizes.resize(s.instData.size());
       for(size_t i = 0; i < s.instData.size(); i++)
