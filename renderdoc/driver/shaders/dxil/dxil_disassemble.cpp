@@ -4198,6 +4198,42 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   break;
                 }
+                case DXOp::WaveMultiPrefixOp:
+                {
+                  // WaveMultiPrefixOp(value,mask0,mask1,mask2,mask3,op,sop)
+                  SignedOpKind sop;
+                  if(getival<SignedOpKind>(inst.args[7], sop))
+                    commentStr += ToStr(sop);
+
+                  WaveMultiPrefixOpCode waveMultiOpCode;
+                  if(getival<WaveMultiPrefixOpCode>(inst.args[6], waveMultiOpCode))
+                  {
+                    lineStr += "WaveMultiPrefix";
+                    if((waveMultiOpCode == WaveMultiPrefixOpCode::And) ||
+                       (waveMultiOpCode == WaveMultiPrefixOpCode::Or) ||
+                       (waveMultiOpCode == WaveMultiPrefixOpCode::Xor))
+                      lineStr += "Bit";
+
+                    lineStr += ToStr(waveMultiOpCode);
+                    lineStr += "(";
+                    lineStr += GetArgId(inst, 1);
+                    lineStr += ", {";
+                    lineStr += GetArgId(inst, 2);
+                    lineStr += ",";
+                    lineStr += GetArgId(inst, 3);
+                    lineStr += ",";
+                    lineStr += GetArgId(inst, 4);
+                    lineStr += ",";
+                    lineStr += GetArgId(inst, 5);
+                    lineStr += "}";
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::Pack4x8:
                 {
                   // Pack4x8(packMode,x,y,z,w)

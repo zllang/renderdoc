@@ -864,3 +864,17 @@ rdcstr DoStringise(const DXIL::WaveBitOpCode &el)
   }
   END_ENUM_STRINGISE();
 }
+
+template <>
+rdcstr DoStringise(const DXIL::WaveMultiPrefixOpCode &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::WaveMultiPrefixOpCode)
+  {
+    STRINGISE_ENUM_CLASS(Sum)
+    STRINGISE_ENUM_CLASS(And)
+    STRINGISE_ENUM_CLASS(Or)
+    STRINGISE_ENUM_CLASS(Xor)
+    STRINGISE_ENUM_CLASS(Product)
+  }
+  END_ENUM_STRINGISE();
+}
