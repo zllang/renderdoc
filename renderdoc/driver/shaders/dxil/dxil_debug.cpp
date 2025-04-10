@@ -3801,7 +3801,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               case WaveOpCode::Sum: SetShaderValueZero(accum); break;
               case WaveOpCode::Product: SetShaderValueOne(accum); break;
               default:
-                RDCERR("Unhandled PrefixOp wave opcode");
+                RDCERR("Unhandled PrefixOp wave opcode %s", ToStr(waveOpCode).c_str());
                 accum.value = {};
                 break;
             }
@@ -3818,11 +3818,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
-              switch(waveOpCode)
+              for(uint8_t c = 0; c < x.columns; c++)
               {
-                case WaveOpCode::Sum:
+                switch(waveOpCode)
                 {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveOpCode::Sum:
                   {
                     if(isUnsigned)
                     {
@@ -3841,12 +3841,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
                       IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
                     }
+                    break;
                   }
-                  break;
-                }
-                case WaveOpCode::Product:
-                {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveOpCode::Product:
                   {
                     if(isUnsigned)
                     {
@@ -3865,10 +3862,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
                       IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
                     }
+                    break;
                   }
-                  break;
+                  default: RDCERR("Unhandled PrefixOp wave opcode %s", ToStr(waveOpCode).c_str());
                 }
-                default: RDCERR("Unhandled PrefixOp wave opcode"); break;
               }
             }
             result.value = accum.value;
@@ -4007,7 +4004,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 break;
               }
               default:
-                RDCERR("Unhandled ActiveOp wave opcode");
+                RDCERR("Unhandled ActiveOp wave opcode %s", ToStr(waveOpCode).c_str());
                 accum.value = {};
                 break;
             }
@@ -4021,11 +4018,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
-              switch(waveOpCode)
+              for(uint8_t c = 0; c < x.columns; c++)
               {
-                case WaveOpCode::Sum:
+                switch(waveOpCode)
                 {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveOpCode::Sum:
                   {
                     if(isUnsigned)
                     {
@@ -4044,12 +4041,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
                       IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
                     }
+                    break;
                   }
-                  break;
-                }
-                case WaveOpCode::Product:
-                {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveOpCode::Product:
                   {
                     if(isUnsigned)
                     {
@@ -4068,12 +4062,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
                       IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
                     }
+                    break;
                   }
-                  break;
-                }
-                case WaveOpCode::Min:
-                {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveOpCode::Min:
                   {
                     if(isUnsigned)
                     {
@@ -4092,12 +4083,9 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
                       IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
                     }
+                    break;
                   }
-                  break;
-                }
-                case WaveOpCode::Max:
-                {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveOpCode::Max:
                   {
                     if(isUnsigned)
                     {
@@ -4116,10 +4104,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
                       IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
                     }
+                    break;
                   }
-                  break;
+                  default: RDCERR("Unhandled ActiveOp wave opcode %s", ToStr(waveOpCode).c_str());
                 }
-                default: RDCERR("Unhandled ActiveOp wave opcode"); break;
               }
             }
 
@@ -4141,15 +4129,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // set the initial value
             switch(waveBitOpCode)
             {
-              case WaveBitOpCode::Or:
+              case WaveBitOpCode::Or: SetShaderValueZero(accum); break;
               case WaveBitOpCode::Xor: SetShaderValueZero(accum); break;
-              case WaveBitOpCode::And:
-              {
-                accum.value = refValue.value;
-                break;
-              }
+              case WaveBitOpCode::And: SetUIntValue(UINT64_MAX, accum); break;
               default:
-                RDCERR("Unhandled ActiveBitOp wave opcode");
+                RDCERR("Unhandled ActiveBitOp wave opcode %s", ToStr(waveBitOpCode).c_str());
                 accum.value = {};
                 break;
             }
@@ -4163,43 +4147,283 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
-              switch(waveBitOpCode)
+              for(uint8_t c = 0; c < x.columns; c++)
               {
-                case WaveBitOpCode::And:
+                switch(waveBitOpCode)
                 {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveBitOpCode::And:
                   {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(accum, c) = comp<I>(accum, c) & comp<I>(x, c)
                     IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    break;
                   }
-                  break;
-                }
-                case WaveBitOpCode::Or:
-                {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveBitOpCode::Or:
                   {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(accum, c) = comp<I>(accum, c) | comp<I>(x, c)
                     IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    break;
                   }
-                  break;
-                }
-                case WaveBitOpCode::Xor:
-                {
-                  for(uint8_t c = 0; c < x.columns; c++)
+                  case WaveBitOpCode::Xor:
                   {
 #undef _IMPL
 #define _IMPL(I, S, U) comp<S>(accum, c) = comp<I>(accum, c) ^ comp<I>(x, c)
                     IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    break;
                   }
-                  break;
+                  default:
+                    RDCERR("Unhandled ActiveBitOp wave opcode %s", ToStr(waveBitOpCode).c_str());
+                    break;
                 }
-                default: RDCERR("Unhandled ActiveBitOp wave opcode"); break;
               }
             }
 
             result.value = accum.value;
+            break;
+          }
+          case DXOp::WaveMatch:
+          {
+            // SM6.5
+            // WaveMatch(value)
+            ShaderVariable refValue;
+            RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, refValue));
+
+            // return result is a struct of four members,
+            // convert that to be a vector
+            if(result.type != VarType::Struct)
+            {
+              RDCERR("Expected WaveMatch result type %s to be a struct", ToStr(result.type).c_str());
+              break;
+            }
+
+            // convert the DXIL return type to full variable
+            ShaderVariable resultStruct;
+            ConvertDXILTypeToShaderVariable(retType, resultStruct);
+
+            RDCASSERTEQUAL(resultStruct.members.size(), 4);
+            if(resultStruct.members.size() != 4)
+            {
+              RDCERR("Expected WaveMatch result struct size %u to be 4", resultStruct.members.size());
+              break;
+            }
+
+            if(resultStruct.members[0].type != VarType::SInt &&
+               resultStruct.members[0].type != VarType::UInt)
+            {
+              RDCERR("Expected WaveMatch result struct member type %s to be SInt or UInt",
+                     ToStr(resultStruct.members[0].type).c_str());
+              break;
+            }
+
+            result.type = resultStruct.members[0].type;
+            result.rows = 1;
+            result.columns = (uint8_t)resultStruct.members.size();
+
+            // determine active lane indices in our subgroup
+            rdcarray<uint32_t> activeLanes;
+            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
+            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+
+            for(uint32_t lane : activeLanes)
+            {
+              ShaderVariable x;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
+
+              bool matches = true;
+              for(uint8_t c = 0; c < x.columns; c++)
+              {
+#undef _IMPL
+#define _IMPL(I, S, U) matches &= (comp<I>(x, c) == comp<I>(refValue, c));
+
+                IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+
+#undef _IMPL
+#define _IMPL(T) matches &= (comp<T>(x, c) == comp<T>(refValue, c));
+
+                IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
+              }
+              if(matches)
+              {
+                uint32_t c = (lane - firstLaneInSub) / 32;
+                uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
+
+                result.value.u32v[c] |= bit;
+              }
+            }
+            break;
+          }
+          case DXOp::WaveMultiPrefixOp:
+          {
+            // SM6.5
+            // WaveMultiPrefixOp(value,mask0,mask1,mask2,mask3,op,sop)
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[6], opCode, dxOpCode, arg));
+            WaveMultiPrefixOpCode waveMultiPrefixOpCode = (WaveMultiPrefixOpCode)arg.value.u32v[0];
+
+            RDCASSERT(GetShaderVariable(inst.args[7], opCode, dxOpCode, arg));
+            bool isUnsigned = (arg.value.u32v[0] != (uint32_t)SignedOpKind::Signed);
+
+            uint32_t mask[4];
+            for(uint32_t i = 0; i < 4; ++i)
+            {
+              RDCASSERT(GetShaderVariable(inst.args[2 + i], opCode, dxOpCode, arg));
+              mask[i] = arg.value.u32v[0];
+            }
+
+            // set the initial value
+            ShaderVariable accum(result);
+            switch(waveMultiPrefixOpCode)
+            {
+              case WaveMultiPrefixOpCode::Sum: SetShaderValueZero(accum); break;
+              case WaveMultiPrefixOpCode::Product: SetShaderValueOne(accum); break;
+              case WaveMultiPrefixOpCode::Or: SetShaderValueZero(accum); break;
+              case WaveMultiPrefixOpCode::Xor: SetShaderValueZero(accum); break;
+              case WaveMultiPrefixOpCode::And: SetUIntValue(UINT64_MAX, accum); break;
+              default:
+                RDCERR("Unhandled WaveMultiPrefixOp wave opcode %s",
+                       ToStr(waveMultiPrefixOpCode).c_str());
+                accum.value = {};
+                break;
+            }
+
+            // determine active lane indices in our subgroup
+            rdcarray<uint32_t> activeLanes;
+            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
+            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+
+            uint32_t maxLane = m_WorkgroupIndex;
+
+            for(uint32_t lane : activeLanes)
+            {
+              // stop before processing our lane
+              if(lane == maxLane)
+                break;
+
+              uint32_t maskCol = (lane - firstLaneInSub) / 32;
+              uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
+
+              if((mask[maskCol] & bit) == 0)
+                continue;
+
+              ShaderVariable x;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
+              for(uint8_t c = 0; c < x.columns; c++)
+              {
+                switch(waveMultiPrefixOpCode)
+                {
+                  case WaveMultiPrefixOpCode::And:
+                  {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(accum, c) = comp<I>(accum, c) & comp<I>(x, c)
+                    IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    break;
+                  }
+                  case WaveMultiPrefixOpCode::Or:
+                  {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(accum, c) = comp<I>(accum, c) | comp<I>(x, c)
+                    IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    break;
+                  }
+                  case WaveMultiPrefixOpCode::Xor:
+                  {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(accum, c) = comp<I>(accum, c) ^ comp<I>(x, c)
+                    IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    break;
+                  }
+                  case WaveMultiPrefixOpCode::Sum:
+                  {
+                    if(isUnsigned)
+                    {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(accum, c) = comp<U>(accum, c) + comp<U>(x, c)
+                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    }
+                    else
+                    {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(accum, c) = comp<S>(accum, c) + comp<S>(x, c)
+                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+
+#undef _IMPL
+#define _IMPL(T) comp<T>(accum, c) = comp<T>(accum, c) + comp<T>(x, c)
+
+                      IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    }
+                    break;
+                  }
+                  case WaveMultiPrefixOpCode::Product:
+                  {
+                    if(isUnsigned)
+                    {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<U>(accum, c) = comp<U>(accum, c) * comp<U>(x, c)
+                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    }
+                    else
+                    {
+#undef _IMPL
+#define _IMPL(I, S, U) comp<S>(accum, c) = comp<S>(accum, c) * comp<S>(x, c)
+                      IMPL_FOR_INT_TYPES_FOR_TYPE(_IMPL, x.type);
+
+#undef _IMPL
+#define _IMPL(T) comp<T>(accum, c) = comp<T>(accum, c) * comp<T>(x, c)
+
+                      IMPL_FOR_FLOAT_TYPES_FOR_TYPE(_IMPL, x.type);
+                    }
+                    break;
+                  }
+                  default:
+                    RDCERR("Unhandled WaveMultiPrefixOp wave opcode %s",
+                           ToStr(waveMultiPrefixOpCode).c_str());
+                    break;
+                }
+              }
+            }
+            result.value = accum.value;
+            break;
+          }
+          case DXOp::WaveMultiPrefixBitCount:
+          {
+            // SM6.5
+            // WaveMultiPrefixBitCount(value,mask0,mask1,mask2,mask3)
+
+            uint32_t mask[4];
+            for(uint32_t i = 0; i < 4; ++i)
+            {
+              ShaderVariable arg;
+              RDCASSERT(GetShaderVariable(inst.args[2 + i], opCode, dxOpCode, arg));
+              mask[i] = arg.value.u32v[0];
+            }
+
+            // determine active lane indices in our subgroup
+            rdcarray<uint32_t> activeLanes;
+            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
+            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+
+            uint32_t maxLane = m_WorkgroupIndex;
+
+            uint32_t count = 0;
+            for(uint32_t lane : activeLanes)
+            {
+              // stop before processing our lane
+              if(lane == maxLane)
+                break;
+
+              uint32_t maskCol = (lane - firstLaneInSub) / 32;
+              uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
+
+              if((mask[maskCol] & bit) == 0)
+                continue;
+
+              ShaderVariable x;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
+              count += x.value.u32v[0];
+            }
+
+            result.value.u32v[0] = count;
             break;
           }
           // Quad Operations
@@ -4509,9 +4733,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::EmitThenCutStream:
 
           // Wave Operations
-          case DXOp::WaveMatch:
-          case DXOp::WaveMultiPrefixOp:
-          case DXOp::WaveMultiPrefixBitCount:
           case DXOp::WaveMatrix_Annotate:
           case DXOp::WaveMatrix_Depth:
           case DXOp::WaveMatrix_Fill:

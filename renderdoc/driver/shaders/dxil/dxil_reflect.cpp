@@ -1884,6 +1884,9 @@ rdcstr Program::GetDebugStatus()
               case DXOp::WavePrefixOp:
               case DXOp::WavePrefixBitCount:
               case DXOp::WaveAllBitCount:
+              case DXOp::WaveMatch:
+              case DXOp::WaveMultiPrefixOp:
+              case DXOp::WaveMultiPrefixBitCount:
                 if(!D3D_Hack_EnableGroups())
                   return StringFormat::Fmt("Unsupported dx.op call `%s` %s", callFunc->name.c_str(),
                                            ToStr(dxOpCode).c_str());
@@ -1930,9 +1933,6 @@ rdcstr Program::GetDebugStatus()
               case DXOp::CallShader:
               case DXOp::CreateHandleForLib:
               case DXOp::PrimitiveIndex:
-              case DXOp::WaveMatch:
-              case DXOp::WaveMultiPrefixOp:
-              case DXOp::WaveMultiPrefixBitCount:
               case DXOp::SetMeshOutputCounts:
               case DXOp::EmitIndices:
               case DXOp::GetMeshPayload:
