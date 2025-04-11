@@ -356,6 +356,13 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.z = WavePrefixSum(data.x);
       data.w = WavePrefixProduct(1 + data.y);
     }
+    else
+    {
+      data.x = WavePrefixCountBits(id > 23);
+      data.y = WavePrefixCountBits(id < 1);
+      data.z = WavePrefixSum(data.x);
+      data.w = WavePrefixSum(data.y);
+    }
   }
   else if(IsTest(13))
   {

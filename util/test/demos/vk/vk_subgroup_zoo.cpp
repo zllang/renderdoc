@@ -336,6 +336,15 @@ void main()
       data.z = subgroupExclusiveAdd(data.x);
       data.w = subgroupExclusiveMul(1 + data.y);
     }
+    else
+    {
+      uvec4 bits = subgroupBallot(id > 23);
+      data.x = subgroupBallotExclusiveBitCount(bits);
+      bits = subgroupBallot(id < 1);
+      data.y = subgroupBallotExclusiveBitCount(bits);
+      data.z = subgroupExclusiveAdd(data.x);
+      data.w = subgroupExclusiveAdd(data.y);
+    }
   }
   else if(IsTest(13))
   {
