@@ -67,40 +67,76 @@ already computed
   * this is similar to uniform blocks find convergent blocks starting from the block zero
   * the convergent blocks can be thought of as a local uniform block
   * where local is defined by the graph/paths which contain the divergent block
+
+7. Find Partial CovergentBlock
+  * For each divergent block find its partial convergent blocks in paths before its convergent block
+  * defined to be blocks which are in more than one path that start from the divergent block
+  * loops are not taken when walking the paths
+  * this is similar to finding convergent blocks
+  * prune partial convergence blocks from existing divergent block entries
+    * if an existing divergent block includes this partial convergence block
+    * and that divergent block is directly connected to this divergent block by a single path
+    * then the previous entry is superceded (removed)
+
 */
 
 namespace DXIL
 {
 void OutputGraph(const char *const name, const ControlFlow *graph)
 {
-  ControlFlow::BlockArray divergentBlocks = graph->GetDivergentBlocks();
-  rdcarray<ConvergentBlockData> convergentBlocks = graph->GetConvergentBlocks();
-
   rdcstr fname = StringFormat::Fmt("%s.txt", name);
   FILE *f = FileIO::fopen(fname.c_str(), FileIO::WriteText);
-  rdcstr line = StringFormat::Fmt("digraph %s {\n", name);
-  fprintf(f, line.c_str());
+  rdcstr output = GenerateGraph(name, graph);
+  fprintf(f, "%s", output.c_str());
+  FileIO::fclose(f);
+}
+
+rdcstr GenerateGraph(const char *const name, const ControlFlow *graph)
+{
+  BlockArray divergentBlocks = graph->GetDivergentBlocks();
+  rdcarray<ConvergentBlockData> convergentBlockDatas = graph->GetConvergentBlocks();
+  rdcarray<PartialConvergentBlockData> partialConvergentBlockDatas =
+      graph->GetPartialConvergentBlocks();
+  BlockArray convergentBlocks;
+  for(const ConvergentBlockData &data : convergentBlockDatas)
+    convergentBlocks.push_back(data.second);
+  BlockArray partialConvergentBlocks;
+  for(const PartialConvergentBlockData &data : partialConvergentBlockDatas)
+  {
+    for(const uint32_t &to : data.second)
+      partialConvergentBlocks.push_back(to);
+  }
+
+  rdcstr output;
+  output += StringFormat::Fmt("digraph %s {\n", name);
   for(uint32_t from : graph->m_Blocks)
   {
-    line = StringFormat::Fmt("%u", from);
+    output += StringFormat::Fmt("%u", from);
     if(divergentBlocks.contains(from))
-      line += StringFormat::Fmt(" [shape=diamond color=red]");
-    line += ";\n";
+      output += StringFormat::Fmt(" [shape=diamond color=red]");
+    else if(convergentBlocks.contains(from))
+      output += StringFormat::Fmt(" [shape=rectangle color=blue]");
+    else if(partialConvergentBlocks.contains(from))
+      output += StringFormat::Fmt(" [shape=Mrecord color=green]");
+    output += ";\n";
 
     for(uint32_t to : graph->m_BlockOutLinks[from])
-      line += StringFormat::Fmt("%u -> %u [weight=1];\n", from, to);
-
-    fprintf(f, line.c_str());
+      output += StringFormat::Fmt("%u -> %u;\n", from, to);
   }
-  for(ConvergentBlockData data : convergentBlocks)
+  for(const ConvergentBlockData &data : convergentBlockDatas)
   {
-    line = StringFormat::Fmt("%u -> %u [weight=0 style=dashed color=blue constraint=false];\n",
-                             data.first, data.second, data.first, data.second);
-
-    fprintf(f, line.c_str());
+    output += StringFormat::Fmt("%u -> %u [style=dashed color=blue];\n", data.first, data.second);
   }
-  fprintf(f, "}\n");
-  FileIO::fclose(f);
+  for(const PartialConvergentBlockData &data : partialConvergentBlockDatas)
+  {
+    for(const uint32_t &to : data.second)
+    {
+      output += StringFormat::Fmt("%u -> %u [style=dashed color=green];\n", data.first, to);
+    }
+  }
+  output += "}\n";
+
+  return output;
 }
 
 bool ControlFlow::IsBlockConnected(const size_t pathsType, uint32_t from, uint32_t to) const
@@ -150,7 +186,7 @@ bool ControlFlow::TraceBlockFlow(const size_t pathsType, const uint32_t from, Bl
   }
   m_TracedBlocks[from] = true;
   BlockPath newPath = path;
-  const rdcarray<uint32_t> &gotos = m_BlockOutLinks.at(from);
+  const BlockArray &gotos = m_BlockOutLinks.at(from);
   for(uint32_t to : gotos)
   {
     // Ignore loops
@@ -184,7 +220,7 @@ int32_t ControlFlow::BlockInAnyPath(const size_t pathsType, uint32_t block, uint
     return -1;
 
   // Check any paths linked to by the end node of the current path
-  const rdcarray<rdcarray<uint32_t>> &blockPathLinks = m_BlockPathLinks[pathsType];
+  const rdcarray<BlockArray> &blockPathLinks = m_BlockPathLinks[pathsType];
   const rdcarray<uint32_t> &childPathsToCheck = blockPathLinks.at(endNode);
   for(uint32_t childPathIdx : childPathsToCheck)
   {
@@ -254,6 +290,198 @@ bool ControlFlow::BlockInAllPaths(const size_t pathsType, uint32_t block, uint32
   return true;
 }
 
+uint32_t ControlFlow::BlockInMultipleUniquePaths(const size_t pathsType, uint32_t block,
+                                                 uint32_t pathIdx, int32_t startIdx,
+                                                 BlockPath &route, const uint32_t countPaths) const
+{
+  const rdcarray<BlockPath> &paths = m_PathSets[pathsType];
+  const BlockPath &path = paths[pathIdx];
+  if(path.size() == 0)
+    return countPaths;
+
+  // Check the current path
+  bool foundPath = false;
+  for(uint32_t i = startIdx; i < path.size(); ++i)
+  {
+    if(block == path[i])
+    {
+      foundPath = true;
+      break;
+    }
+    route.push_back(path[i]);
+  }
+
+  uint32_t endNode = path[path.size() - 1];
+  if(endNode == block)
+    foundPath = true;
+
+  if(foundPath)
+  {
+    // Check if the path has already been traced
+    route.push_back(block);
+    for(const BlockPath &foundRoute : m_ValidRoutes)
+    {
+      if(foundRoute == route)
+        return countPaths;
+    }
+    m_ValidRoutes.push_back(route);
+    return countPaths + 1;
+  }
+
+  m_CheckedPaths[pathIdx] = true;
+  if(endNode == PATH_END)
+    return countPaths;
+
+  // Check any paths linked to by the end node of the current path
+  const rdcarray<rdcarray<uint32_t>> &blockPathLinks = m_BlockPathLinks[pathsType];
+  const rdcarray<uint32_t> &childPathsToCheck = blockPathLinks.at(endNode);
+  uint32_t newCountPaths = countPaths;
+  for(uint32_t childPathIdx : childPathsToCheck)
+  {
+    if(m_CheckedPaths[childPathIdx])
+      continue;
+
+    m_CheckedPaths[childPathIdx] = true;
+    int32_t childPartStartIdx = paths[childPathIdx].indexOf(endNode);
+    RDCASSERTNOTEQUAL(childPartStartIdx, -1);
+    BlockPath newRoute(route);
+    newCountPaths = BlockInMultipleUniquePaths(pathsType, block, childPathIdx,
+                                               childPartStartIdx + 1, newRoute, newCountPaths);
+    if(newCountPaths > 1)
+      return newCountPaths;
+  }
+  return newCountPaths;
+}
+
+ControlFlow::RouteState ControlFlow::BlockInAllPossibleRoutes(const size_t pathsType, uint32_t to,
+                                                              uint32_t mustInclude,
+                                                              uint32_t pathIdx, uint32_t startIdx,
+                                                              BlockArray &route) const
+{
+  const rdcarray<BlockPath> &paths = m_PathSets[pathsType];
+  const BlockPath &path = paths[pathIdx];
+  if(path.size() == 0)
+    return RouteState::NoRoute;
+
+  // Check the current path
+  bool foundPath = false;
+  for(uint32_t i = startIdx; i < path.size(); ++i)
+  {
+    if(to == path[i])
+    {
+      foundPath = true;
+      break;
+    }
+    route.push_back(path[i]);
+  }
+
+  uint32_t endNode = path[path.size() - 1];
+  if(endNode == to)
+    foundPath = true;
+
+  if(foundPath)
+  {
+    route.push_back(to);
+
+    // Check if the route contains the block
+    if(route.contains(mustInclude))
+      return RouteState::RouteContainsBlock;
+
+    return RouteState::RouteDoesNotContainBlock;
+  }
+
+  m_CheckedPaths[pathIdx] = true;
+  if(endNode == PATH_END)
+    return RouteState::NoRoute;
+
+  // Check any paths linked to by the end node of the current path
+  const rdcarray<rdcarray<uint32_t>> &blockPathLinks = m_BlockPathLinks[pathsType];
+  const rdcarray<uint32_t> &childPathsToCheck = blockPathLinks.at(endNode);
+  bool validRoute = false;
+  for(uint32_t childPathIdx : childPathsToCheck)
+  {
+    if(m_CheckedPaths[childPathIdx])
+      continue;
+
+    m_CheckedPaths[childPathIdx] = true;
+    int32_t childPartStartIdx = paths[childPathIdx].indexOf(endNode);
+    RDCASSERTNOTEQUAL(childPartStartIdx, -1);
+    BlockPath newRoute(route);
+    RouteState routeState = BlockInAllPossibleRoutes(pathsType, to, mustInclude, childPathIdx,
+                                                     childPartStartIdx + 1, newRoute);
+    if(routeState == RouteState::RouteDoesNotContainBlock)
+      return routeState;
+    validRoute |= (routeState == RouteState::RouteContainsBlock);
+  }
+  return validRoute ? RouteState::RouteContainsBlock : RouteState::NoRoute;
+}
+
+bool ControlFlow::AllPathsContainBlock(uint32_t from, uint32_t to, uint32_t mustInclude) const
+{
+  m_ValidRoutes.clear();
+  const rdcarray<BlockPath> &pathsNoLoops = m_PathSets[PathType::NoLoops];
+  bool validRoute = false;
+  for(uint32_t p = 0; p < pathsNoLoops.size(); ++p)
+  {
+    int32_t startIdx = pathsNoLoops[p].indexOf(from);
+    if(startIdx == -1)
+      continue;
+
+    m_CheckedPaths.clear();
+    m_CheckedPaths.resize(pathsNoLoops.size());
+    for(size_t i = 0; i < m_CheckedPaths.size(); ++i)
+      m_CheckedPaths[i] = false;
+
+    BlockPath route;
+    route.push_back(from);
+    // BlockInMultipleUniquePaths will also check all paths linked to from the end node of the path
+    ControlFlow::RouteState routeState =
+        BlockInAllPossibleRoutes(PathType::NoLoops, to, mustInclude, p, startIdx + 1, route);
+    if(routeState == RouteState::RouteDoesNotContainBlock)
+      return false;
+    validRoute |= (routeState == RouteState::RouteContainsBlock);
+  }
+
+  return validRoute;
+}
+
+ControlFlow::DirectPathState ControlFlow::ComputeDirectPathState(
+    uint32_t from, uint32_t to, const rdcarray<uint32_t> *pathIdxsToCheck) const
+{
+  m_ValidRoutes.clear();
+  const rdcarray<BlockPath> &pathsNoLoops = m_PathSets[PathType::NoLoops];
+  const uint32_t countPathsToCheck =
+      (uint32_t)(pathIdxsToCheck ? pathIdxsToCheck->size() : pathsNoLoops.size());
+  uint32_t countPaths = 0;
+  for(uint32_t p = 0; p < countPathsToCheck; ++p)
+  {
+    uint32_t pathIdx = pathIdxsToCheck ? pathIdxsToCheck->at(p) : p;
+    int32_t startIdx = pathsNoLoops[pathIdx].indexOf(from);
+    if(startIdx == -1)
+      continue;
+
+    m_CheckedPaths.clear();
+    m_CheckedPaths.resize(pathsNoLoops.size());
+    for(size_t i = 0; i < m_CheckedPaths.size(); ++i)
+      m_CheckedPaths[i] = false;
+
+    BlockPath route;
+    route.push_back(from);
+    // BlockInMultipleUniquePaths will also check all paths linked to from the end node of the path
+    countPaths =
+        BlockInMultipleUniquePaths(PathType::NoLoops, to, pathIdx, startIdx + 1, route, countPaths);
+    if(countPaths > 1)
+      return DirectPathState::Multiple;
+  }
+  if(countPaths == 0)
+    return DirectPathState::None;
+  if(countPaths == 1)
+    return DirectPathState::Single;
+
+  RDCERR("Unexpected countPaths %u should be 0 or 1", countPaths);
+  return DirectPathState::None;
+}
+
 void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
 {
   m_Blocks.clear();
@@ -270,6 +498,7 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
   m_LoopBlocks.clear();
   m_DivergentBlocks.clear();
   m_ConvergentBlocks.clear();
+  m_PartialConvergentBlocks.clear();
 
   // 1. Setup
   // Compute all possible known blocks
@@ -375,7 +604,7 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       uint32_t endNode = path[path.size() - 1];
       while(endNode != PATH_END)
       {
-        const rdcarray<uint32_t> &gotos = m_BlockOutLinks.at(endNode);
+        const BlockArray &gotos = m_BlockOutLinks.at(endNode);
         if(gotos.size() > 1)
           break;
         endNode = gotos[0];
@@ -434,7 +663,7 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       if(pathsNoLoops[pathIdx].contains(globalDivergenceStart))
         pathsToCheck.push_back(pathIdx);
     }
-    rdcarray<uint32_t> potentialUniformBlocks;
+    BlockArray potentialUniformBlocks;
     // We want all uniform blocks connected to the global start block
     // Not just the first convergence points
     for(uint32_t block : m_Blocks)
@@ -471,9 +700,9 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
   }
 
   // 5. Find potential convergent blocks
-  // * defined to be blocks with more than one link into it and blocks which are directly connected
-  // to divergent blocks (to handle loop convergence)
-  rdcarray<uint32_t> potentialConvergentBlocks;
+  // * defined to be blocks with more than one link into it and blocks which are directly
+  // connected to divergent blocks (to handle loop convergence)
+  BlockArray potentialConvergentBlocks;
   for(uint32_t start : m_DivergentBlocks)
   {
     for(uint32_t block : m_BlockOutLinks[start])
@@ -498,8 +727,9 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
   //  * this is similar to uniform blocks find convergent blocks starting from the block zero
   //  * the convergent blocks can be thought of as a local uniform block
   //  * where local is defined by the graph/paths which contain the divergent block
-  m_ConvergentBlocks.clear();
 
+  m_ConvergentBlocks.clear();
+  BlockArray allConvergentBlocks;
   for(uint32_t start : m_DivergentBlocks)
   {
     rdcarray<uint32_t> pathsToCheck;
@@ -508,7 +738,7 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       if(pathsNoLoops[pathIdx].contains(start))
         pathsToCheck.push_back(pathIdx);
     }
-    rdcarray<uint32_t> localUniformBlocks;
+    BlockArray localPotentialConvergentBlocks;
     for(uint32_t block : potentialConvergentBlocks)
     {
       if(block == start)
@@ -517,6 +747,12 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       if(!IsForwardConnection(start, block))
         continue;
 
+      localPotentialConvergentBlocks.push_back(block);
+    }
+    // Find the ConvergentBlock for the divergent block
+    BlockArray localUniformBlocks;
+    for(uint32_t block : localPotentialConvergentBlocks)
+    {
       bool uniform = true;
       for(uint32_t pathIdx : pathsToCheck)
       {
@@ -541,7 +777,7 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       RDCERR("Failed to find any locally uniform blocks for divergent block %d", start);
 
     uint32_t convergentBlock = start;
-    // Take the first block which is in all paths
+    // Take the first uniform block which is in all paths
     for(uint32_t blockA : localUniformBlocks)
     {
       uint32_t countConnected = 0;
@@ -565,9 +801,143 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       }
     }
     if(start != convergentBlock)
+    {
       m_ConvergentBlocks.push_back({start, convergentBlock});
+      allConvergentBlocks.push_back(convergentBlock);
+    }
     else
+    {
       RDCERR("Failed to find convergent block for divergent block %d", start);
+    }
+  }
+
+  // Find potential partial convergent blocks
+  // * defined to be blocks with more than one link into it
+  BlockArray potentialPartialConvergentBlocks;
+  for(uint32_t block : m_Blocks)
+  {
+    if(m_BlockInLinks[block].size() > 1)
+    {
+      if(!potentialPartialConvergentBlocks.contains(block))
+        potentialPartialConvergentBlocks.push_back(block);
+    }
+  }
+
+  // 7. Find Partial ConvergentBlock
+  //  * For each divergent block find its partial convergent blocks in paths before its convergent block
+  //  * defined to be blocks which are in more than one path that start from the divergent block
+  //  * loops are not taken when walking the paths
+  //  * this is similar to finding convergent blocks
+  //  * prune partial convergence blocks from existing divergent block entries
+  //    * if an existing divergent block includes this partial convergence block
+  //    * and that divergent block is directly connected to this divergent block by a single path
+  //    * then the previous entry is superceded (removed)
+
+  rdcarray<PartialConvergentBlockData> localPartialConvergentBlocks;
+  for(uint32_t start : m_DivergentBlocks)
+  {
+    // Find the convergent block for this divergent block
+    uint32_t convergentBlock = start;
+    for(const ConvergentBlockData &data : m_ConvergentBlocks)
+    {
+      if(data.first == start)
+        convergentBlock = data.second;
+    }
+    // Find the partial ConvergentBlock for the divergent block
+    BlockArray partialConvergentBlocks;
+    rdcarray<uint32_t> pathIdxsToCheck;
+    for(uint32_t pathIdx = 0; pathIdx < pathsNoLoops.size(); ++pathIdx)
+    {
+      if(pathsNoLoops[pathIdx].contains(start))
+        pathIdxsToCheck.push_back(pathIdx);
+    }
+    BlockArray localPotentialPartialConvergentBlocks;
+    for(uint32_t block : potentialPartialConvergentBlocks)
+    {
+      if(block == start)
+        continue;
+      // Ignore blocks not connected to the divergent block
+      if(!IsForwardConnection(start, block))
+        continue;
+
+      // Ignore blocks which are already full convergent blocks
+      if(allConvergentBlocks.contains(block))
+        continue;
+
+      localPotentialPartialConvergentBlocks.push_back(block);
+    }
+    for(uint32_t block : localPotentialPartialConvergentBlocks)
+    {
+      // Only consider blocks which are directly connected to the full convergence block
+      if(!IsForwardConnection(block, convergentBlock))
+        continue;
+
+      // Looking for blocks which are in more than one path
+      DirectPathState pathState = ComputeDirectPathState(start, block, &pathIdxsToCheck);
+      if(pathState == DirectPathState::Multiple)
+      {
+        partialConvergentBlocks.push_back(block);
+        // This partial convergence might supercede an earlier one
+        //  Prune partial convergence blocks from existing divergent block entries
+        for(PartialConvergentBlockData &data : localPartialConvergentBlocks)
+        {
+          if(data.second.contains(block))
+          {
+            // If ALL paths from the earlier partial convergence path go thru this start then the
+            // earlier start is superseded
+            const uint32_t pathStart = data.first;
+            const uint32_t pathEnd = block;
+            if(AllPathsContainBlock(pathStart, pathEnd, start))
+              data.second.removeOne(block);
+          }
+        }
+      }
+    }
+    if(!partialConvergentBlocks.empty())
+      localPartialConvergentBlocks.push_back({start, partialConvergentBlocks});
+  }
+  // Only keep non-empty partial convergent block datasets
+  for(PartialConvergentBlockData &data : localPartialConvergentBlocks)
+  {
+    if(data.second.empty())
+      continue;
+    // sort the partial convergence points from least to most inter-connections
+    rdcarray<rdcpair<uint32_t, uint32_t>> sortInfos;
+    BlockArray &unsortedPartialBlocks = data.second;
+    sortInfos.resize(unsortedPartialBlocks.size());
+    for(uint32_t i = 0; i < sortInfos.size(); ++i)
+      sortInfos[i] = {i, 0};
+
+    for(uint32_t i = 0; i < unsortedPartialBlocks.size(); ++i)
+    {
+      uint32_t from = unsortedPartialBlocks[i];
+      // Count the connections between "from" and all the other partial blocks
+      for(uint32_t j = 0; j < unsortedPartialBlocks.size(); ++j)
+      {
+        if(i == j)
+          continue;
+        uint32_t to = unsortedPartialBlocks[j];
+        if(IsForwardConnection(from, to))
+          sortInfos[i].second++;
+      }
+    }
+    std::sort(sortInfos.begin(), sortInfos.end(),
+              [](const rdcpair<uint32_t, uint32_t> &a, const rdcpair<uint32_t, uint32_t> &b) {
+                return a.second < b.second;
+              });
+
+    BlockArray sortedPartialBlocks;
+    uint32_t prevCount = 0;
+    for(const rdcpair<uint32_t, uint32_t> &sortInfo : sortInfos)
+    {
+      uint32_t index = sortInfo.first;
+      uint32_t block = unsortedPartialBlocks[index];
+      sortedPartialBlocks.push_back(block);
+      RDCASSERT(sortInfo.second >= prevCount);
+      prevCount = sortInfo.second;
+    }
+
+    m_PartialConvergentBlocks.push_back({data.first, sortedPartialBlocks});
   }
 
   if(D3D12_DXILShaderDebugger_Logging())
@@ -658,6 +1028,27 @@ void ControlFlow::Construct(const rdcarray<rdcpair<uint32_t, uint32_t>> &links)
       needComma = true;
     }
     RDCLOG("Convergent Blocks: %s", output.c_str());
+
+    output = "";
+    for(PartialConvergentBlockData data : m_PartialConvergentBlocks)
+    {
+      output += "\n";
+      output += StringFormat::Fmt("%d -> { ", data.first);
+      needComma = false;
+      for(uint32_t block : data.second)
+      {
+        if(needComma)
+          output += ", ";
+        output += ToStr(block);
+        needComma = true;
+      }
+      output += " }";
+    }
+    RDCLOG("Partial Convergent Blocks: %s", output.c_str());
+
+    RDCLOG("GraphVis Data:");
+    output = GenerateGraph("dxil_cfg", this);
+    RDCLOG("%s", output.c_str());
   }
   // OutputGraph("dxil_cfg", this);
 
@@ -720,14 +1111,14 @@ bool ControlFlow::IsForwardConnection(uint32_t from, uint32_t to) const
 
 using namespace DXIL;
 
-void CheckDivergentBlocks(const rdcarray<ConvergentBlockData> &expectedDivergentBlocks,
-                          const rdcarray<uint32_t> &divergentBlocks)
+void CheckDivergentBlocks(const rdcarray<ConvergentBlockData> &expectedData,
+                          const BlockArray &actualData)
 {
-  REQUIRE(expectedDivergentBlocks.count() == divergentBlocks.count());
-  for(ConvergentBlockData expected : expectedDivergentBlocks)
+  REQUIRE(expectedData.count() == actualData.count());
+  for(ConvergentBlockData expected : expectedData)
   {
     bool found = false;
-    for(uint32_t actual : divergentBlocks)
+    for(uint32_t actual : actualData)
     {
       if(expected.first == actual)
       {
@@ -738,14 +1129,33 @@ void CheckDivergentBlocks(const rdcarray<ConvergentBlockData> &expectedDivergent
   }
 }
 
-void CheckConvergentBlocks(const rdcarray<ConvergentBlockData> &expectedConvergentBlocks,
-                           const rdcarray<ConvergentBlockData> &convergentBlocks)
+void CheckConvergentBlocks(const rdcarray<ConvergentBlockData> &expectedData,
+                           const rdcarray<ConvergentBlockData> &actualData)
 {
-  REQUIRE(expectedConvergentBlocks.count() == convergentBlocks.count());
-  for(ConvergentBlockData expected : expectedConvergentBlocks)
+  REQUIRE(expectedData.count() == actualData.count());
+  for(ConvergentBlockData expected : expectedData)
   {
     bool found = false;
-    for(ConvergentBlockData actual : convergentBlocks)
+    for(ConvergentBlockData actual : actualData)
+    {
+      if(expected.first == actual.first)
+      {
+        found = true;
+        REQUIRE(expected.second == actual.second);
+      }
+    }
+    REQUIRE(found);
+  }
+}
+
+void CheckPartialConvergentBlocks(const rdcarray<PartialConvergentBlockData> &expectedData,
+                                  const rdcarray<PartialConvergentBlockData> &actualData)
+{
+  REQUIRE(expectedData.count() == actualData.count());
+  for(PartialConvergentBlockData expected : expectedData)
+  {
+    bool found = false;
+    for(PartialConvergentBlockData actual : actualData)
     {
       if(expected.first == actual.first)
       {
@@ -762,8 +1172,8 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
   SECTION("FindUniformBlocks")
   {
     ControlFlow controlFlow;
-    rdcarray<uint32_t> uniformBlocks;
-    rdcarray<uint32_t> loopBlocks;
+    BlockArray uniformBlocks;
+    BlockArray loopBlocks;
     SECTION("Degenerate Case")
     {
       // Degenerate case
@@ -1206,7 +1616,7 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
   SECTION("FindConvergenceBlocks")
   {
     ControlFlow controlFlow;
-    rdcarray<uint32_t> divergentBlocks;
+    BlockArray divergentBlocks;
     rdcarray<ConvergentBlockData> convergentBlocks;
     rdcarray<ConvergentBlockData> expectedConvergentBlocks;
     int32_t expectedCountDivergentBlocks = 0;
@@ -1249,8 +1659,8 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
     }
     SECTION("Single Branch")
     {
-      // Single divergent block : 0
-      // Single convergent block : 0->3
+      // One divergent block : 0
+      // One convergent block : 0->3
       // 0 -> 1 -> 3
       // 0 -> 2 -> 3
       // 3 -> 4
@@ -1352,8 +1762,8 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
     }
     SECTION("Nested Linked Branch")
     {
-      // Two divergent blocks : 0, 3, 4
-      // Two convergent blocks : 0->13, 3->11, 4->13
+      // Three divergent blocks : 0, 3, 4
+      // Three convergent blocks : 0->13, 3->11, 4->13
       // 0 -> 1
       // 0 -> 2
       // 1 -> 3
@@ -1525,6 +1935,7 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
       // 1 -> 2
       // 2 -> 3
       // 2 -> 4
+      // 3 -> 5
       // 4 -> 5
       // 5 -> 6
       // 6 -> 1
@@ -1846,8 +2257,454 @@ TEST_CASE("DXIL Control Flow", "[dxil][controlflow]")
       REQUIRE(expectedCountDivergentBlocks == convergentBlocks.count());
       CheckDivergentBlocks(expectedConvergentBlocks, divergentBlocks);
       CheckConvergentBlocks(expectedConvergentBlocks, convergentBlocks);
+    }
+  };
+  SECTION("FindPartialConvergenceBlocks")
+  {
+    ControlFlow controlFlow;
+    rdcarray<PartialConvergentBlockData> partialConvergentBlocks;
+    rdcarray<PartialConvergentBlockData> expectedPartialConvergentBlocks;
 
-      // OutputGraph("complex_case", &controlFlow);
+    SECTION("Degenerate Case")
+    {
+      // Degenerate case
+      rdcarray<BlockLink> inputs;
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+
+    SECTION("Just Start and End")
+    {
+      // No divergent blocks
+      // 0 -> 1
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Single Branch")
+    {
+      // No partial convergence blocks
+      // 0 -> 1 -> 3
+      // 0 -> 2 -> 3
+      // 3 -> 4
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 3});
+      inputs.push_back({0, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({3, 4});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Simple Double Branch")
+    {
+      // No partial convergence blocks
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 2
+      // 2 -> 3 -> 4
+      // 2 -> 4
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 4});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Nested Branch")
+    {
+      // No partial convergence blocks
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 3
+      // 3 -> 4
+      // 3 -> 5
+      // 4 -> 6
+      // 5 -> 7
+      // 6 -> 8
+      // 7 -> 8
+      // 8 -> 9
+      // 2 -> 9
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 3});
+      inputs.push_back({3, 4});
+      inputs.push_back({3, 5});
+      inputs.push_back({4, 6});
+      inputs.push_back({5, 7});
+      inputs.push_back({6, 8});
+      inputs.push_back({7, 8});
+      inputs.push_back({8, 9});
+      inputs.push_back({2, 9});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Nested Linked Branch")
+    {
+      // One partial convergence block: 0 -> 6
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 3
+      // 2 -> 4
+      // 3 -> 5
+      // 3 -> 6
+      // 4 -> 6
+      // 4 -> 7
+      // 5 -> 8
+      // 6 -> 9
+      // 7 -> 10
+      // 8 -> 11
+      // 9 -> 11
+      // 11 -> 12
+      // 12 -> 13
+      // 10 -> 13
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 5});
+      inputs.push_back({3, 6});
+      inputs.push_back({4, 6});
+      inputs.push_back({4, 7});
+      inputs.push_back({5, 8});
+      inputs.push_back({6, 9});
+      inputs.push_back({7, 10});
+      inputs.push_back({8, 11});
+      inputs.push_back({9, 11});
+      inputs.push_back({11, 12});
+      inputs.push_back({12, 13});
+      inputs.push_back({10, 13});
+
+      expectedPartialConvergentBlocks = {
+          {0, {6}},
+      };
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Simple Loop")
+    {
+      // No partial convergence blocks
+      // 0 -> 1
+      // 1 -> 2
+      // 2 -> 1
+      // 2 -> 3
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 1});
+      inputs.push_back({2, 3});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Loop with multiple exits")
+    {
+      // No partial convergence blocks
+      // 0 -> 1
+      // 1 -> 2
+      // 2 -> 3
+      // 2 -> 4
+      // 3 -> 1
+      // 3 -> 6
+      // 4 -> 5
+      // 5 -> 6
+      // 6 -> 7
+
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 1});
+      inputs.push_back({3, 6});
+      inputs.push_back({4, 5});
+      inputs.push_back({5, 6});
+      inputs.push_back({6, 7});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Multiple Loops with multiple exits")
+    {
+      // No partial convergence blocks
+      // 0 -> 1
+      // 1 -> 2
+      // 2 -> 3
+      // 2 -> 4
+      // 3 -> 1
+      // 3 -> 6
+      // 4 -> 5
+      // 5 -> 6
+      // 5 -> 7
+      // 7 -> 2
+      // 6 -> 8
+
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 1});
+      inputs.push_back({3, 6});
+      inputs.push_back({4, 5});
+      inputs.push_back({5, 6});
+      inputs.push_back({5, 7});
+      inputs.push_back({7, 2});
+      inputs.push_back({6, 8});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("If inside a Loop")
+    {
+      // No partial convergence blocks
+      // 0 -> 1
+      // 1 -> 2
+      // 2 -> 3
+      // 2 -> 4
+      // 3 -> 5
+      // 4 -> 5
+      // 5 -> 6
+      // 6 -> 1
+      // 6 -> 7
+
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 5});
+      inputs.push_back({4, 5});
+      inputs.push_back({5, 6});
+      inputs.push_back({6, 1});
+      inputs.push_back({6, 7});
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Single Uniform Flow")
+    {
+      // No partial convergence blocks
+      // Single uniform flow between start and end
+      // 0 -> 1 -> 2 -> 3 -> 4
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({3, 4});
+      controlFlow.Construct(inputs);
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Infinite Loop")
+    {
+      // Infinite loop which never converges (3 -> 4 -> 3)
+      // No partial convergence blocks
+      // 0 -> 1 -> 3
+      // 0 -> 2 -> 3
+      // 3 -> 4
+      // 4 -> 3
+      // 1 -> 6
+      // 2 -> 6
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({1, 3});
+      inputs.push_back({0, 2});
+      inputs.push_back({2, 3});
+      inputs.push_back({3, 4});
+      inputs.push_back({4, 3});
+      inputs.push_back({1, 6});
+      inputs.push_back({2, 6});
+      controlFlow.Construct(inputs);
+
+      expectedPartialConvergentBlocks = {};
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Nested Branch")
+    {
+      // One partial convergence block: 0 -> 2
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 2
+      // 1 -> 3
+      // 2 -> 4
+      // 3 -> 4
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 2});
+      inputs.push_back({1, 3});
+      inputs.push_back({2, 4});
+      inputs.push_back({3, 4});
+      controlFlow.Construct(inputs);
+
+      expectedPartialConvergentBlocks = {
+          {0, {2}},
+      };
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Nested Branch After Root Divergence")
+    {
+      // One partial convergence block: 1 -> 5
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 3
+      // 1 -> 4
+      // 2 -> 6
+      // 3 -> 5
+      // 4 -> 5
+      // 4 -> 6
+      // 5 -> 6
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 3});
+      inputs.push_back({1, 4});
+      inputs.push_back({2, 6});
+      inputs.push_back({3, 5});
+      inputs.push_back({4, 5});
+      inputs.push_back({4, 6});
+      inputs.push_back({5, 6});
+      controlFlow.Construct(inputs);
+
+      expectedPartialConvergentBlocks = {
+          {1, {5}},
+      };
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Multiple Partial Convergence Points To Different Blocks")
+    {
+      // Two partial convergence blocks: 1 -> 7, 6 (ordered least to most connections)
+      // Single partial convergence blocks: 3 -> 7
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 3
+      // 1 -> 4
+      // 2 -> 8
+      // 3 -> 5
+      // 3 -> 6
+      // 4 -> 6
+      // 4 -> 8
+      // 5 -> 7
+      // 6 -> 7
+      // 6 -> 8
+      // 7 -> 8
+
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 3});
+      inputs.push_back({1, 4});
+      inputs.push_back({2, 8});
+      inputs.push_back({3, 5});
+      inputs.push_back({3, 6});
+      inputs.push_back({4, 6});
+      inputs.push_back({4, 8});
+      inputs.push_back({5, 7});
+      inputs.push_back({6, 7});
+      inputs.push_back({6, 8});
+      inputs.push_back({7, 8});
+      controlFlow.Construct(inputs);
+
+      expectedPartialConvergentBlocks = {
+          {1, {7, 6}},
+          {3, {7}},
+      };
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
+    }
+    SECTION("Multiple Partial Convergence Points To The Same Block")
+    {
+      // Single partial convergence blocks: 0 -> 4, 1 -> 4, 2 -> 4
+      // 0 -> 1
+      // 0 -> 2
+      // 1 -> 3
+      // 1 -> 4
+      // 2 -> 4
+      // 2 -> 5
+      // 3 -> 4
+      // 3 -> 6
+      // 4 -> 6
+      // 5 -> 6
+      // 5 -> 4
+      rdcarray<BlockLink> inputs;
+      inputs.push_back({0, 1});
+      inputs.push_back({0, 2});
+      inputs.push_back({1, 3});
+      inputs.push_back({1, 4});
+      inputs.push_back({2, 4});
+      inputs.push_back({2, 5});
+      inputs.push_back({3, 4});
+      inputs.push_back({3, 6});
+      inputs.push_back({4, 6});
+      inputs.push_back({5, 6});
+      inputs.push_back({5, 4});
+      controlFlow.Construct(inputs);
+
+      expectedPartialConvergentBlocks = {
+          {0, {4}},
+          {1, {4}},
+          {2, {4}},
+      };
+
+      controlFlow.Construct(inputs);
+      partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
+      CheckPartialConvergentBlocks(expectedPartialConvergentBlocks, partialConvergentBlocks);
     }
   };
 };

@@ -28,8 +28,10 @@
 
 namespace DXIL
 {
+typedef rdcarray<uint32_t> BlockArray;
 typedef rdcpair<uint32_t, uint32_t> BlockLink;
 typedef rdcpair<uint32_t, uint32_t> ConvergentBlockData;
+typedef rdcpair<uint32_t, BlockArray> PartialConvergentBlockData;
 
 struct ControlFlow
 {
@@ -41,12 +43,15 @@ public:
   rdcarray<uint32_t> GetLoopBlocks() const { return m_LoopBlocks; }
   rdcarray<uint32_t> GetDivergentBlocks() const { return m_DivergentBlocks; }
   rdcarray<ConvergentBlockData> GetConvergentBlocks() const { return m_ConvergentBlocks; }
+  rdcarray<PartialConvergentBlockData> GetPartialConvergentBlocks() const
+  {
+    return m_PartialConvergentBlocks;
+  }
   uint32_t GetNextUniformBlock(uint32_t from) const;
   bool IsForwardConnection(uint32_t from, uint32_t to) const;
 
 private:
   typedef rdcarray<uint32_t> BlockPath;
-  typedef rdcarray<uint32_t> BlockArray;
 
   enum class ConnectionState : uint8_t
   {
@@ -63,12 +68,34 @@ private:
 
   };
 
+  enum class DirectPathState
+  {
+    None,
+    Single,
+    Multiple
+  };
+
+  enum class RouteState
+  {
+    NoRoute,
+    RouteContainsBlock,
+    RouteDoesNotContainBlock,
+  };
+
   bool TraceBlockFlow(const size_t pathsType, const uint32_t from, BlockPath &path);
   bool BlockInAllPaths(const size_t pathsType, uint32_t block, uint32_t pathIdx,
                        int32_t startIdx) const;
   int32_t BlockInAnyPath(const size_t pathsType, uint32_t block, uint32_t pathIdx, int32_t startIdx,
                          int32_t steps) const;
+  uint32_t BlockInMultipleUniquePaths(const size_t pathsType, uint32_t block, uint32_t pathIdx,
+                                      int32_t startIdx, BlockPath &route,
+                                      const uint32_t countPaths) const;
+  RouteState BlockInAllPossibleRoutes(const size_t pathsType, uint32_t to, uint32_t mustInclude,
+                                      uint32_t pathIdx, uint32_t startIdx, BlockArray &route) const;
   bool IsBlockConnected(const size_t pathsType, uint32_t from, uint32_t to) const;
+  bool AllPathsContainBlock(uint32_t from, uint32_t to, uint32_t mustInclude) const;
+  DirectPathState ComputeDirectPathState(uint32_t from, uint32_t to,
+                                         const rdcarray<uint32_t> *pathIdxsToCheck) const;
 
   uint32_t PATH_END = ~0U;
 
@@ -78,6 +105,7 @@ private:
 
   mutable rdcarray<bool> m_TracedBlocks;
   mutable rdcarray<bool> m_CheckedPaths;
+  mutable rdcarray<BlockPath> m_ValidRoutes;
   const size_t COUNT_PATHS_TYPES = 2;
   rdcarray<rdcarray<uint32_t>> m_BlockPathLinks[PathType::Count];
   rdcarray<BlockPath> m_PathSets[PathType::Count];
@@ -86,8 +114,9 @@ private:
   rdcarray<uint32_t> m_LoopBlocks;
   rdcarray<uint32_t> m_DivergentBlocks;
   rdcarray<ConvergentBlockData> m_ConvergentBlocks;
+  rdcarray<PartialConvergentBlockData> m_PartialConvergentBlocks;
   mutable rdcarray<rdcarray<ConnectionState>> m_Connections;
 
-  friend void OutputGraph(const char *const name, const ControlFlow *graph);
+  friend rdcstr GenerateGraph(const char *const name, const ControlFlow *graph);
 };
 };    // namespace DXIL
