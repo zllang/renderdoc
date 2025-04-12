@@ -103,6 +103,7 @@ struct FunctionInfo
   rdcarray<uint32_t> uniformBlocks;
   rdcarray<uint32_t> divergentBlocks;
   rdcarray<DXIL::ConvergentBlockData> convergentBlocks;
+  rdcarray<DXIL::PartialConvergentBlockData> partialConvergentBlocks;
   DXIL::ControlFlow controlFlow;
   std::map<uint32_t, Callstack> callstacks;
   rdcarray<uint32_t> instructionToBlock;
@@ -361,8 +362,9 @@ struct ThreadState
   // true if executed an operation which could trigger divergence
   bool m_Diverged;
   // list of potential convergence points that were entered in a single step (used for tracking thread convergence)
-  rdcarray<uint32_t> m_EnteredPoints;
+  DXIL::BlockArray m_EnteredPoints;
   uint32_t m_ConvergencePoint;
+  DXIL::BlockArray m_PartialConvergencePoints;
 
   // SSA Ids guaranteed to be greater than 0 and less than this value
   uint32_t m_MaxSSAId;

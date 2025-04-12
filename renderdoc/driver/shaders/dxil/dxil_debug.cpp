@@ -1793,15 +1793,26 @@ bool ThreadState::JumpToBlock(const Block *target, bool divergencePoint)
   {
     m_Diverged = true;
     RDCASSERTEQUAL(m_ConvergencePoint, INVALID_EXECUTION_POINT);
-    for(const ConvergentBlockData &convergentBlock : m_FunctionInfo->convergentBlocks)
+    for(const ConvergentBlockData &data : m_FunctionInfo->convergentBlocks)
     {
-      if(convergentBlock.first == m_PreviousBlock)
+      if(data.first == m_PreviousBlock)
       {
-        m_ConvergencePoint = convergentBlock.second;
+        m_ConvergencePoint = data.second;
         break;
       }
     }
     RDCASSERTNOTEQUAL(m_ConvergencePoint, INVALID_EXECUTION_POINT);
+
+    RDCASSERT(m_PartialConvergencePoints.empty());
+    for(const PartialConvergentBlockData &data : m_FunctionInfo->partialConvergentBlocks)
+    {
+      if(data.first == m_PreviousBlock)
+      {
+        m_PartialConvergencePoints = data.second;
+        RDCASSERT(!m_PartialConvergencePoints.empty());
+        break;
+      }
+    }
   }
 
   return true;
@@ -6292,6 +6303,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
   m_Diverged = false;
   m_EnteredPoints.clear();
   m_ConvergencePoint = INVALID_EXECUTION_POINT;
+  m_PartialConvergencePoints.clear();
 
   RDCASSERTEQUAL(m_ActiveGlobalInstructionIdx,
                  m_FunctionInfo->globalInstructionOffset + m_FunctionInstructionIdx);
@@ -8710,6 +8722,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       info.uniformBlocks = controlFlow.GetUniformBlocks();
       info.divergentBlocks = controlFlow.GetDivergentBlocks();
       info.convergentBlocks = controlFlow.GetConvergentBlocks();
+      info.partialConvergentBlocks = controlFlow.GetPartialConvergentBlocks();
       const rdcarray<uint32_t> loopBlocks = controlFlow.GetLoopBlocks();
 
       // Handle de-generate case when a single block
@@ -9440,10 +9453,12 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
         }
       }
 
+      const DXIL::BlockArray *newPartialConvergentPoints = NULL;
       ExecutionPoint newConvergencePoint = INVALID_EXECUTION_POINT;
       uint32_t countActiveThreads = 0;
       uint32_t countDivergedThreads = 0;
       uint32_t countConvergePointThreads = 0;
+      uint32_t countPartialConvergePointThreads = 0;
 
       // step all active members of the workgroup
       ShaderDebugState state;
@@ -9495,6 +9510,23 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
           }
           ++countConvergePointThreads;
         }
+        if(!thread.m_PartialConvergencePoints.empty())
+        {
+          if(newPartialConvergentPoints == NULL)
+          {
+            newPartialConvergentPoints = &thread.m_PartialConvergencePoints;
+            RDCASSERT(newPartialConvergentPoints);
+            if(newPartialConvergentPoints)
+              RDCASSERT(!newPartialConvergentPoints->empty());
+          }
+          else
+          {
+            // All the threads in the tangle should set the same partial convergence points
+            RDCASSERT(*newPartialConvergentPoints == thread.m_PartialConvergencePoints);
+          }
+          ++countPartialConvergePointThreads;
+        }
+
         if(thread.Finished())
           tangle.SetThreadDead(threadId);
 
@@ -9519,6 +9551,22 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug(DebugAPIWrapper *apiWrapper)
         // all the active threads should have a convergence point if any have one
         RDCASSERTEQUAL(countConvergePointThreads, countActiveThreads);
         tangle.AddMergePoint(newConvergencePoint);
+      }
+      if(countPartialConvergePointThreads)
+      {
+        // all the active threads should have partial convergence points if any have them
+        RDCASSERTEQUAL(countPartialConvergePointThreads, countActiveThreads);
+        RDCASSERT(newPartialConvergentPoints);
+        const size_t countPoints =
+            newPartialConvergentPoints ? newPartialConvergentPoints->size() : 0;
+        for(size_t i = 0; i < countPoints; i++)
+        {
+          // The partial convergence points are generated sorted from least to most inter-connections
+          const uint32_t point = newPartialConvergentPoints->at(i);
+          tangle.AddMergePoint(point);
+        }
+        // partial convergence requires full convergence
+        RDCASSERTEQUAL(countConvergePointThreads, countActiveThreads);
       }
       if(countDivergedThreads)
       {
