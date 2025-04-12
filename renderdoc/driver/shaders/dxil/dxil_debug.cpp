@@ -4433,8 +4433,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
             // QuadOp(value,op)
             // QuadReadLaneAt(value,quadLane)
-            ShaderVariable b;
-            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, b));
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
             uint32_t lane = ~0U;
             if(dxOpCode == DXOp::QuadOp)
             {
@@ -4445,7 +4445,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               }
               else
               {
-                QuadOpKind quadOp = (QuadOpKind)b.value.u32v[0];
+                QuadOpKind quadOp = (QuadOpKind)arg.value.u32v[0];
                 switch(quadOp)
                 {
                   case QuadOpKind::ReadAcrossX:
@@ -4490,7 +4490,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             else if(dxOpCode == DXOp::QuadReadLaneAt)
             {
               // QuadReadLaneAt(value,quadLane)
-              lane = b.value.u32v[0];
+              lane = arg.value.u32v[0];
               RDCASSERT(lane < 4, lane);
               lane = RDCMIN(lane, 3U);
               lane = m_QuadNeighbours[lane];
@@ -4515,6 +4515,46 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               RDCERR("Invalid workgroup lane %u", lane);
             }
+            break;
+          }
+          case DXOp::QuadVote:
+          {
+            // SM6.7 QuadVote(cond,op)
+            RDCASSERT(!QuadIsDiverged(workgroup, m_QuadNeighbours));
+
+            ShaderVariable arg;
+            RDCASSERT(GetShaderVariable(inst.args[2], opCode, dxOpCode, arg));
+            QuadVoteOpKind quadVoteOp = (QuadVoteOpKind)arg.value.u32v[0];
+
+            ShaderVariable accum(result);
+
+            switch(quadVoteOp)
+            {
+              case QuadVoteOpKind::Any: accum.value.u32v[0] = 0; break;
+              case QuadVoteOpKind::All: accum.value.u32v[0] = 1; break;
+              default: RDCERR("Unhandled QuadVoteOpKind %s", ToStr(quadVoteOp).c_str()); break;
+            };
+
+            for(uint32_t i = 0; i < 4; ++i)
+            {
+              uint32_t lane = m_QuadNeighbours[i];
+              if(lane == ~0U)
+              {
+                RDCERR("QuadVote %s without proper quad neighbours", ToStr(quadVoteOp).c_str());
+                lane = m_WorkgroupIndex;
+              }
+
+              ShaderVariable x;
+              RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
+
+              switch(quadVoteOp)
+              {
+                case QuadVoteOpKind::Any: accum.value.u32v[0] |= x.value.u32v[0]; break;
+                case QuadVoteOpKind::All: accum.value.u32v[0] &= x.value.u32v[0]; break;
+                default: RDCERR("Unhandled QuadVoteOpKind %s", ToStr(quadVoteOp).c_str()); break;
+              }
+            }
+            result.value = accum.value;
             break;
           }
           case DXOp::Dot2AddHalf:
@@ -4689,8 +4729,6 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             // stores texel data at specified sample index
           case DXOp::TextureGatherRaw:
             // Gather raw elements from 4 texels with no type conversions (SRV type is constrained)
-          case DXOp::QuadVote:
-            // QuadVote(cond,op)
 
           // SM 6.8
           case DXOp::StartVertexLocation:
