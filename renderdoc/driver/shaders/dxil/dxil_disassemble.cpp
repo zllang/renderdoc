@@ -4324,6 +4324,23 @@ void Program::MakeRDDisassemblyString(const DXBC::Reflection *reflection)
                   }
                   break;
                 }
+                case DXOp::QuadVote:
+                {
+                  // SM6.7 QuadVote(cond,op)
+                  QuadVoteOpKind quadVoteOpKind;
+                  if(getival<QuadVoteOpKind>(inst.args[2], quadVoteOpKind))
+                  {
+                    lineStr += "Quad" + ToStr(quadVoteOpKind);
+                    lineStr += "(";
+                    lineStr += GetArgId(inst, 1);
+                    lineStr += ")";
+                  }
+                  else
+                  {
+                    showDxFuncName = true;
+                  }
+                  break;
+                }
                 case DXOp::Dot2:
                 case DXOp::Dot3:
                 case DXOp::Dot4:

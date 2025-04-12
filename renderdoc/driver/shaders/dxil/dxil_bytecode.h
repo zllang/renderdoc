@@ -663,6 +663,12 @@ enum class QuadOpKind : uint32_t
                              // horizontal and vertical direction
 };
 
+enum class QuadVoteOpKind : uint32_t
+{
+  All = 1,    // true if all conditions are true in this quad
+  Any = 0,    // true if any condition is true in this quad
+};
+
 // Packing/unpacking intrinsics
 enum class UnpackMode : uint32_t
 {
@@ -1855,6 +1861,7 @@ DECLARE_STRINGISE_TYPE(DXIL::WaveBitOpCode);
 DECLARE_STRINGISE_TYPE(DXIL::WaveMultiPrefixOpCode);
 DECLARE_STRINGISE_TYPE(DXIL::SignedOpKind);
 DECLARE_STRINGISE_TYPE(DXIL::QuadOpKind);
+DECLARE_STRINGISE_TYPE(DXIL::QuadVoteOpKind);
 DECLARE_STRINGISE_TYPE(DXIL::PackMode);
 DECLARE_STRINGISE_TYPE(DXIL::UnpackMode);
 DECLARE_STRINGISE_TYPE(DXIL::Operation);

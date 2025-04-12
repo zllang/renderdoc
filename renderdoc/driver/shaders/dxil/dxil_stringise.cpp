@@ -140,6 +140,17 @@ rdcstr DoStringise(const DXIL::QuadOpKind &el)
 };
 
 template <>
+rdcstr DoStringise(const DXIL::QuadVoteOpKind &el)
+{
+  BEGIN_ENUM_STRINGISE(DXIL::QuadVoteOpKind)
+  {
+    STRINGISE_ENUM_CLASS(All)
+    STRINGISE_ENUM_CLASS(Any)
+  }
+  END_ENUM_STRINGISE();
+};
+
+template <>
 rdcstr DoStringise(const DXIL::PackMode &el)
 {
   BEGIN_ENUM_STRINGISE(DXIL::PackMode)
