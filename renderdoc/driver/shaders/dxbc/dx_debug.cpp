@@ -883,7 +883,8 @@ void ExtractInputs(Inputs IN
 
 #elif STAGE == STAGE_CS
 
-                     , uint3 threadid : SV_DispatchThreadID
+                     , uint3 threadid : SV_GroupThreadID 
+                     , uint3 dtid : SV_DispatchThreadID 
 
 #endif
 )
@@ -992,7 +993,7 @@ void ExtractInputs(Inputs IN
   ps.primitive = primitive;
   ps.isFrontFace = isFrontFace;
 #elif STAGE == STAGE_CS
-  bool candidateThread = (threadid.x == DESTX && threadid.y == DESTY && threadid.z == DESTZ);
+  bool candidateThread = (dtid.x == DESTX && dtid.y == DESTY && dtid.z == DESTZ);
 
   cs.threadid = threadid;
 #endif
