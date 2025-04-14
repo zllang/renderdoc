@@ -3974,6 +3974,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               // WaveActiveAllEqual(value)
               accum.value.u32v[0] = 1;
             }
+            else if(dxOpCode == DXOp::WaveActiveBallot)
+            {
+              // WaveActiveBallot(value)
+              accum.value.u32v[0] = 0;
+            }
             else
             {
               RDCERR("Unhandled dxOpCode %s", ToStr(dxOpCode).c_str());
