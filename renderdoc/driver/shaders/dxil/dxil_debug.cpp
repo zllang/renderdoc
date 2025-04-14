@@ -1060,7 +1060,43 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
   return false;
 }
 
-size_t ComputeDXILTypeByteSize(const Type *type)
+static bool ConvertShaderVariableStructToVector(const DXIL::Type *dxilType, ShaderVariable &var)
+{
+  // convert struct of four members, to be a vector
+  if(var.type != VarType::Struct)
+  {
+    RDCERR("Expected type %s to be a struct", ToStr(var.type).c_str());
+    return false;
+  }
+
+  // convert the DXIL return type to full variable
+  ShaderVariable structVar;
+  ConvertDXILTypeToShaderVariable(dxilType, structVar);
+
+  RDCASSERT(structVar.members.size() <= 4);
+  if(structVar.members.size() > 4)
+  {
+    RDCERR("Expected struct size %u to be four or less", structVar.members.size());
+    return false;
+  }
+
+  for(uint32_t i = 0; i < structVar.members.size(); ++i)
+  {
+    if(structVar.members[i].type != structVar.members[0].type)
+    {
+      RDCERR("Expected struct member type to be the same for all members %s != %s",
+             ToStr(structVar.members[i].type).c_str(), ToStr(structVar.members[0].type).c_str());
+      return false;
+    }
+  }
+
+  var.type = structVar.members[0].type;
+  var.rows = 1;
+  var.columns = (uint8_t)structVar.members.size();
+  return true;
+}
+
+static size_t ComputeDXILTypeByteSize(const Type *type)
 {
   size_t byteSize = 0;
   switch(type->type)
@@ -3903,6 +3939,21 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
           case DXOp::WaveActiveBallot:
           case DXOp::WaveActiveAllEqual:
           {
+            // WaveActiveBallot returns struct of int x 4, convert this to a vector
+            if(dxOpCode == DXOp::WaveActiveBallot)
+            {
+              if(!ConvertShaderVariableStructToVector(retType, result))
+              {
+                break;
+              }
+              if(result.type != VarType::SInt && result.type != VarType::UInt)
+              {
+                RDCERR("Expected WaveActiveBallot result struct member type %s to be SInt or UInt",
+                       ToStr(result.type).c_str());
+                break;
+              }
+            }
+
             ShaderVariable accum(result);
 
             ShaderVariable refValue;
@@ -4189,36 +4240,17 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             ShaderVariable refValue;
             RDCASSERT(GetShaderVariable(inst.args[1], opCode, dxOpCode, refValue));
 
-            // return result is a struct of four members,
-            // convert that to be a vector
-            if(result.type != VarType::Struct)
+            // convert return result struct of four members into a vector
+            if(!ConvertShaderVariableStructToVector(retType, result))
             {
-              RDCERR("Expected WaveMatch result type %s to be a struct", ToStr(result.type).c_str());
               break;
             }
-
-            // convert the DXIL return type to full variable
-            ShaderVariable resultStruct;
-            ConvertDXILTypeToShaderVariable(retType, resultStruct);
-
-            RDCASSERTEQUAL(resultStruct.members.size(), 4);
-            if(resultStruct.members.size() != 4)
-            {
-              RDCERR("Expected WaveMatch result struct size %u to be 4", resultStruct.members.size());
-              break;
-            }
-
-            if(resultStruct.members[0].type != VarType::SInt &&
-               resultStruct.members[0].type != VarType::UInt)
+            if(result.type != VarType::SInt && result.type != VarType::UInt)
             {
               RDCERR("Expected WaveMatch result struct member type %s to be SInt or UInt",
-                     ToStr(resultStruct.members[0].type).c_str());
+                     ToStr(result.type).c_str());
               break;
             }
-
-            result.type = resultStruct.members[0].type;
-            result.rows = 1;
-            result.columns = (uint8_t)resultStruct.members.size();
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
