@@ -3629,7 +3629,6 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
 
         workgroupProperties[lane][DXILDebug::ThreadProperty::Active] = value->active;
         workgroupProperties[lane][DXILDebug::ThreadProperty::SubgroupIdx] = t;
-        RDCASSERT(value->active);
 
         threadBuiltins[lane][ShaderBuiltin::DispatchThreadIndex] =
             ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + value->threadid[0],
