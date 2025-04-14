@@ -607,6 +607,7 @@ void ControlFlow::UpdateState(const ThreadExecutionStates &threadExecutionStates
 
 void ControlFlow::Construct(const rdcarray<ThreadIndex> &threadIds)
 {
+  s_NextTangleId = 0;
   const rdcarray<ExecutionPoint> sentinelPoints = {INVALID_EXECUTION_POINT};
   Tangle rootTangle;
   rootTangle.SetId(GetNewTangleId());
