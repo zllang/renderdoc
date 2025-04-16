@@ -822,12 +822,12 @@ public:
     DXBCKey(const D3D12_SHADER_BYTECODE &byteCode)
     {
       byteLen = (uint32_t)byteCode.BytecodeLength;
-      DXBC::DXBCContainer::GetHash(hash, byteCode.pShaderBytecode, byteCode.BytecodeLength);
+      DXBC::DXBCContainer::GetHash(hash, false, byteCode.pShaderBytecode, byteCode.BytecodeLength);
     }
 
     // assume that byte length + hash is enough to uniquely identify a shader bytecode
     uint32_t byteLen;
-    uint32_t hash[4];
+    rdcfixedarray<uint32_t, 4> hash;
 
     bool operator<(const DXBCKey &o) const
     {
@@ -841,11 +841,7 @@ public:
       return false;
     }
 
-    bool operator==(const DXBCKey &o) const
-    {
-      return byteLen == o.byteLen && hash[0] == o.hash[0] && hash[1] == o.hash[1] &&
-             hash[2] == o.hash[2] && hash[3] == o.hash[3];
-    }
+    bool operator==(const DXBCKey &o) const { return byteLen == o.byteLen && hash == o.hash; }
   };
 
   class ShaderEntry : public WrappedDeviceChild12<ID3D12DeviceChild>

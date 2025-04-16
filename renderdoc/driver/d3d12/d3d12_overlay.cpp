@@ -350,10 +350,8 @@ void D3D12Replay::PatchQuadWritePS(D3D12_EXPANDED_PIPELINE_STATE_STREAM_DESC &pi
   if(pipeDesc.MS.BytecodeLength > 0)
     rastFeeding = &pipeDesc.MS;
 
-  uint32_t hash[4];
-  DXBC::DXBCContainer::GetHash(hash, rastFeeding->pShaderBytecode, rastFeeding->BytecodeLength);
-
-  rdcfixedarray<uint32_t, 4> key = hash;
+  rdcfixedarray<uint32_t, 4> key;
+  DXBC::DXBCContainer::GetHash(key, false, rastFeeding->pShaderBytecode, rastFeeding->BytecodeLength);
 
   bytebuf &patchedPs = m_PatchedPSCache[key];
 

@@ -244,7 +244,8 @@ public:
   DXBCBytecode::Program *GetDXBCByteCode() { return m_DXBCByteCode; }
   const DXIL::Program *GetDXILByteCode() const { return m_DXILByteCode; }
   DXIL::Program *GetDXILByteCode() { return m_DXILByteCode; }
-  static void GetHash(uint32_t hash[4], const void *ByteCode, size_t BytecodeLength);
+  static void GetHash(rdcfixedarray<uint32_t, 4> &hash, bool debugHashOnly, const void *ByteCode,
+                      size_t BytecodeLength);
   GlobalShaderFlags GetGlobalShaderFlags() const { return m_GlobalFlags; }
 
   const byte *GetNonDebugDXILByteCode() const

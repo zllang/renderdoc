@@ -900,6 +900,11 @@ public:
   size_t size() const { return N; }
   size_t byteSize() const { return N * sizeof(T); }
   int32_t count() const { return (int32_t)N; }
+  void clear()
+  {
+    for(size_t i = 0; i < N; i++)
+      elems[i] = T();
+  }
   // find the first occurrence of an element
   int32_t indexOf(const T &el, size_t first = 0, size_t last = ~0U) const
   {

@@ -114,6 +114,76 @@ void CacheSearchDirDebugPaths()
          searchPaths.size());
 }
 
+struct DebugFile
+{
+  bool pdb = false;
+  rdcstr path;
+  bytebuf contents;
+
+  bool empty() { return path.empty(); }
+
+  void ReadAndProcess(bool lz4, const rdcfixedarray<uint32_t, 4> &desiredHash)
+  {
+    FileIO::ReadAll(path, contents);
+
+    if(lz4)
+    {
+      bytebuf decompressed;
+
+      // first try decompressing to 1MB flat
+      decompressed.resize(1024 * 1024);
+
+      int ret = LZ4_decompress_safe((const char *)contents.data(), (char *)decompressed.data(),
+                                    contents.count(), decompressed.count());
+
+      if(ret < 0)
+      {
+        // if it failed, either source is corrupt or we didn't allocate enough space.
+        // Just allocate 255x compressed size since it can't need any more than that.
+        decompressed.resize(255 * contents.size());
+
+        ret = LZ4_decompress_safe((const char *)contents.data(), (char *)decompressed.data(),
+                                  contents.count(), decompressed.count());
+
+        if(ret < 0)
+        {
+          RDCERR("Failed to decompress LZ4 data from %s", path.c_str());
+          return;
+        }
+      }
+
+      RDCASSERT(ret > 0, ret);
+
+      // we resize and memcpy instead of just doing .swap() because that would
+      // transfer over the over-large pessimistic capacity needed for decompression
+      contents.resize(ret);
+      memcpy(contents.data(), decompressed.data(), contents.size());
+    }
+
+    if(DXBC::IsPDBFile(&contents[0], contents.size()))
+    {
+      DXBC::UnwrapEmbeddedPDBData(contents);
+      pdb = true;
+    }
+
+    // if we have a desired hash, check it now
+    if(desiredHash[0] != 0 || desiredHash[1] != 0 || desiredHash[2] != 0 || desiredHash[3] != 0)
+    {
+      rdcfixedarray<uint32_t, 4> debugDataHash;
+      DXBC::DXBCContainer::GetHash(debugDataHash, true, contents.data(), contents.size());
+
+      if(debugDataHash != desiredHash)
+      {
+        RDCWARN("Debug info file at %s does not match hash from shader, ignoring", path.c_str());
+
+        // invalidate ourselves
+        path.clear();
+        contents.clear();
+      }
+    }
+  }
+};
+
 };
 
 namespace DXBC
@@ -1025,11 +1095,12 @@ const byte *DXBCContainer::FindChunk(const bytebuf &ByteCode, uint32_t fourcc, s
   return FindChunk(ByteCode.data(), ByteCode.size(), fourcc, size);
 }
 
-void DXBCContainer::GetHash(uint32_t hash[4], const void *ByteCode, size_t BytecodeLength)
+void DXBCContainer::GetHash(rdcfixedarray<uint32_t, 4> &hash, bool debugHashOnly,
+                            const void *ByteCode, size_t BytecodeLength)
 {
   if(BytecodeLength < sizeof(FileHeader) || ByteCode == NULL)
   {
-    memset(hash, 0, sizeof(uint32_t) * 4);
+    hash.clear();
     return;
   }
 
@@ -1037,7 +1108,7 @@ void DXBCContainer::GetHash(uint32_t hash[4], const void *ByteCode, size_t Bytec
 
   FileHeader *header = (FileHeader *)ByteCode;
 
-  memset(hash, 0, sizeof(uint32_t) * 4);
+  hash.clear();
 
   if(header->fourcc != FOURCC_DXBC)
     return;
@@ -1045,7 +1116,8 @@ void DXBCContainer::GetHash(uint32_t hash[4], const void *ByteCode, size_t Bytec
   if(header->fileLength != (uint32_t)BytecodeLength)
     return;
 
-  memcpy(hash, header->hashValue, sizeof(header->hashValue));
+  if(!debugHashOnly)
+    hash = header->hashValue;
 
   uint32_t *chunkOffsets = (uint32_t *)(header + 1);    // right after the header
 
@@ -1060,7 +1132,7 @@ void DXBCContainer::GetHash(uint32_t hash[4], const void *ByteCode, size_t Bytec
     {
       HASHHeader *hashHeader = (HASHHeader *)chunkContents;
 
-      memcpy(hash, hashHeader->hashValue, sizeof(hashHeader->hashValue));
+      hash = hashHeader->hashValue;
     }
   }
 }
@@ -1408,13 +1480,27 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
   {
     rdcstr originalPath = debugInfoPath;
 
+    rdcfixedarray<uint32_t, 4> desiredHash;
+    GetHash(desiredHash, true, byteCode.data(), byteCode.size());
+
     if(originalPath.empty())
       originalPath = GetDebugBinaryPath((const void *)&byteCode[0], byteCode.size());
+
+    if(originalPath.empty() &&
+       (desiredHash[0] != 0 || desiredHash[1] != 0 || desiredHash[2] != 0 || desiredHash[3] != 0))
+    {
+      byte *h = (byte *)desiredHash.data();
+      for(uint32_t i = 0; i < desiredHash.byteSize(); i++)
+        originalPath += StringFormat::Fmt("%02x", h[i]);
+      originalPath += ".pdb";
+      RDCDEBUG("No shader pdb filename specified - assuming default '%s'", originalPath.c_str());
+    }
 
     if(!originalPath.empty())
     {
       bool lz4 = false;
 
+      // RenderDoc extension to allow lz4 compression
       if(!strncmp(originalPath.c_str(), "lz4#", 4))
       {
         originalPath = originalPath.substr(4);
@@ -1422,44 +1508,49 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
       }
       // could support more if we're willing to compile in the decompressor
 
-      FILE *originalShaderFile = NULL;
-
       const rdcarray<rdcstr> &searchPaths = DXBC_Debug_SearchDirPaths();
 
       size_t numSearchPaths = searchPaths.size();
 
-      rdcstr foundPath;
+      DebugFile found;
 
       // keep searching until we've exhausted all possible path options, or we've found a file that
-      // opens
+      // opens and (optionally if we have it matches the hash we're looking for)
       rdcstr tempPath = originalPath;
-      while(originalShaderFile == NULL && !tempPath.empty())
+
+      while(found.empty() && !tempPath.empty())
       {
         // while we haven't found a file, keep trying through the search paths. For i==0
         // check the path on its own, in case it's an absolute path.
-        for(size_t i = 0; originalShaderFile == NULL && i <= numSearchPaths; i++)
+        for(size_t i = 0; found.empty() && i <= numSearchPaths; i++)
         {
           if(i == 0)
           {
-            originalShaderFile = FileIO::fopen(tempPath, FileIO::ReadBinary);
-            foundPath = tempPath;
+            if(FileIO::exists(tempPath))
+              found.path = tempPath;
             continue;
           }
           else
           {
             const rdcstr &searchPath = searchPaths[i - 1];
-            foundPath = searchPath + "/" + tempPath;
-            originalShaderFile = FileIO::fopen(foundPath, FileIO::ReadBinary);
+
+            rdcstr checkPath = searchPath + "/" + tempPath;
+
+            if(FileIO::exists(checkPath))
+              found.path = checkPath;
           }
         }
 
-        if(originalShaderFile != NULL)
+        if(!found.empty())
         {
-          RDCDEBUG("Found %s directly as %s (matched with %s)", originalPath.c_str(),
-                   foundPath.c_str(), tempPath.c_str());
+          RDCDEBUG("Found %s (matched using leaf %s) when looking for %s", found.path.c_str(),
+                   tempPath.c_str(), originalPath.c_str());
+
+          // this may empty out found, if the hash doesn't match
+          found.ReadAndProcess(lz4, desiredHash);
         }
 
-        if(originalShaderFile == NULL)
+        if(found.empty())
         {
           // the "documented" behaviour for D3D debug info names is that when presented with a
           // relative path containing subfolders like foo/bar/blah.pdb then we should first try to
@@ -1480,86 +1571,37 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
       // the "undocumented" behaviour for PIX is to recursively search in search paths subfolders
       // for the file. Since it's unclear exactly how this interacts with search priorities and
       // subfolders, we only do this if the path is a single filename with no subfolders, and we
-      // assume the filename is unique so pick the first patch. To reduce disk churn O(N^2) style we
+      // assume the filename is unique so pick the first match. To reduce disk churn O(N^2) style we
       // cache the recursive contents of the search folders. This will be cleared by the replay code
       // on each replay.
-      if(originalShaderFile == NULL && !originalPath.contains('/') && !originalPath.contains('\\'))
+      if(found.empty() && !originalPath.contains('/') && !originalPath.contains('\\'))
       {
         CacheSearchDirDebugPaths();
 
         auto it = cachedDebugFilesLookup.find(originalPath);
         if(it != cachedDebugFilesLookup.end())
         {
-          originalShaderFile = FileIO::fopen(it->second, FileIO::ReadBinary);
-          foundPath = it->second;
-          RDCDEBUG("Found %s recursively as %s", originalPath.c_str(), foundPath.c_str());
+          found.path = it->second;
+          RDCDEBUG("Found %s recursively as %s", originalPath.c_str(), found.path.c_str());
+
+          found.ReadAndProcess(lz4, desiredHash);
         }
       }
 
-      if(originalShaderFile == NULL)
+      if(found.empty())
       {
         RDCDEBUG("Couldn't find pdb for %s", originalPath.c_str());
         return;
       }
 
-      FileIO::fseek64(originalShaderFile, 0L, SEEK_END);
-      uint64_t originalShaderSize = FileIO::ftell64(originalShaderFile);
-      FileIO::fseek64(originalShaderFile, 0, SEEK_SET);
-
-      if(lz4 || originalShaderSize >= byteCode.size())
+      if(found.pdb)
       {
-        bytebuf debugBytecode;
-
-        debugBytecode.resize((size_t)originalShaderSize);
-        FileIO::fread(&debugBytecode[0], sizeof(byte), (size_t)originalShaderSize,
-                      originalShaderFile);
-
-        if(lz4)
-        {
-          rdcarray<byte> decompressed;
-
-          // first try decompressing to 1MB flat
-          decompressed.resize(100 * 1024);
-
-          int ret = LZ4_decompress_safe((const char *)&debugBytecode[0], (char *)&decompressed[0],
-                                        (int)debugBytecode.size(), (int)decompressed.size());
-
-          if(ret < 0)
-          {
-            // if it failed, either source is corrupt or we didn't allocate enough space.
-            // Just allocate 255x compressed size since it can't need any more than that.
-            decompressed.resize(255 * debugBytecode.size());
-
-            ret = LZ4_decompress_safe((const char *)&debugBytecode[0], (char *)&decompressed[0],
-                                      (int)debugBytecode.size(), (int)decompressed.size());
-
-            if(ret < 0)
-            {
-              RDCERR("Failed to decompress LZ4 data from %s", foundPath.c_str());
-              return;
-            }
-          }
-
-          RDCASSERT(ret > 0, ret);
-
-          // we resize and memcpy instead of just doing .swap() because that would
-          // transfer over the over-large pessimistic capacity needed for decompression
-          debugBytecode.resize(ret);
-          memcpy(&debugBytecode[0], &decompressed[0], debugBytecode.size());
-        }
-
-        if(IsPDBFile(&debugBytecode[0], debugBytecode.size()))
-        {
-          UnwrapEmbeddedPDBData(debugBytecode);
-          m_DebugShaderBlob = debugBytecode;
-        }
-        else if(CheckForDebugInfo((const void *)&debugBytecode[0], debugBytecode.size()))
-        {
-          byteCode.swap(debugBytecode);
-        }
+        m_DebugShaderBlob = found.contents;
       }
-
-      FileIO::fclose(originalShaderFile);
+      else if(CheckForDebugInfo(found.contents.data(), found.contents.size()))
+      {
+        byteCode.swap(found.contents);
+      }
     }
   }
 }
