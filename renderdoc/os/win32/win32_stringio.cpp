@@ -525,7 +525,7 @@ void GetFilesInDirectory(const rdcstr &path, rdcarray<PathEntry> &ret)
 
     PathProperty flags = PathProperty::ErrorUnknown;
 
-    if(err == ERROR_FILE_NOT_FOUND)
+    if(err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND)
       flags = PathProperty::ErrorInvalidPath;
     else if(err == ERROR_ACCESS_DENIED)
       flags = PathProperty::ErrorAccessDenied;

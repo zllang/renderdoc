@@ -60,6 +60,18 @@ void CacheSearchDirDebugPaths(rdcstr dir)
     {
       CacheSearchDirDebugPaths(dir + "/" + e.filename);
     }
+    else if(e.flags & PathProperty::ErrorAccessDenied)
+    {
+      RDCWARN("Access denied: %s", dir.c_str());
+    }
+    else if(e.flags & PathProperty::ErrorInvalidPath)
+    {
+      RDCWARN("Invalid path: %s", dir.c_str());
+    }
+    else if(e.flags & PathProperty::ErrorUnknown)
+    {
+      RDCWARN("Couldn't enumerate under %s - bad path or permission issue", dir.c_str());
+    }
     else
     {
       // in case of abiguity if the same filename is found in multiple places, we pick the first match.
