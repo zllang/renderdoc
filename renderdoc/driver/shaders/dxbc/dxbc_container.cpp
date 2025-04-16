@@ -47,7 +47,7 @@ namespace
 
 // lookup from plain filename -> absolute path of first result in search paths
 std::unordered_map<rdcstr, rdcstr> cachedDebugFilesLookup;
-int32_t cachedDebugFilesLookupInit = 0;
+Threading::CriticalSection cachedDebugFilesLookupLock;
 
 void CacheSearchDirDebugPaths(rdcstr dir)
 {
@@ -72,16 +72,23 @@ void CacheSearchDirDebugPaths(rdcstr dir)
 
 void CacheSearchDirDebugPaths()
 {
-  if(Atomic::CmpExch32(&cachedDebugFilesLookupInit, 0, 1) != 0)
+  if(!RenderDoc::Inst().IsReplayApp())
     return;
 
-  if(!RenderDoc::Inst().IsReplayApp())
+  SCOPED_LOCK(cachedDebugFilesLookupLock);
+
+  if(!cachedDebugFilesLookup.empty())
     return;
 
   rdcarray<rdcstr> searchPaths = DXBC_Debug_SearchDirPaths();
 
   for(const rdcstr &base : searchPaths)
+  {
+    size_t sz = cachedDebugFilesLookup.size();
     CacheSearchDirDebugPaths(base);
+    RDCLOG("Recursively enumerated all files under %s, found %zu files", base.c_str(),
+           cachedDebugFilesLookup.size() - sz);
+  }
 
   RDCLOG("Cached %zu debug files in %zu search paths", cachedDebugFilesLookup.size(),
          searchPaths.size());
@@ -93,8 +100,9 @@ namespace DXBC
 {
 void ResetSearchDirsCache()
 {
+  SCOPED_LOCK(cachedDebugFilesLookupLock);
+
   cachedDebugFilesLookup.clear();
-  cachedDebugFilesLookupInit = 0;
 }
 
 rdcstr BasicDemangle(const rdcstr &possiblyMangledName)
