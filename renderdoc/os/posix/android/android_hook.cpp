@@ -810,7 +810,7 @@ void LibraryHooks::EndHookRegistration()
       HOOK_DEBUG_PRINT("Calling callbacks for %s", it->first.c_str());
       for(FunctionLoadCallback callback : it->second)
         if(callback)
-          callback(handle);
+          callback(handle, it->first.c_str());
     }
   }
 

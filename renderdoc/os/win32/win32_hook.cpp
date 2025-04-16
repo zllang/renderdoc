@@ -598,7 +598,7 @@ static void HookAllModules()
 
     for(FunctionLoadCallback cb : callbacks)
       if(cb)
-        cb(it->second.module);
+        cb(it->second.module, it->first.c_str());
   }
 
   Atomic::CmpExch32(&s_HookData->posthooking, 1, 0);

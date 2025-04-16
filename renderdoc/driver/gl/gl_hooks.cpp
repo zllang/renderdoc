@@ -259,11 +259,16 @@ void GLDispatchTable::PopulateWithCallback(PlatformGetProcAddr lookupFunc)
   ForEachSupported(HookFunc);
 }
 
-static void GLHooked(void *handle)
+static void GLHooked(void *handle, const char *libName)
 {
   // store the handle for any unimplemented functions that need to look up their onward
   // pointers
   glhook.handle = handle;
+
+#if ENABLED(RDOC_WIN32)
+  // force library to stay loaded so that function pointers don't move
+  LoadLibraryA(libName);
+#endif
 }
 
 void GLHook::RegisterHooks()

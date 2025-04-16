@@ -118,7 +118,7 @@ void LibraryHooks::EndHookRegistration()
     {
       for(FunctionLoadCallback cb : it->second)
         if(cb)
-          cb(handle);
+          cb(handle, libName.c_str());
 
       // don't call callbacks again if the library is dlopen'd again
       it->second.clear();

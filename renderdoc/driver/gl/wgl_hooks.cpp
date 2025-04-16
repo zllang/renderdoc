@@ -634,7 +634,7 @@ static PROC WINAPI wglGetProcAddress_hooked(const char *func)
   return (PROC)HookedGetProcAddress(func, (void *)realFunc);
 }
 
-static void WGLHooked(void *handle)
+static void WGLHooked(void *handle, const char *libName)
 {
   RDCDEBUG("WGL library hooked");
 
@@ -646,6 +646,9 @@ static void WGLHooked(void *handle)
   WGL.func = (CONCAT(PFN_, func))Process::GetFunctionAddress(handle, STRINGIZE(func));
   WGL_NONHOOKED_SYMBOLS(WGL_FETCH)
 #undef WGL_FETCH
+
+  // force library to stay loaded so that function pointers don't move
+  LoadLibraryA(libName);
 
   // maybe in future we could create a dummy context here and populate the GL hooks already?
 }

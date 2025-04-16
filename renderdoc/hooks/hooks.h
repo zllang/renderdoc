@@ -27,7 +27,7 @@
 
 #include "os/os_specific.h"
 
-typedef std::function<void(void *)> FunctionLoadCallback;
+typedef std::function<void(void *, const char *)> FunctionLoadCallback;
 
 struct FunctionHook
 {

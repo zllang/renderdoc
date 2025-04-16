@@ -969,7 +969,7 @@ EGL_PASSTHRU_4(EGLSurface, eglCreatePlatformPixmapSurface, EGLDisplay, dpy, EGLC
                void *, native_pixmap, const EGLAttrib *, attrib_list)
 EGL_PASSTHRU_3(EGLBoolean, eglWaitSync, EGLDisplay, dpy, EGLSync, sync, EGLint, flags)
 
-static void EGLHooked(void *handle)
+static void EGLHooked(void *handle, const char *libName)
 {
   RDCDEBUG("EGL library hooked");
 
@@ -1013,6 +1013,11 @@ static void EGLHooked(void *handle)
     ScopedSuppressHooking suppress;
     return (void *)EGL.GetProcAddress(funcName);
   });
+
+#if ENABLED(RDOC_WIN32)
+  // force library to stay loaded so that function pointers don't move
+  LoadLibraryA(libName);
+#endif
 }
 
 #if ENABLED(RDOC_WIN32)
