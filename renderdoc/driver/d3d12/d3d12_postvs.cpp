@@ -2641,9 +2641,11 @@ void D3D12Replay::InitPostMSBuffers(uint32_t eventId)
         SAFE_RELEASE(ampBuffer);
         SAFE_RELEASE(meshBuffer);
 
-        RDCERR("Meshlet returned invalid vertex count %u with declared max %u", numVerts,
-               layout.vertArrayLength);
-        ret.meshout.status = "Got corrupted mesh output data from GPU";
+        ret.meshout.status = StringFormat::Fmt(
+            "Got corrupted mesh output data from GPU.\n"
+            "Meshlet returned invalid vertex count %u with declared max %u",
+            numVerts, layout.vertArrayLength);
+        RDCERR("%s", ret.meshout.status.c_str());
         return;
       }
 
@@ -2652,9 +2654,11 @@ void D3D12Replay::InitPostMSBuffers(uint32_t eventId)
         SAFE_RELEASE(ampBuffer);
         SAFE_RELEASE(meshBuffer);
 
-        RDCERR("Meshlet returned invalid primitive count %u with declared max %u", numPrims,
-               layout.primArrayLength);
-        ret.meshout.status = "Got corrupted mesh output data from GPU";
+        ret.meshout.status = StringFormat::Fmt(
+            "Got corrupted mesh output data from GPU.\n"
+            "Meshlet returned invalid primitive count %u with declared max %u",
+            numPrims, layout.primArrayLength);
+        RDCERR("%s", ret.meshout.status.c_str());
         return;
       }
 
