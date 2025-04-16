@@ -203,7 +203,7 @@ DECL_HOOK_EXPORT(CGLFlushDrawable);
 extern void RegisterAppleGLSymbols();
 extern void AppleRegisterRealSymbol(const char *functionName, void *address);
 
-static void CGLHooked(void *handle)
+static void CGLHooked(void *handle, const char *)
 {
   RDCDEBUG("CGL library hooked");
 
