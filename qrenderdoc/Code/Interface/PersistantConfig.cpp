@@ -303,18 +303,6 @@ void PersistantConfig::applyValues(const QVariantMap &values)
           debug->AddAndOwnChild(makeSDString("$el"_lit, searchPaths[i]));
       }
 
-      if(settings.contains(lit("d3d12ShaderDebugging")))
-      {
-        RENDERDOC_SetConfigSetting("D3D12_ShaderDebugging")->data.basic.b =
-            settings[lit("d3d12ShaderDebugging")].toBool();
-      }
-
-      if(settings.contains(lit("vulkanShaderDebugging")))
-      {
-        RENDERDOC_SetConfigSetting("Vulkan_ShaderDebugging")->data.basic.b =
-            settings[lit("vulkanShaderDebugging")].toBool();
-      }
-
       saveConfig = true;
     }
 

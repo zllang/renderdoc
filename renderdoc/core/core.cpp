@@ -63,7 +63,10 @@ RDOC_CONFIG(bool, Replay_Debug_SingleThreadedCompilation, false,
 // this is declared centrally so it can be shared with any backend - the name is a misnomer but kept
 // for backwards compatibility reasons.
 RDOC_CONFIG(rdcarray<rdcstr>, DXBC_Debug_SearchDirPaths, {},
-            "Paths to search for separated shader debug PDBs.");
+            "Paths to search for separated shader debug PDBs, including all types of paths.");
+RDOC_CONFIG(rdcarray<rdcstr>, Replay_Shader_LimitedSearchDirPaths, {},
+            "Companion array to DXBC.Debug.SearchDirPaths - listing paths which should not be "
+            "searched exhaustively but only used for simple lookups.");
 
 void LogReplayOptions(const ReplayOptions &opts)
 {

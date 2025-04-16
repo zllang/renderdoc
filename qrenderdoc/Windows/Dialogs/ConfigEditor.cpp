@@ -565,12 +565,12 @@ QWidget *SettingDelegate::createEditor(QWidget *parent, const QStyleOptionViewIt
       listEditor.setWindowTitle(tr("Edit values of %1").arg(QString(settingName)));
       listEditor.setWindowFlags(listEditor.windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
-      ItemButton mode = ItemButton::None;
+      OrderedItemExtras mode = OrderedItemExtras::None;
 
       if(QString(o->name).contains(lit("DirPath"), Qt::CaseSensitive))
-        mode = ItemButton::BrowseFolder;
+        mode = OrderedItemExtras::BrowseFolder;
       else if(QString(o->name).contains(lit("Path"), Qt::CaseSensitive))
-        mode = ItemButton::BrowseFile;
+        mode = OrderedItemExtras::BrowseFile;
 
       OrderedListEditor list(tr("Entry"), mode);
 

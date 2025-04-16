@@ -41,6 +41,7 @@
 
 // this is extern so that it can be shared with vulkan
 RDOC_EXTERN_CONFIG(rdcarray<rdcstr>, DXBC_Debug_SearchDirPaths);
+RDOC_EXTERN_CONFIG(rdcarray<rdcstr>, Replay_Shader_LimitedSearchDirPaths);
 
 namespace
 {
@@ -93,9 +94,16 @@ void CacheSearchDirDebugPaths()
     return;
 
   rdcarray<rdcstr> searchPaths = DXBC_Debug_SearchDirPaths();
+  rdcarray<rdcstr> limitedSearchPaths = Replay_Shader_LimitedSearchDirPaths();
 
   for(const rdcstr &base : searchPaths)
   {
+    if(limitedSearchPaths.contains(base))
+    {
+      RDCLOG("Not recursing to enumerate files under %s", base.c_str());
+      continue;
+    }
+
     size_t sz = cachedDebugFilesLookup.size();
     CacheSearchDirDebugPaths(base);
     RDCLOG("Recursively enumerated all files under %s, found %zu files", base.c_str(),
