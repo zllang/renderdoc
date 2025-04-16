@@ -1518,6 +1518,10 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
       // opens and (optionally if we have it matches the hash we're looking for)
       rdcstr tempPath = originalPath;
 
+      // if the path specified does not end in a .pdb it seems like PIX appends that, so do this just
+      // to match. It's really fun matching behaviour in an application that is deliberately undocumented
+      bool hasSuffix = tempPath.endsWith(".pdb") || tempPath.endsWith(".PDB");
+
       while(found.empty() && !tempPath.empty())
       {
         // while we haven't found a file, keep trying through the search paths. For i==0
@@ -1528,6 +1532,8 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
           {
             if(FileIO::exists(tempPath))
               found.path = tempPath;
+            else if(!hasSuffix && FileIO::exists(tempPath + ".pdb"))
+              found.path = tempPath + ".pdb";
             continue;
           }
           else
@@ -1538,6 +1544,8 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
 
             if(FileIO::exists(checkPath))
               found.path = checkPath;
+            else if(!hasSuffix && FileIO::exists(checkPath + ".pdb"))
+              found.path = checkPath + ".pdb";
           }
         }
 
@@ -1579,6 +1587,8 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
         CacheSearchDirDebugPaths();
 
         auto it = cachedDebugFilesLookup.find(originalPath);
+        if(it == cachedDebugFilesLookup.end() && !hasSuffix)
+          it = cachedDebugFilesLookup.find(originalPath + ".pdb");
         if(it != cachedDebugFilesLookup.end())
         {
           found.path = it->second;
