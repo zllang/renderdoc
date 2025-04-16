@@ -94,6 +94,7 @@ class VulkanAccelerationStructureManager
 {
 public:
   explicit VulkanAccelerationStructureManager(WrappedVulkan *driver);
+  void Cleanup();
 
   // Allocates readback mem and injects commands into the command buffer so that the input buffers
   // are copied.
@@ -148,4 +149,5 @@ private:
 
   Allocation scratch;
   VkDeviceOrHostAddressKHR scratchAddressUnion;
+  rdcarray<VkBuffer> scratchBuffers;
 };

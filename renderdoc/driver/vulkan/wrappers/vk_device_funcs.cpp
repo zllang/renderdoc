@@ -1044,6 +1044,8 @@ void WrappedVulkan::Shutdown()
   for(size_t i = 0; i < m_ReplayPhysicalDevices.size(); i++)
     GetResourceManager()->ReleaseWrappedResource(m_ReplayPhysicalDevices[i]);
 
+  m_ASManager->Cleanup();
+
   m_Replay->DestroyResources();
 
   m_IndirectBuffer.Destroy();
@@ -4839,6 +4841,8 @@ void WrappedVulkan::vkDestroyDevice(VkDevice device, const VkAllocationCallbacks
   SAFE_DELETE(m_DebugManager);
   SAFE_DELETE(m_ShaderCache);
   SAFE_DELETE(m_TextRenderer);
+
+  m_ASManager->Cleanup();
 
   // since we didn't create proper registered resources for our command buffers,
   // they won't be taken down properly with the pool. So we release them (just our

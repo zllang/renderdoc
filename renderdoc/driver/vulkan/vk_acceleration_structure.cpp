@@ -173,6 +173,16 @@ VulkanAccelerationStructureManager::VulkanAccelerationStructureManager(WrappedVu
 {
 }
 
+void VulkanAccelerationStructureManager::Cleanup()
+{
+  if(!scratchBuffers.empty())
+  {
+    const VkDevice d = m_pDriver->GetDev();
+    for(VkBuffer buf : scratchBuffers)
+      ObjDisp(d)->DestroyBuffer(Unwrap(d), buf, NULL);
+  }
+}
+
 RDResult VulkanAccelerationStructureManager::CopyInputBuffers(
     VkCommandBuffer commandBuffer, const VkAccelerationStructureBuildGeometryInfoKHR &info,
     const VkAccelerationStructureBuildRangeInfoKHR *buildRange)
@@ -966,9 +976,7 @@ void VulkanAccelerationStructureManager::UpdateScratch(VkDeviceSize requiredSize
     scratchAddressUnion.deviceAddress =
         ObjDisp(d)->GetBufferDeviceAddressKHR(Unwrap(d), &scratchAddressInfo);
 
-    // We do not need the buffer object, only the mem address
-    m_pDriver->AddPendingObjectCleanup(
-        [d, buf = scratch.buf]() { ObjDisp(d)->DestroyBuffer(Unwrap(d), buf, NULL); });
+    scratchBuffers.push_back(scratch.buf);
   }
 }
 
