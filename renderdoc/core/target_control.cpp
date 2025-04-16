@@ -988,7 +988,6 @@ extern "C" RENDERDOC_API ITargetControl *RENDERDOC_CC RENDERDOC_CreateTargetCont
     if(idx > 0)
     {
       host = deviceID.substr(0, idx);
-      port = atoi(deviceID.substr(idx + 1).c_str()) & 0xffff;
     }
   }
 
