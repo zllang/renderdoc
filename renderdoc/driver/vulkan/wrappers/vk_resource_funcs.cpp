@@ -3176,38 +3176,73 @@ bool WrappedVulkan::Serialise_vkBindImageMemory2(SerialiserType &ser, VkDevice d
       VkMemoryRequirements mrq = {};
       ObjDisp(device)->GetImageMemoryRequirements(Unwrap(device), Unwrap(bindInfo.image), &mrq);
 
-      bool ok = CheckMemoryRequirements(GetResourceDesc(resOrigId).name.c_str(),
-                                        GetResID(bindInfo.memory), bindInfo.memoryOffset, mrq,
-                                        imgInfo.external, imgInfo.mrq);
+      VkBindImageMemorySwapchainInfoKHR *swapBind =
+          (VkBindImageMemorySwapchainInfoKHR *)FindNextStruct(
+              &bindInfo, VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR);
 
-      if(!ok)
-        return false;
-
+      // can't reconstruct this on replay as we don't have the swapchain handle anymore, so just
+      // assume that a NULL memory object was valid if the structure was at least present...
+      if(swapBind && bindInfo.memory == VK_NULL_HANDLE)
       {
-        ResourceId id = GetResID(bindInfo.image);
-        LockedImageStateRef state = FindImageState(id);
-        if(!state)
+        MemoryAllocation all = AllocateMemoryForResource(
+            bindInfo.image, MemoryScope::ImmutableReplayDebug, MemoryType::GPULocal);
+
+        VkBindImageMemoryInfo &patchBindInfo = (VkBindImageMemoryInfo &)pBindInfos[i];
+        patchBindInfo.memory = all.mem;
+        patchBindInfo.memoryOffset = all.offs;
+
         {
-          RDCERR("Binding memory for unknown image %s", ToStr(id).c_str());
+          ResourceId id = GetResID(bindInfo.image);
+          LockedImageStateRef state = FindImageState(id);
+          if(!state)
+          {
+            RDCERR("Binding memory for unknown image %s", ToStr(id).c_str());
+          }
+          else
+          {
+            state->isMemoryBound = true;
+          }
         }
-        else
+      }
+      else
+      {
+        bool ok = CheckMemoryRequirements(GetResourceDesc(resOrigId).name.c_str(),
+                                          GetResID(bindInfo.memory), bindInfo.memoryOffset, mrq,
+                                          imgInfo.external, imgInfo.mrq);
+
+        if(!ok)
+          return false;
+
         {
-          state->isMemoryBound = true;
-          state->boundMemory = GetResID(bindInfo.memory);
-          state->boundMemoryOffset = bindInfo.memoryOffset;
-          state->boundMemorySize = mrq.size;
+          ResourceId id = GetResID(bindInfo.image);
+          LockedImageStateRef state = FindImageState(id);
+          if(!state)
+          {
+            RDCERR("Binding memory for unknown image %s", ToStr(id).c_str());
+          }
+          else
+          {
+            state->isMemoryBound = true;
+            state->boundMemory = GetResID(bindInfo.memory);
+            state->boundMemoryOffset = bindInfo.memoryOffset;
+            state->boundMemorySize = mrq.size;
+          }
         }
       }
 
-      GetResourceDesc(memOrigId).derivedResources.push_back(resOrigId);
-      GetResourceDesc(resOrigId).parentResources.push_back(memOrigId);
-
-      AddResourceCurChunk(memOrigId);
       AddResourceCurChunk(resOrigId);
 
-      m_CreationInfo.m_Memory[GetResID(bindInfo.memory)].BindMemory(
-          bindInfo.memoryOffset, mrq.size,
-          imgInfo.linear ? VulkanCreationInfo::Memory::Linear : VulkanCreationInfo::Memory::Tiled);
+      if(memOrigId != ResourceId())
+      {
+        GetResourceDesc(memOrigId).derivedResources.push_back(resOrigId);
+        GetResourceDesc(resOrigId).parentResources.push_back(memOrigId);
+
+        AddResourceCurChunk(memOrigId);
+
+        m_CreationInfo.m_Memory[GetResID(bindInfo.memory)].BindMemory(
+            bindInfo.memoryOffset, mrq.size,
+            imgInfo.linear ? VulkanCreationInfo::Memory::Linear : VulkanCreationInfo::Memory::Tiled);
+      }
     }
 
     VkBindImageMemoryInfo *unwrapped = UnwrapInfos(m_State, pBindInfos, bindInfoCount);
@@ -3291,13 +3326,28 @@ VkResult WrappedVulkan::vkBindImageMemory2(VkDevice device, uint32_t bindInfoCou
       // to memory mid-frame
       imgrecord->AddChunk(chunk);
 
-      imgrecord->AddParent(memrecord);
+      VkBindImageMemorySwapchainInfoKHR *swapBind =
+          (VkBindImageMemorySwapchainInfoKHR *)FindNextStruct(
+              &pBindInfos[i], VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR);
 
-      // images are a base resource but we want to track where their memory comes from.
-      // Anything that looks up a baseResource for an image knows not to chase further
-      // than the image.
-      imgrecord->baseResourceMem = imgrecord->baseResource = memrecord->GetResourceID();
-      imgrecord->dedicated = memrecord->memMapState->dedicated;
+      if(swapBind && swapBind->swapchain != VK_NULL_HANDLE)
+      {
+        VkResourceRecord *swaprecord = GetRecord(swapBind->swapchain);
+
+        imgrecord->InternalResource = true;
+
+        imgrecord->AddParent(swaprecord);
+      }
+      else
+      {
+        imgrecord->AddParent(memrecord);
+
+        // images are a base resource but we want to track where their memory comes from.
+        // Anything that looks up a baseResource for an image knows not to chase further
+        // than the image.
+        imgrecord->baseResourceMem = imgrecord->baseResource = memrecord->GetResourceID();
+        imgrecord->dedicated = memrecord->memMapState->dedicated;
+      }
     }
   }
   else
