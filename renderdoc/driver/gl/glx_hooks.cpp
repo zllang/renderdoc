@@ -758,7 +758,7 @@ GLX_PASSTHRU_4(GLXWindow, glXCreateWindow, Display *, dpy, GLXFBConfig, config, 
                const int *, attrib_list);
 GLX_PASSTHRU_2(void, glXDestroyWindow, Display *, dpy, GLXWindow, window);
 
-static void GLXHooked(void *handle)
+static void GLXHooked(void *handle, const char *)
 {
   RDCDEBUG("GLX library hooked");
 

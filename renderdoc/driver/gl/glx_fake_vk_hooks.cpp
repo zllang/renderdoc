@@ -36,7 +36,7 @@ public:
     LibraryHooks::RegisterLibraryHook("libGL.so.1", &FakeVkHooked);
   }
 
-  static void FakeVkHooked(void *handle) { searchHandle = handle; }
+  static void FakeVkHooked(void *handle, const char *) { searchHandle = handle; }
   static void *searchHandle;
 } fakevkhook;
 

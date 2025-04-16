@@ -27,7 +27,7 @@
 
 static MetalHook metalhook;
 
-static void MetalHooked(void *handle)
+static void MetalHooked(void *handle, const char *)
 {
   RDCDEBUG("Metal library hooked");
 
