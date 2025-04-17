@@ -247,7 +247,7 @@ VulkanTextRenderer::VulkanTextRenderer(WrappedVulkan *driver)
         VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, NULL, 0, 1, &attDesc, 1, &sub,
     };
 
-    RDCASSERTEQUAL(BBFormats.size(), VulkanTextRenderer::NUM_BB_FORMATS);
+    RDCASSERTEQUAL(BBFormats.size(), int(NUM_BB_FORMATS));
 
     for(size_t i = 0; i < BBFormats.size(); i++)
     {
