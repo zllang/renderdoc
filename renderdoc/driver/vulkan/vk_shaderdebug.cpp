@@ -6119,11 +6119,12 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
     byte *LaneData = (byte *)(winner + 1);
 
     numThreads = 4;
+    const uint32_t subgroupSize = winner->subgroupSize;
 
     if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Subgroup)
     {
-      RDCASSERTNOTEQUAL(winner->subgroupSize, 0);
-      numThreads = RDCMAX(numThreads, winner->subgroupSize);
+      RDCASSERTNOTEQUAL(subgroupSize, 0);
+      numThreads = RDCMAX(numThreads, subgroupSize);
     }
 
     if(shadRefl.patchData.threadScope & rdcspv::ThreadScope::Workgroup)
@@ -6140,7 +6141,7 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
 
     laneIndex = ~0U;
 
-    for(uint32_t t = 0; t < winner->subgroupSize; t++)
+    for(uint32_t t = 0; t < subgroupSize; t++)
     {
       byte *value = LaneData + t * structStride;
 
@@ -6218,9 +6219,9 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
                              groupid[2] * threadDim[2] + tz);
 
               RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::IndexInSubgroup].value.u32v[0],
-                             i % winner->subgroupSize);
+                             i % subgroupSize);
               RDCASSERTEQUAL(thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup].value.u32v[0],
-                             i / winner->subgroupSize);
+                             i / subgroupSize);
             }
             else
             {
@@ -6229,12 +6230,12 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
                                  groupid[1] * threadDim[1] + ty, groupid[2] * threadDim[2] + tz, 0U);
               // tightly wrap subgroups, this is likely not how the GPU actually assigns them
               thread_builtins[ShaderBuiltin::IndexInSubgroup] =
-                  ShaderVariable(rdcstr(), i % winner->subgroupSize, 0U, 0U, 0U);
+                  ShaderVariable(rdcstr(), i % subgroupSize, 0U, 0U, 0U);
               thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
-                  ShaderVariable(rdcstr(), i / winner->subgroupSize, 0U, 0U, 0U);
+                  ShaderVariable(rdcstr(), i / subgroupSize, 0U, 0U, 0U);
               apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active] = 1;
               apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::SubgroupId] =
-                  i % winner->subgroupSize;
+                  i % subgroupSize;
             }
 
             i++;
@@ -6243,12 +6244,37 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
       }
     }
 
+    // Add inactive padding lanes to round up to the subgroup size
+    const uint32_t numPaddingThreads = AlignUp(numThreads, subgroupSize) - numThreads;
+    if(numPaddingThreads > 0)
+    {
+      uint32_t newNumThreads = numThreads + numPaddingThreads;
+      apiWrapper->thread_props.resize(newNumThreads);
+      apiWrapper->thread_builtins.resize(newNumThreads);
+      for(uint32_t i = numThreads; i < newNumThreads; ++i)
+      {
+        std::unordered_map<ShaderBuiltin, ShaderVariable> &thread_builtins =
+            apiWrapper->thread_builtins[i];
+
+        thread_builtins[ShaderBuiltin::DispatchThreadIndex] =
+            ShaderVariable(rdcstr(), -1, -1, -1, -1);
+        thread_builtins[ShaderBuiltin::GroupThreadIndex] = ShaderVariable(rdcstr(), -1, -1, -1, -1);
+        thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(rdcstr(), -1, -1, -1, -1);
+        thread_builtins[ShaderBuiltin::IndexInSubgroup] =
+            ShaderVariable(rdcstr(), i % subgroupSize, 0U, 0U, 0U);
+        thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
+            ShaderVariable(rdcstr(), i / subgroupSize, 0U, 0U, 0U);
+        apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active] = 0;
+        apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::SubgroupId] = i % subgroupSize;
+      }
+      numThreads = newNumThreads;
+    }
     apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
-        ShaderVariable(rdcstr(), winner->subgroupSize, 0U, 0U, 0U);
+        ShaderVariable(rdcstr(), subgroupSize, 0U, 0U, 0U);
 
     ShaderDebugTrace *ret =
         debugger->BeginDebug(apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines,
-                             shadRefl.patchData, laneIndex, numThreads, winner->subgroupSize);
+                             shadRefl.patchData, laneIndex, numThreads, subgroupSize);
     apiWrapper->ResetReplay();
 
     return ret;
