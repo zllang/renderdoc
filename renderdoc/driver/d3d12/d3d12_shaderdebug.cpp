@@ -3767,7 +3767,20 @@ ShaderDebugTrace *D3D12Replay::DebugThread(uint32_t eventId,
           0U, 0U);
     }
 
-    // plain single thread case
+    // Add inactive padding lanes to round up to the subgroup size
+    const uint32_t numPaddingThreads = AlignUp(numThreads, subgroupSize) - numThreads;
+    if(numPaddingThreads > 0)
+    {
+      uint32_t newNumThreads = numThreads + numPaddingThreads;
+      workgroupProperties.resize(newNumThreads);
+      for(uint32_t i = numThreads; i < newNumThreads; ++i)
+      {
+        workgroupProperties[i][DXILDebug::ThreadProperty::Active] = 0;
+        workgroupProperties[i][DXILDebug::ThreadProperty::SubgroupIdx] = i % subgroupSize;
+      }
+      numThreads = newNumThreads;
+    }
+
     DXILDebug::Debugger *debugger = new DXILDebug::Debugger();
     ret = debugger->BeginDebug(eventId, dxbc, refl, activeLaneIndex, numThreads);
     DXILDebug::GlobalState &globalState = debugger->GetGlobalState();
