@@ -13,11 +13,116 @@ class Subgroup_Zoo(rdtest.TestCase):
             return True, ''
         return False, 'Disabled test'
 
+    def check_compute_thread_result(self, test, action, x, y, z, dim, bufdata):
+        try:
+            real = struct.unpack_from(
+                "4f", bufdata, 16*y*dim[0] + 16*x)
+
+            trace = self.controller.DebugThread(
+                (0, 0, 0), (x, y, z))
+
+            _, variables = self.process_trace(trace)
+
+            if trace.debugger is None:
+                raise rdtest.TestFailureException(f"Test {test} at {action.eventId} got no debug result at {x},{y},{z}")
+
+            # Find the source variable 'data' at the highest instruction index
+            name = 'data'
+            debugged = None
+            countInst = len(trace.instInfo)
+            for inst in range(countInst):
+                sourceVars = trace.instInfo[countInst-1-inst].sourceVars
+                try:
+                    dataVars = [v for v in sourceVars if v.name == name]
+                    if len(dataVars) == 0:
+                        continue
+                    debugged = self.evaluate_source_var(dataVars[0], variables)
+                except KeyError as ex:
+                    continue
+                except rdtest.TestFailureException as ex:
+                    continue
+                break
+            if debugged is None:
+                raise rdtest.TestFailureException(f"Couldn't find source variable {name} at {x},{y},{z}")
+
+            debuggedValue = list(debugged.value.f32v[0:4])
+
+            if not rdtest.value_compare(real, debuggedValue, eps=5.0E-06):
+                raise rdtest.TestFailureException(f"EID:{action.eventId} TID:{x},{y},{z} debugged thread value {debuggedValue} does not match output {real}")
+
+        except rdtest.TestFailureException as ex:
+            rdtest.log.error(f"Test {test} failed {ex}")
+            return False
+        finally:
+            self.controller.FreeTrace(trace)
+
+        return True
+
+    def check_compute_tests(self, compute_dims, thread_checks):
+        overallFailed = False
+        for comp_dim in compute_dims:
+            rdtest.log.begin_section(
+                f"Compute tests with {comp_dim.customName} workgroup")
+
+            compute_tests = [
+                a for a in comp_dim.children if a.flags & rd.ActionFlags.Dispatch]
+
+            for test, action in enumerate(compute_tests):
+                failed = False
+                self.controller.SetFrameEvent(action.eventId, False)
+
+                pipe = self.controller.GetPipelineState()
+                csrefl = pipe.GetShaderReflection(rd.ShaderStage.Compute)
+
+                dim = csrefl.dispatchThreadsDimension
+
+                rw = pipe.GetReadWriteResources(rd.ShaderStage.Compute)
+
+                if len(rw) != 1:
+                    rdtest.log.error("Unexpected number of RW resources")
+                    continue
+
+                # each test writes up to 16k data, one vec4 per thread * up to 1024 threads
+                bufdata = self.controller.GetBufferData(
+                    rw[0].descriptor.resource, test*16*1024, 16*1024)
+
+                for t in thread_checks:
+                    xrange = 1
+                    yrange = dim[1]
+                    xbase = t
+                    ybase = 0
+
+                    # vertical orientation
+                    if dim[1] > dim[0]:
+                        xrange = dim[0]
+                        yrange = 1
+                        xbase = 0
+                        ybase = t
+
+                    for x in range(xbase, xbase+xrange):
+                        for y in range(ybase, ybase+yrange):
+                            z = 0
+
+                            if x >= dim[0] or y >= dim[1]:
+                                continue
+
+                            if not self.check_compute_thread_result(test, action, x, y, z, dim, bufdata):
+                                failed = True
+
+                overallFailed |= failed
+                if not failed:
+                    rdtest.log.success(f"Test {test} successful")
+                else:
+                    rdtest.log.error(f"Test {test} failed")
+
+            rdtest.log.end_section(
+                f"Compute tests with {comp_dim.customName} workgroup")
+
+        return overallFailed
+
     def check_capture(self):
         graphics_tests = [a for a in self.find_action(
             "Graphics Tests").children if a.flags & rd.ActionFlags.Drawcall]
-        compute_dims = [a for a in self.find_action(
-            "Compute Tests").children if 'x' in a.customName]
 
         rdtest.log.begin_section("Graphics tests")
 
@@ -33,19 +138,6 @@ class Subgroup_Zoo(rdtest.TestCase):
             (64, 64), (65, 64), (64, 65), (65, 65),
             # middle quad on other triangle
             (56, 64), (57, 64), (56, 65), (57, 65),
-        ]
-        # threads to check. largest dimension only (all small dim checked)
-        thread_checks = [
-            # first few
-            0, 1, 2,
-            # near end of 32-subgroup and boundary
-            30, 31, 32,
-            # near end of 64-subgroup and boundary
-            62, 63, 64,
-            # near end of 64-subgroup and boundary
-            62, 63, 64,
-            # large values spaced out with one near the end of our unaligned size
-            100, 110, 120, 140, 149, 150, 160, 200, 250,
         ]
         clear_col = (123456.0, 789.0, 101112.0, 0.0)
 
@@ -163,102 +255,21 @@ class Subgroup_Zoo(rdtest.TestCase):
 
         rdtest.log.end_section("Graphics tests")
 
-        for comp_dim in compute_dims:
-            rdtest.log.begin_section(
-                f"Compute tests with {comp_dim.customName} workgroup")
+        # threads to check. largest dimension only (all small dim checked)
+        thread_checks = [
+            # first few
+            0, 1, 2,
+            # near end of 32-subgroup and boundary
+            30, 31, 32, 33, 34,
+            # near end of 64-subgroup and boundary
+            62, 63, 64, 64, 65,
+            # large values spaced out with one near the end of our unaligned size
+            100, 110, 120, 140, 149, 150, 160, 200, 250,
+        ]
+        compute_dims = [a for a in self.find_action(
+            "Compute Tests").children if 'x' in a.customName]
 
-            compute_tests = [
-                a for a in comp_dim.children if a.flags & rd.ActionFlags.Dispatch]
-
-            for test, action in enumerate(compute_tests):
-                failed = False
-                self.controller.SetFrameEvent(action.eventId, False)
-
-                pipe = self.controller.GetPipelineState()
-                csrefl = pipe.GetShaderReflection(rd.ShaderStage.Compute)
-
-                dim = csrefl.dispatchThreadsDimension
-
-                rw = pipe.GetReadWriteResources(rd.ShaderStage.Compute)
-
-                if len(rw) != 1:
-                    rdtest.log.error("Unexpected number of RW resources")
-                    continue
-
-                # each test writes up to 16k data, one vec4 per thread * up to 1024 threads
-                bufdata = self.controller.GetBufferData(
-                    rw[0].descriptor.resource, test*16*1024, 16*1024)
-
-                for t in thread_checks:
-                    xrange = 1
-                    yrange = dim[1]
-                    xbase = t
-                    ybase = 0
-
-                    # vertical orientation
-                    if dim[1] > dim[0]:
-                        xrange = dim[0]
-                        yrange = 1
-                        xbase = 0
-                        ybase = t
-
-                    for x in range(xbase, xbase+xrange):
-                        for y in range(ybase, ybase+yrange):
-                            z = 0
-
-                            if x >= dim[0] or y >= dim[1]:
-                                continue
-
-                            try:
-                                real = struct.unpack_from(
-                                    "4f", bufdata, 16*y*dim[0] + 16*x)
-
-                                trace = self.controller.DebugThread(
-                                    (0, 0, 0), (x, y, z))
-
-                                _, variables = self.process_trace(trace)
-
-                                if trace.debugger is None:
-                                    raise rdtest.TestFailureException(f"Test {test} at {action.eventId} got no debug result at {x},{y},{z}")
-
-                                # Find the source variable 'data' at the highest instruction index
-                                debugged = None
-                                countInst = len(trace.instInfo)
-                                for inst in range(countInst):
-                                    sourceVars = trace.instInfo[countInst-1-inst].sourceVars
-                                    try:
-                                        dataVars = [v for v in sourceVars if v.name == 'data']
-                                        if len(dataVars) == 0:
-                                            continue
-                                        debugged = self.evaluate_source_var(dataVars[0], variables)
-                                    except KeyError as ex:
-                                        continue
-                                    except rdtest.TestFailureException as ex:
-                                        continue
-                                    break
-                                if debugged is None:
-                                    raise rdtest.TestFailureException(f"Couldn't find source variable {name}")
-
-                                debuggedValue = list(debugged.value.f32v[0:4])
-
-                                if not rdtest.value_compare(real, debuggedValue, eps=5.0E-06):
-                                    raise rdtest.TestFailureException(f"EID:{action.eventId} TID:{x},{y},{z} debugged thread value {debuggedValue} does not match output {real}")
-
-                            except rdtest.TestFailureException as ex:
-                                rdtest.log.error(f"Test {test} failed {ex}")
-                                failed = True
-                                continue
-                            finally:
-                                self.controller.FreeTrace(trace)
-
-                overallFailed |= failed
-                if not failed:
-                    rdtest.log.success(f"Test {test} successful")
-                else:
-                    rdtest.log.error(f"Test {test} failed")
-
-            rdtest.log.end_section(
-                f"Compute tests with {comp_dim.customName} workgroup")
+        overallFailed |= self.check_compute_tests(compute_dims, thread_checks)
 
         if overallFailed:
             raise rdtest.TestFailureException("Some tests were not as expected")

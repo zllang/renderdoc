@@ -25,10 +25,10 @@
 #include "3rdparty/fmt/core.h"
 #include "d3d12_test.h"
 
-RD_TEST(D3D12_Subgroup_Zoo, D3D12GraphicsTest)
+RD_TEST(D3D12_Workgroup_Zoo, D3D12GraphicsTest)
 {
   static constexpr const char *Description =
-      "Test of behaviour around subgroup operations in shaders.";
+      "Test of behaviour around workgroup operations in shaders.";
 
   const std::string common = R"EOSHADER(
 
@@ -41,132 +41,17 @@ cbuffer rootconsts : register(b0)
 
 )EOSHADER";
 
-  const std::string pixelCommon = common + R"EOSHADER(
-
-struct IN
-{
-  float4 pos : SV_Position;
-  float4 data : DATA;
-};
-
-)EOSHADER";
-
   const std::string compCommon = common + R"EOSHADER(
 
 RWStructuredBuffer<float4> outbuf : register(u0);
 
 static uint3 tid;
 
+groupshared uint4 gsmUint4[1024];
+
 void SetOutput(float4 data)
 {
   outbuf[root_test * 1024 + tid.y * GROUP_SIZE_X + tid.x] = data;
-}
-
-)EOSHADER";
-
-  const std::string vertex = common + R"EOSHADER(
-
-struct OUT
-{
-  float4 pos : SV_Position;
-  float4 data : DATA;
-};
-
-OUT main(uint vert : SV_VertexID)
-{
-  OUT ret = (OUT)0;
-
-  float2 positions[] = {
-    float2(-1.0f,  1.0f),
-    float2( 1.0f,  1.0f),
-    float2(-1.0f, -1.0f),
-    float2( 1.0f, -1.0f),
-  };
-
-  float scale = 1.0f;
-  if(IsTest(2))
-    scale = 0.2f;
-
-  ret.pos = float4(positions[vert]*float2(scale,scale), 0, 1);
-
-  ret.data = 0.0f.xxxx;
-
-  uint wave = WaveGetLaneIndex();
-
-  if(IsTest(0))
-    ret.data = float4(wave, 0, 0, 1);
-  else if(IsTest(3))
-    ret.data = float4(WaveActiveSum(wave), 0, 0, 0);
-
-  return ret;
-}
-
-)EOSHADER";
-
-  const std::string pixel = pixelCommon + R"EOSHADER(
-
-float4 main(IN input) : SV_Target0
-{
-  uint subgroupId = WaveGetLaneIndex();
-
-  float4 pixdata = 0.0f.xxxx;
-
-  if(IsTest(1) || IsTest(2))
-  {
-    pixdata = float4(subgroupId, 0, 0, 1);
-  }
-  else if(IsTest(4))
-  {
-    pixdata = float4(WaveActiveSum(subgroupId), 0, 0, 0);
-  }
-  else if(IsTest(5))
-  {
-    // QuadReadLaneAt : unit tests
-    pixdata.x = float(QuadReadLaneAt(subgroupId, 0));
-    pixdata.y = float(QuadReadLaneAt(subgroupId, 1));
-    pixdata.z = float(QuadReadLaneAt(subgroupId, 2));
-    pixdata.w = float(QuadReadLaneAt(subgroupId, 3));
-  }
-  else if(IsTest(6))
-  {
-    // QuadReadAcrossDiagonal, QuadReadAcrossX, QuadReadAcrossY: unit tests
-    pixdata.x = float(QuadReadAcrossDiagonal(subgroupId));
-    pixdata.y = float(QuadReadAcrossX(subgroupId));
-    pixdata.z = float(QuadReadAcrossY(subgroupId));
-    pixdata.w = QuadReadLaneAt(pixdata.x, 2);
-  }
-  else if(IsTest(7))
-  {
-    // QuadAny, QuadAll: unit tests
-    pixdata.x = float(QuadAny(subgroupId > 2));
-    pixdata.y = float(QuadAll(subgroupId < 10));
-    pixdata.z = float(QuadAny(pixdata.x == 0.0f));
-    pixdata.w = float(QuadAll(pixdata.x == 0.0f));
-  }
-
-  return input.data + pixdata;
-}
-
-)EOSHADER";
-
-  const std::string pixel67 = pixelCommon + R"EOSHADER(
-
-float4 main(IN input) : SV_Target0
-{
-  uint subgroupId = WaveGetLaneIndex();
-
-  float4 pixdata = 0.0f.xxxx;
-
-  if(IsTest(0))
-  {
-    // QuadAny, QuadAll: unit tests
-    pixdata.x = float(QuadAny(subgroupId > 2));
-    pixdata.y = float(QuadAll(subgroupId < 10));
-    pixdata.z = float(QuadAny(pixdata.x == 0.0f));
-    pixdata.w = float(QuadAll(pixdata.x == 0.0f));
-  }
-
-  return pixdata;
 }
 
 )EOSHADER";
@@ -216,12 +101,11 @@ float4 funcTest(uint id)
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
 void main(uint3 inTid : SV_DispatchThreadID)
 {
-  float4 data = 0.0f.xxxx;
   tid = inTid;
-
+  float4 data = 0.0f.xxxx;
   uint id = WaveGetLaneIndex();
-
-  SetOutput(id);
+  gsmUint4[id] = id;
+  SetOutput(data);
 
   if(IsTest(0))
   {
@@ -402,43 +286,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = float(WaveActiveAllEqual(test4).w);
     }
   }
-  SetOutput(data);
-}
 
-)EOSHADER";
-
-  const std::string comp65 = compCommon + R"EOSHADER(
-
-[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void main(uint3 inTid : SV_DispatchThreadID)
-{
-  float4 data = 0.0f.xxxx;
-  tid = inTid;
-
-  uint id = WaveGetLaneIndex();
-
-  SetOutput(id);
-
-  if(IsTest(0))
-  {
-    // SM6.5 functions : unit tests
-    uint4 mask = WaveMatch(id);
-    data.x = countbits(mask.x) + countbits(mask.y) + countbits(mask.z) + countbits(mask.w);
-    mask = WaveMatch(id%3 == 1);
-    data.y = countbits(mask.x) + countbits(mask.y) + countbits(mask.z) + countbits(mask.w);
-    mask = WaveMatch(id%5 == 1);
-		data.z = WaveMultiPrefixSum(id, mask);
-		data.w = WaveMultiPrefixProduct(id, mask);
-  }
-  if(IsTest(1))
-  {
-    // SM6.5 functions : unit tests
-    uint4 mask = WaveMatch(id%7 == 1);
-		data.x = WaveMultiPrefixCountBits(id, mask);
-		data.y = WaveMultiPrefixBitAnd((id+7)*3, mask);
-		data.z = WaveMultiPrefixBitOr(id, mask);
-		data.w = WaveMultiPrefixBitXor(id, mask);
-  }
   SetOutput(data);
 }
 
@@ -474,97 +322,28 @@ void main(uint3 inTid : SV_DispatchThreadID)
     D3D12_CPU_DESCRIPTOR_HANDLE fltRTV = MakeRTV(fltTex).CreateCPU(0);
     D3D12_GPU_DESCRIPTOR_HANDLE fltSRV = MakeSRV(fltTex).CreateGPU(8);
 
-    int vertTests = 0;
-    int numPixelTests60 = 0;
-    int numPixelTests67 = 0;
-    int numCompTests60 = 0;
-    int numCompTests65 = 0;
+    int32_t numCompTests = 0;
 
+    size_t pos = 0;
+    while(pos != std::string::npos)
     {
-      size_t pos = 0;
-      while(pos != std::string::npos)
-      {
-        pos = pixel.find("IsTest(", pos);
-        if(pos == std::string::npos)
-          break;
-        pos += sizeof("IsTest(") - 1;
-        numPixelTests60 = std::max(numPixelTests60, atoi(pixel.c_str() + pos) + 1);
-      }
-      pos = 0;
-      while(pos != std::string::npos)
-      {
-        pos = pixel67.find("IsTest(", pos);
-        if(pos == std::string::npos)
-          break;
-        pos += sizeof("IsTest(") - 1;
-        numPixelTests67 = std::max(numCompTests65, atoi(pixel67.c_str() + pos) + 1);
-      }
-
-      pos = 0;
-      while(pos != std::string::npos)
-      {
-        pos = vertex.find("IsTest(", pos);
-        if(pos == std::string::npos)
-          break;
-        pos += sizeof("IsTest(") - 1;
-        vertTests = std::max(vertTests, atoi(vertex.c_str() + pos) + 1);
-      }
-
-      pos = 0;
-      while(pos != std::string::npos)
-      {
-        pos = comp.find("IsTest(", pos);
-        if(pos == std::string::npos)
-          break;
-        pos += sizeof("IsTest(") - 1;
-        numCompTests60 = std::max(numCompTests60, atoi(comp.c_str() + pos) + 1);
-      }
-      pos = 0;
-      while(pos != std::string::npos)
-      {
-        pos = comp65.find("IsTest(", pos);
-        if(pos == std::string::npos)
-          break;
-        pos += sizeof("IsTest(") - 1;
-        numCompTests65 = std::max(numCompTests65, atoi(comp65.c_str() + pos) + 1);
-      }
+      pos = comp.find("IsTest(", pos);
+      if(pos == std::string::npos)
+        break;
+      pos += sizeof("IsTest(") - 1;
+      numCompTests = std::max(numCompTests, atoi(comp.c_str() + pos) + 1);
     }
-
-    const uint32_t numGraphicsTests60 = std::max(vertTests, numPixelTests60);
-    const uint32_t numGraphicsTests67 = numPixelTests67;
-    const uint32_t numCompTests = std::max(numCompTests60, numCompTests65);
 
     struct
     {
       int x, y;
     } compsize[] = {
-        {256, 1},
-        {128, 2},
-        {8, 128},
-        {150, 1},
+        {70, 1},
     };
     std::string comppipe_name[ARRAY_COUNT(compsize)];
     ID3D12PipelineStatePtr comppipe[ARRAY_COUNT(compsize)];
-    ID3D12PipelineStatePtr comppipe65[ARRAY_COUNT(compsize)];
 
-    std::string defines60;
-    std::string defines65;
-
-    bool supportSM65 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_5) && m_DXILSupport;
-    bool supportSM67 = (m_HighestShaderModel >= D3D_SHADER_MODEL_6_7) && m_DXILSupport;
-
-    ID3D12PipelineStatePtr graphics60 = MakePSO()
-                                            .RootSig(sig)
-                                            .VS(Compile(defines60 + vertex, "main", "vs_6_0"))
-                                            .PS(Compile(defines60 + pixel, "main", "ps_6_0"))
-                                            .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
-    ID3D12PipelineStatePtr graphics67;
-    if(supportSM67)
-      graphics67 = MakePSO()
-                       .RootSig(sig)
-                       .VS(Compile(defines60 + vertex, "main", "vs_6_0"))
-                       .PS(Compile(defines60 + pixel67, "main", "ps_6_7"))
-                       .RTVs({DXGI_FORMAT_R32G32B32A32_FLOAT});
+    std::string defines;
 
     for(int i = 0; i < ARRAY_COUNT(comppipe); i++)
     {
@@ -574,15 +353,8 @@ void main(uint3 inTid : SV_DispatchThreadID)
       comppipe_name[i] = fmt::format("{}x{}", compsize[i].x, compsize[i].y);
 
       comppipe[i] =
-          MakePSO().RootSig(sig).CS(Compile(defines60 + sizedefine + comp, "main", "cs_6_0"));
+          MakePSO().RootSig(sig).CS(Compile(defines + sizedefine + comp, "main", "cs_6_0"));
       comppipe[i]->SetName(UTF82Wide(comppipe_name[i]).c_str());
-
-      if(supportSM65)
-      {
-        comppipe65[i] =
-            MakePSO().RootSig(sig).CS(Compile(defines65 + sizedefine + comp65, "main", "cs_6_5"));
-        comppipe65[i]->SetName(UTF82Wide(comppipe_name[i]).c_str());
-      }
     }
 
     ID3D12ResourcePtr bufOut = MakeBuffer().Size(sizeof(Vec4f) * 1024 * numCompTests).UAV();
@@ -605,46 +377,6 @@ void main(uint3 inTid : SV_DispatchThreadID)
 
       ClearRenderTargetView(cmd, BBRTV, {0.2f, 0.2f, 0.2f, 1.0f});
 
-      cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-
-      RSSetViewport(cmd, {0.0f, 0.0f, (float)imgDim, (float)imgDim, 0.0f, 1.0f});
-      RSSetScissorRect(cmd, {0, 0, imgDim, imgDim});
-
-      pushMarker(cmd, "Graphics Tests");
-
-      cmd->SetPipelineState(graphics60);
-      cmd->SetGraphicsRootSignature(sig);
-
-      for(uint32_t i = 0; i < numGraphicsTests60; i++)
-      {
-        ResourceBarrier(cmd);
-
-        OMSetRenderTargets(cmd, {fltRTV}, {});
-        ClearRenderTargetView(cmd, fltRTV, {123456.0f, 789.0f, 101112.0f, 0.0f});
-
-        cmd->SetGraphicsRoot32BitConstant(0, i, 0);
-        cmd->DrawInstanced(4, 1, 0, 0);
-      }
-
-      if(supportSM67)
-      {
-        cmd->SetPipelineState(graphics67);
-        cmd->SetGraphicsRootSignature(sig);
-
-        for(uint32_t i = 0; i < numGraphicsTests67; i++)
-        {
-          ResourceBarrier(cmd);
-
-          OMSetRenderTargets(cmd, {fltRTV}, {});
-          ClearRenderTargetView(cmd, fltRTV, {123456.0f, 789.0f, 101112.0f, 0.0f});
-
-          cmd->SetGraphicsRoot32BitConstant(0, i, 0);
-          cmd->DrawInstanced(4, 1, 0, 0);
-        }
-      }
-
-      popMarker(cmd);
-
       pushMarker(cmd, "Compute Tests");
 
       for(size_t p = 0; p < ARRAY_COUNT(comppipe); p++)
@@ -661,30 +393,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
         cmd->SetComputeRootSignature(sig);
         cmd->SetComputeRootUnorderedAccessView(1, bufOut->GetGPUVirtualAddress());
 
-        for(int i = 0; i < numCompTests60; i++)
-        {
-          cmd->SetComputeRoot32BitConstant(0, i, 0);
-          cmd->Dispatch(1, 1, 1);
-        }
-
-        popMarker(cmd);
-      }
-
-      for(size_t p = 0; p < ARRAY_COUNT(comppipe65); p++)
-      {
-        ResourceBarrier(cmd);
-
-        UINT zero[4] = {};
-        cmd->ClearUnorderedAccessViewUint(uavgpu, uavcpu, bufOut, zero, 0, NULL);
-
-        ResourceBarrier(cmd);
-        pushMarker(cmd, comppipe_name[p]);
-
-        cmd->SetPipelineState(comppipe65[p]);
-        cmd->SetComputeRootSignature(sig);
-        cmd->SetComputeRootUnorderedAccessView(1, bufOut->GetGPUVirtualAddress());
-
-        for(int i = 0; i < numCompTests65; i++)
+        for(int i = 0; i < numCompTests; i++)
         {
           cmd->SetComputeRoot32BitConstant(0, i, 0);
           cmd->Dispatch(1, 1, 1);

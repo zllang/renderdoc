@@ -718,6 +718,12 @@
     <ClCompile Include="d3d12\d3d12_subgroup_zoo.cpp">
       <Filter>D3D12\demos</Filter>
     </ClCompile>
+    <ClCompile Include="vk\vk_workgroup_zoo.cpp">
+      <Filter>Vulkan\demos</Filter>
+    </ClCompile>
+    <ClCompile Include="d3d12\d3d12_workgroup_zoo.cpp">
+      <Filter>D3D12\demos</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="D3D11">
