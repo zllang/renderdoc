@@ -1680,6 +1680,10 @@ void D3D12DebugManager::FillWithDiscardPattern(ID3D12GraphicsCommandListX *cmd,
 
     b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
 
+    // Special case for D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+    if(desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+      b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+
     D3D12_TEXTURE_BARRIER tex = {};
     D3D12_BARRIER_GROUP group = {};
 
@@ -1694,6 +1698,10 @@ void D3D12DebugManager::FillWithDiscardPattern(ID3D12GraphicsCommandListX *cmd,
       tex.LayoutAfter = D3D12_BARRIER_LAYOUT_COPY_DEST;
       tex.AccessAfter = D3D12_BARRIER_ACCESS_COPY_DEST;
       tex.SyncAfter = D3D12_BARRIER_SYNC_COPY;
+
+      // Special case for D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+      if(desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+        tex.LayoutAfter = D3D12_BARRIER_LAYOUT_COMMON;
 
       tex.Flags = D3D12_TEXTURE_BARRIER_FLAG_DISCARD;
       tex.Subresources.IndexOrFirstMipLevel = (UINT)sub;
@@ -1791,6 +1799,10 @@ void D3D12DebugManager::FillWithDiscardPattern(ID3D12GraphicsCommandListX *cmd,
         // transitioning to common makes it more compatible with an old barrier after that
         tex.LayoutAfter = D3D12_BARRIER_LAYOUT_COMMON;
       }
+
+      // Special case for D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS
+      if(desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS)
+        tex.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
 
       cmd->Barrier(1, &group);
     }
