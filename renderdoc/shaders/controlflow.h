@@ -72,7 +72,7 @@ public:
   void AddMergePoint(ExecutionPoint execPoint)
   {
     // only add a new merge point
-    if(execPoint != m_MergePoints.back())
+    if(!m_MergePoints.contains(execPoint))
       m_MergePoints.push_back(execPoint);
     m_StateChanged = true;
   }
