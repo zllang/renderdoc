@@ -2661,6 +2661,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
       for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + debugger.GetSubgroupSize(); lane++)
       {
+        RDCASSERT(lane < activeMask.size(), lane, activeMask.size());
         if(activeMask[lane])
         {
           activeLanes.push_back(lane - firstLaneInSub);
@@ -2771,6 +2772,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
       for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + debugger.GetSubgroupSize(); lane++)
       {
+        RDCASSERT(lane < activeMask.size(), lane, activeMask.size());
         if(activeMask[lane])
         {
           firstActiveLane = lane;
@@ -2778,9 +2780,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
         }
       }
 
-      RDCASSERT(firstActiveLane < debugger.GetSubgroupSize(), firstActiveLane,
-                debugger.GetSubgroupSize());
-
+      RDCASSERT(firstActiveLane < workgroup.size(), firstActiveLane, workgroup.size());
       SetDst(opdata.result, workgroup[firstActiveLane].GetSrc(value));
       break;
     }
@@ -2951,6 +2951,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
         lane = firstLaneInSub + uintComp(GetSrc(group.index), 0);
       }
 
+      RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
       SetDst(opdata.result, workgroup[lane].GetSrc(value));
       break;
     }
@@ -3159,6 +3160,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       const uint32_t firstLaneInSub = workgroupIndex - subgroupId;
       for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + debugger.GetSubgroupSize(); lane++)
       {
+        RDCASSERT(lane < activeMask.size(), lane, activeMask.size());
         if(activeMask[lane])
         {
           // if this is in our cluster (or we're not clustering)
@@ -3188,6 +3190,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
             break;
           }
 
+          RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
           ShaderVariable x = workgroup[lane].GetSrc(valueId);
 
           switch(opdata.op)
@@ -3353,6 +3356,8 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
           if(groupOp == GroupOperation::ExclusiveScan && lane == workgroupIndex)
             break;
 
+          RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
+
           uint32_t c = (lane - firstLaneInSub) / 32;
           uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
 
@@ -3383,6 +3388,7 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
           uint32_t c = (lane - firstLaneInSub) / 32;
           uint32_t bit = 1U << ((lane - firstLaneInSub) % 32U);
 
+          RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
           ShaderVariable x = workgroup[lane].GetSrc(valueId);
 
           if(x.value.u32v[0])
