@@ -1802,21 +1802,24 @@ bool ThreadState::JumpToBlock(const Block *target, bool divergencePoint)
   return true;
 }
 
-void ThreadState::GetSubgroupActiveLanes(const rdcarray<bool> &activeMask,
-                                         const rdcarray<ThreadState> &workgroup,
-                                         rdcarray<uint32_t> &activeLanes) const
+uint32_t ThreadState::GetSubgroupActiveLanes(const rdcarray<bool> &activeMask,
+                                             const rdcarray<ThreadState> &workgroup,
+                                             rdcarray<uint32_t> &activeLanes) const
 {
   const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
   for(uint32_t lane = firstLaneInSub; lane < firstLaneInSub + m_GlobalState.subgroupSize; lane++)
   {
+    RDCASSERT(lane < activeMask.size(), lane, activeMask.size());
     // wave operations exclude helpers
     if(activeMask[lane])
     {
-      if(!m_GlobalState.waveOpsIncludeHelpers && workgroup[lane - firstLaneInSub].m_Helper)
+      RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
+      if(!m_GlobalState.waveOpsIncludeHelpers && workgroup[lane].m_Helper)
         continue;
-      activeLanes.push_back(lane - firstLaneInSub);
+      activeLanes.push_back(lane);
     }
   }
+  return firstLaneInSub;
 }
 
 bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
@@ -3851,6 +3854,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               if(lane == m_WorkgroupIndex)
                 break;
 
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
@@ -3926,6 +3930,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               if(lane == maxLane)
                 break;
 
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
               count += x.value.u32v[0];
@@ -3986,11 +3991,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
-            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
-            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+            const uint32_t firstLaneInSub =
+                GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
 
             for(uint32_t lane : activeLanes)
             {
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
@@ -4071,6 +4077,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             for(uint32_t lane : activeLanes)
             {
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
@@ -4200,6 +4207,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             for(uint32_t lane : activeLanes)
             {
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
@@ -4259,11 +4267,12 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
-            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
-            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+            const uint32_t firstLaneInSub =
+                GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
 
             for(uint32_t lane : activeLanes)
             {
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
@@ -4326,8 +4335,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
-            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
-            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+            const uint32_t firstLaneInSub =
+                GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
 
             uint32_t maxLane = m_WorkgroupIndex;
 
@@ -4343,6 +4352,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               if((mask[maskCol] & bit) == 0)
                 continue;
 
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
               for(uint8_t c = 0; c < x.columns; c++)
@@ -4437,8 +4447,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
             // determine active lane indices in our subgroup
             rdcarray<uint32_t> activeLanes;
-            GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
-            const uint32_t firstLaneInSub = m_WorkgroupIndex - m_SubgroupIdx;
+            const uint32_t firstLaneInSub =
+                GetSubgroupActiveLanes(activeMask, workgroup, activeLanes);
 
             uint32_t maxLane = m_WorkgroupIndex;
 
@@ -4455,6 +4465,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
               if((mask[maskCol] & bit) == 0)
                 continue;
 
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
               count += x.value.u32v[0];
@@ -4581,6 +4592,7 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
                 lane = m_WorkgroupIndex;
               }
 
+              RDCASSERT(lane < workgroup.size(), lane, workgroup.size());
               ShaderVariable x;
               RDCASSERT(workgroup[lane].GetShaderVariable(inst.args[1], opCode, dxOpCode, x));
 
