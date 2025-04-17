@@ -294,9 +294,9 @@ void VulkanDebugManager::CopyDepthTex2DMSToBuffer(VkCommandBuffer cmd, VkBuffer 
 
   if((aspectFlags & VK_IMAGE_ASPECT_DEPTH_BIT) == 0)
   {
-    if(m_DummyDepthView != VK_NULL_HANDLE)
+    if(m_UnwrappedDummyDepthView != VK_NULL_HANDLE)
     {
-      srcdesc[0].imageView = Unwrap(m_DummyDepthView);
+      srcdesc[0].imageView = m_UnwrappedDummyDepthView;
     }
     else
     {
@@ -309,9 +309,9 @@ void VulkanDebugManager::CopyDepthTex2DMSToBuffer(VkCommandBuffer cmd, VkBuffer 
 
   if((aspectFlags & VK_IMAGE_ASPECT_STENCIL_BIT) == 0)
   {
-    if(m_DummyStencilView != VK_NULL_HANDLE)
+    if(m_UnwrappedDummyStencilView != VK_NULL_HANDLE)
     {
-      srcdesc[1].imageView = Unwrap(m_DummyStencilView);
+      srcdesc[1].imageView = m_UnwrappedDummyStencilView;
     }
     else
     {

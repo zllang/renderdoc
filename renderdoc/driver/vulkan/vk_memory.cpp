@@ -446,7 +446,10 @@ MemoryAllocation WrappedVulkan::AllocateMemoryForResource(bool buffer, VkMemoryR
     ret.mem = VK_NULL_HANDLE;
 
     if(vkr != VK_SUCCESS)
+    {
+      RDCERR("Failed allocating internal memory: %s", ToStr(vkr).c_str());
       return ret;
+    }
 
     GetResourceManager()->WrapResource(Unwrap(d), chunk.mem);
 

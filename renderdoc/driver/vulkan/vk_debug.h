@@ -148,11 +148,11 @@ private:
   VkPipeline m_DepthMS2BufferPipe = VK_NULL_HANDLE;
 
   // MSAA dummy images
-  VkDeviceMemory m_DummyMemory = VK_NULL_HANDLE;
-  VkImage m_DummyDepthImage = {VK_NULL_HANDLE};
-  VkImageView m_DummyDepthView = {VK_NULL_HANDLE};
-  VkImage m_DummyStencilImage = {VK_NULL_HANDLE};
-  VkImageView m_DummyStencilView = {VK_NULL_HANDLE};
+  VkDeviceMemory m_UnwrappedDummyMemory = VK_NULL_HANDLE;
+  VkImage m_UnwrappedDummyDepthImage = {VK_NULL_HANDLE};
+  VkImageView m_UnwrappedDummyDepthView = {VK_NULL_HANDLE};
+  VkImage m_UnwrappedDummyStencilImage = {VK_NULL_HANDLE};
+  VkImageView m_UnwrappedDummyStencilView = {VK_NULL_HANDLE};
 
   // dummy pipeline
   VkPipelineLayout m_DummyPipelineLayout = VK_NULL_HANDLE;

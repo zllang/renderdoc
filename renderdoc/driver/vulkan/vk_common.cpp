@@ -171,6 +171,11 @@ VkObjectType objType<VkBuffer>()
   return VK_OBJECT_TYPE_BUFFER;
 }
 template <>
+VkObjectType objType<VkDeviceMemory>()
+{
+  return VK_OBJECT_TYPE_DEVICE_MEMORY;
+}
+template <>
 VkObjectType objType<VkImage>()
 {
   return VK_OBJECT_TYPE_IMAGE;
@@ -270,7 +275,7 @@ void GPUBuffer::Create(WrappedVulkan *driver, VkDevice dev, VkDeviceSize size, u
   vkr = ObjDisp(dev)->BindBufferMemory(Unwrap(dev), buf, mem, 0);
   CHECK_VKR(driver, vkr);
 
-  if(flags & eGPUBufferAddressable)
+  if(useBufferAddressKHR && (flags & eGPUBufferAddressable))
   {
     RDCCOMPILE_ASSERT(VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO ==
                           VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO_EXT,

@@ -4298,10 +4298,6 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
 
     m_ShaderCache = new VulkanShaderCache(this);
 
-    m_DebugManager = new VulkanDebugManager(this);
-
-    m_Replay->CreateResources();
-
     SetDebugMessageSink(sink);
   }
 

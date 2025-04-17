@@ -474,12 +474,10 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
         VK_IMAGE_LAYOUT_UNDEFINED,
     };
 
-    vkr = driver->vkCreateImage(driver->GetDev(), &imInfo, NULL, &m_DummyDepthImage);
+    vkr = ObjDisp(dev)->CreateImage(Unwrap(dev), &imInfo, NULL, &m_UnwrappedDummyDepthImage);
     CHECK_VKR(m_pDriver, vkr);
 
-    NameVulkanObject(m_DummyDepthImage, "m_DummyDepthImage");
-
-    rm->SetInternalResource(GetResID(m_DummyDepthImage));
+    NameUnwrappedVulkanObject(m_UnwrappedDummyDepthImage, "m_UnwrappedDummyDepthImage");
   }
 
   // need a dummy UINT texture to fill the binding when we don't have a stencil aspect to copy.
@@ -489,6 +487,8 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
                                VK_FORMAT_S8_UINT,           VK_FORMAT_D32_SFLOAT_S8_UINT,
                                VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT};
 
+  // the dummy objects are allocated as unwrapped so that they doesn't go through BDA promotion for
+  // their memory when ASs are enabled :(
   for(VkFormat f : attemptFormats)
   {
     VkImageAspectFlags viewAspectMask =
@@ -552,18 +552,16 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
 
     RDCASSERT(imgprops.sampleCounts & imInfo.samples, imgprops.sampleCounts, imInfo.samples);
 
-    vkr = driver->vkCreateImage(driver->GetDev(), &imInfo, NULL, &m_DummyStencilImage);
+    vkr = ObjDisp(dev)->CreateImage(Unwrap(dev), &imInfo, NULL, &m_UnwrappedDummyStencilImage);
     CHECK_VKR(m_pDriver, vkr);
 
-    NameVulkanObject(m_DummyStencilImage, "m_DummyStencilImage");
-
-    rm->SetInternalResource(GetResID(m_DummyStencilImage));
+    NameUnwrappedVulkanObject(m_UnwrappedDummyStencilImage, "m_UnwrappedDummyStencilImage");
 
     VkMemoryRequirements depthmrq = {};
-    driver->vkGetImageMemoryRequirements(driver->GetDev(), m_DummyDepthImage, &depthmrq);
+    ObjDisp(dev)->GetImageMemoryRequirements(Unwrap(dev), m_UnwrappedDummyDepthImage, &depthmrq);
 
     VkMemoryRequirements mrq = {};
-    driver->vkGetImageMemoryRequirements(driver->GetDev(), m_DummyStencilImage, &mrq);
+    ObjDisp(dev)->GetImageMemoryRequirements(Unwrap(dev), m_UnwrappedDummyStencilImage, &mrq);
 
     // assume we can combine these images into one allocation
     RDCASSERT((mrq.memoryTypeBits & depthmrq.memoryTypeBits) != 0, mrq.memoryTypeBits,
@@ -586,27 +584,27 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
         driver->GetGPULocalMemoryIndex(mrq.memoryTypeBits),
     };
 
-    vkr = driver->vkAllocateMemory(driver->GetDev(), &allocInfo, NULL, &m_DummyMemory);
+    vkr = ObjDisp(dev)->AllocateMemory(Unwrap(dev), &allocInfo, NULL, &m_UnwrappedDummyMemory);
     CHECK_VKR(m_pDriver, vkr);
 
     if(vkr != VK_SUCCESS)
       return;
 
-    rm->SetInternalResource(GetResID(m_DummyMemory));
+    NameUnwrappedVulkanObject(m_UnwrappedDummyMemory, "m_UnwrappedDummyMemory");
 
-    NameVulkanObject(m_DummyStencilImage, "m_DummyMemory");
-
-    vkr = driver->vkBindImageMemory(driver->GetDev(), m_DummyStencilImage, m_DummyMemory, 0);
+    vkr = ObjDisp(dev)->BindImageMemory(Unwrap(dev), m_UnwrappedDummyStencilImage,
+                                        m_UnwrappedDummyMemory, 0);
     CHECK_VKR(m_pDriver, vkr);
 
-    vkr = driver->vkBindImageMemory(driver->GetDev(), m_DummyDepthImage, m_DummyMemory, mrq.size);
+    vkr = ObjDisp(dev)->BindImageMemory(Unwrap(dev), m_UnwrappedDummyDepthImage,
+                                        m_UnwrappedDummyMemory, mrq.size);
     CHECK_VKR(m_pDriver, vkr);
 
     VkImageViewCreateInfo viewInfo = {
         VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         NULL,
         0,
-        m_DummyStencilImage,
+        m_UnwrappedDummyStencilImage,
         VK_IMAGE_VIEW_TYPE_2D_ARRAY,
         f,
         {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -620,22 +618,18 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
         },
     };
 
-    vkr = driver->vkCreateImageView(driver->GetDev(), &viewInfo, NULL, &m_DummyStencilView);
+    vkr = ObjDisp(dev)->CreateImageView(Unwrap(dev), &viewInfo, NULL, &m_UnwrappedDummyStencilView);
     CHECK_VKR(m_pDriver, vkr);
 
-    NameVulkanObject(m_DummyStencilView, "m_DummyStencilView");
+    NameUnwrappedVulkanObject(m_UnwrappedDummyStencilView, "m_UnwrappedDummyStencilView");
 
-    rm->SetInternalResource(GetResID(m_DummyStencilView));
-
-    viewInfo.image = m_DummyDepthImage;
+    viewInfo.image = m_UnwrappedDummyDepthImage;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-    vkr = driver->vkCreateImageView(driver->GetDev(), &viewInfo, NULL, &m_DummyDepthView);
+    vkr = ObjDisp(dev)->CreateImageView(Unwrap(dev), &viewInfo, NULL, &m_UnwrappedDummyDepthView);
     CHECK_VKR(m_pDriver, vkr);
 
-    NameVulkanObject(m_DummyDepthView, "m_DummyDepthView");
-
-    rm->SetInternalResource(GetResID(m_DummyDepthView));
+    NameUnwrappedVulkanObject(m_UnwrappedDummyDepthView, "m_UnwrappedDummyDepthView");
 
     VkCommandBuffer cmd = driver->GetNextCmd();
 
@@ -658,13 +652,13 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        Unwrap(m_DummyStencilImage),
+        m_UnwrappedDummyStencilImage,
         {barrierAspectMask, 0, 1, 0, 1},
     };
 
     DoPipelineBarrier(cmd, 1, &barrier);
 
-    barrier.image = Unwrap(m_DummyDepthImage);
+    barrier.image = m_UnwrappedDummyDepthImage;
     barrierAspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     DoPipelineBarrier(cmd, 1, &barrier);
 
@@ -673,7 +667,7 @@ VulkanDebugManager::VulkanDebugManager(WrappedVulkan *driver)
     break;
   }
 
-  if(m_DummyStencilImage == VK_NULL_HANDLE)
+  if(m_UnwrappedDummyStencilImage == VK_NULL_HANDLE)
   {
     RDCERR("Couldn't find any integer format we could generate a dummy multisampled image with");
   }
@@ -882,11 +876,11 @@ VulkanDebugManager::~VulkanDebugManager()
   for(VkDescriptorPool pool : m_BufferMSDescriptorPools)
     m_pDriver->vkDestroyDescriptorPool(dev, pool, NULL);
 
-  m_pDriver->vkDestroyImageView(dev, m_DummyDepthView, NULL);
-  m_pDriver->vkDestroyImage(dev, m_DummyDepthImage, NULL);
-  m_pDriver->vkDestroyImageView(dev, m_DummyStencilView, NULL);
-  m_pDriver->vkDestroyImage(dev, m_DummyStencilImage, NULL);
-  m_pDriver->vkFreeMemory(dev, m_DummyMemory, NULL);
+  ObjDisp(dev)->DestroyImageView(Unwrap(dev), m_UnwrappedDummyDepthView, NULL);
+  ObjDisp(dev)->DestroyImage(Unwrap(dev), m_UnwrappedDummyDepthImage, NULL);
+  ObjDisp(dev)->DestroyImageView(Unwrap(dev), m_UnwrappedDummyStencilView, NULL);
+  ObjDisp(dev)->DestroyImage(Unwrap(dev), m_UnwrappedDummyStencilImage, NULL);
+  ObjDisp(dev)->FreeMemory(Unwrap(dev), m_UnwrappedDummyMemory, NULL);
 
   m_pDriver->vkDestroyDescriptorSetLayout(dev, m_BufferMSDescSetLayout, NULL);
   m_pDriver->vkDestroyPipelineLayout(dev, m_BufferMSPipeLayout, NULL);

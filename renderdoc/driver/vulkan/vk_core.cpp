@@ -3214,6 +3214,14 @@ RDResult WrappedVulkan::ReadLogInitialisation(RDCFile *rdc, bool storeStructured
 
     if((SystemChunk)context == SystemChunk::CaptureScope)
     {
+      // create most internal resources now, after having created all application resources. This
+      // means that in a self-capture scenario we don't risk screwing up BDA allocations by having a
+      // non-BDA buffer that's then promoted to BDA during self capture and steals some application
+      // reserved addresses.
+      m_DebugManager = new VulkanDebugManager(this);
+
+      m_Replay->CreateResources();
+
       GetReplay()->WriteFrameRecord().frameInfo.fileOffset = offsetStart;
 
       // read the remaining data into memory and pass to immediate context
