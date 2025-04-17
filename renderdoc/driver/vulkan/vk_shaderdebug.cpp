@@ -6202,6 +6202,11 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
             std::unordered_map<ShaderBuiltin, ShaderVariable> &thread_builtins =
                 apiWrapper->thread_builtins[i];
 
+            thread_builtins[ShaderBuiltin::GroupThreadIndex] =
+                ShaderVariable(rdcstr(), tx, ty, tz, 0U);
+            thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
+                rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
+
             if(apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active])
             {
               // assert that this is the thread we expect it to be
@@ -6222,16 +6227,14 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
               thread_builtins[ShaderBuiltin::DispatchThreadIndex] =
                   ShaderVariable(rdcstr(), groupid[0] * threadDim[0] + tx,
                                  groupid[1] * threadDim[1] + ty, groupid[2] * threadDim[2] + tz, 0U);
-              thread_builtins[ShaderBuiltin::GroupThreadIndex] =
-                  ShaderVariable(rdcstr(), tx, ty, tz, 0U);
-              thread_builtins[ShaderBuiltin::GroupFlatIndex] = ShaderVariable(
-                  rdcstr(), tz * threadDim[0] * threadDim[1] + ty * threadDim[0] + tx, 0U, 0U, 0U);
               // tightly wrap subgroups, this is likely not how the GPU actually assigns them
               thread_builtins[ShaderBuiltin::IndexInSubgroup] =
                   ShaderVariable(rdcstr(), i % winner->subgroupSize, 0U, 0U, 0U);
               thread_builtins[ShaderBuiltin::SubgroupIndexInWorkgroup] =
                   ShaderVariable(rdcstr(), i / winner->subgroupSize, 0U, 0U, 0U);
               apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::Active] = 1;
+              apiWrapper->thread_props[i][(size_t)rdcspv::ThreadProperty::SubgroupId] =
+                  i % winner->subgroupSize;
             }
 
             i++;
@@ -6243,9 +6246,9 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
     apiWrapper->global_builtins[ShaderBuiltin::SubgroupSize] =
         ShaderVariable(rdcstr(), winner->subgroupSize, 0U, 0U, 0U);
 
-    ShaderDebugTrace *ret = debugger->BeginDebug(
-        apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines, shadRefl.patchData,
-        winner->laneIndex, numThreads, winner->subgroupSize);
+    ShaderDebugTrace *ret =
+        debugger->BeginDebug(apiWrapper, stage, entryPoint, spec, shadRefl.instructionLines,
+                             shadRefl.patchData, laneIndex, numThreads, winner->subgroupSize);
     apiWrapper->ResetReplay();
 
     return ret;
