@@ -74,12 +74,13 @@ class D3D12_Resource_Mapping_Zoo(rdtest.TestCase):
         rdtest.log.end_section("Bindless tests")
         rdtest.log.end_section("SM5.x tests")
 
-        rdtest.log.begin_section("SM6.0 tests")
         test_marker: rd.ActionDescription = self.find_action("SM6.0")
         if test_marker is None:
             rdtest.log.print("No SM6.0 action to test")
             return
         
+        rdtest.log.begin_section("SM6.0 tests")
+
         action = test_marker.next
         self.controller.SetFrameEvent(action.eventId, False)
         failed = not self.test_debug_pixel(200, 200, "SM6.0") or failed
@@ -112,11 +113,12 @@ class D3D12_Resource_Mapping_Zoo(rdtest.TestCase):
         rdtest.log.end_section("Bindless tests")
         rdtest.log.end_section("SM6.0 tests")
 
-        rdtest.log.begin_section("SM6.6 tests")
         test_marker: rd.ActionDescription = self.find_action("SM6.6")
         if test_marker is None:
             rdtest.log.print("No SM6.6 action to test")
             return
+
+        rdtest.log.begin_section("SM6.6 tests")
 
         action = test_marker.next
         self.controller.SetFrameEvent(action.eventId, False)

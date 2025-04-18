@@ -27,7 +27,6 @@ class D3D12_CBuffer_Zoo(rdtest.TestCase):
         rdtest.log.success("DXBC action is as expected")
         rdtest.log.end_section("DXBC Draw")
 
-        rdtest.log.begin_section("SM6.0 Draw")
         # Move to the SM6.0 action
         action = self.find_action("SM6.0")
 
@@ -35,6 +34,7 @@ class D3D12_CBuffer_Zoo(rdtest.TestCase):
             rdtest.log.print("No SM6.0 action to test")
             return
 
+        rdtest.log.begin_section("SM6.0 Draw")
         self.controller.SetFrameEvent(action.next.eventId, False)
 
         pipe: rd.PipeState = self.controller.GetPipelineState()
@@ -47,7 +47,6 @@ class D3D12_CBuffer_Zoo(rdtest.TestCase):
         rdtest.log.success("SM 6.0 action is as expected")
         rdtest.log.end_section("SM6.0 Draw")
 
-        rdtest.log.begin_section("SM6.6 Draw")
         # Move to the SM6.6 action
         action = self.find_action("SM6.6")
 
@@ -55,6 +54,7 @@ class D3D12_CBuffer_Zoo(rdtest.TestCase):
             rdtest.log.print("No SM6.6 action to test")
             return
 
+        rdtest.log.begin_section("SM6.6 Draw")
         self.controller.SetFrameEvent(action.next.eventId, False)
 
         pipe: rd.PipeState = self.controller.GetPipelineState()
