@@ -151,46 +151,6 @@ layout(binding = 0, std430) buffer outbuftype {
 
 layout(local_size_x = GROUP_SIZE_X, local_size_y = GROUP_SIZE_Y, local_size_z = 1) in;
 
-vec4 funcD(uint id)
-{
-  return vec4(subgroupAdd(id/2));
-}
-
-vec4 nestedFunc(uint id)
-{
-  vec4 ret = funcD(id/3);
-  ret.w = subgroupAdd(id);
-  return ret;
-}
-
-vec4 funcA(uint id)
-{
-   return nestedFunc(id*2);
-}
-
-vec4 funcB(uint id)
-{
-   return nestedFunc(id*4);
-}
-
-vec4 funcTest(uint id)
-{
-  if ((id % 2) == 0)
-  {
-    return vec4(0);
-  }
-  else
-  {
-    float value = subgroupAdd(id);
-    if (id < 10)
-    {
-      return vec4(value);
-    }
-    value += subgroupAdd(id/2);
-    return vec4(value);
-  }
-}
-
 void SetOutput(vec4 data)
 {
   outbuf.data[push.test].vals[gl_LocalInvocationID.y * GROUP_SIZE_X + gl_LocalInvocationID.x] = data;
@@ -203,99 +163,12 @@ void main()
 
   if(IsTest(0))
   {
-    data.x = id;
-  }
-  else if(IsTest(1))
-  {
-    data.x = subgroupAdd(id);
-  }
-  else if(IsTest(2))
-  {
-    // Diverged threads which reconverge 
-    if (id < 10)
-    {
-        // active threads 0-9
-        data.x = subgroupAdd(id);
-
-        if ((id % 2) == 0)
-          data.y = subgroupAdd(id);
-        else
-          data.y = subgroupAdd(id);
-
-        data.x += subgroupAdd(id);
-    }
-    else
-    {
-        // active threads 10...
-        data.x = subgroupAdd(id);
-    }
-    data.y = subgroupAdd(id);
-  }
-  else if(IsTest(3))
-  {
-    // Converged threads calling a function 
-    data = funcTest(id);
-    data.y = subgroupAdd(id);
-  }
-  else if(IsTest(4))
-  {
-    // Converged threads calling a function which has a nested function call in it
-    data = nestedFunc(id);
-    data.y = subgroupAdd(id);
-  }
-  else if(IsTest(5))
-  {
-    // Diverged threads calling the same function
-    if (id < 10)
-    {
-      data = funcD(id);
-    }
-    else
-    {
-      data = funcD(id);
-    }
-    data.y = subgroupAdd(id);
-  }
-  else if(IsTest(6))
-  {
-    // Diverged threads calling the same function which has a nested function call in it
-    if (id < 10)
-    {
-      data = funcA(id);
-    }
-    else
-    {
-      data = funcB(id);
-    }
-    data.y = subgroupAdd(id);
-  }
-  else if(IsTest(7))
-  {
-    // Diverged threads which early exit
-    if (id < 10)
-    {
-      data.x = subgroupAdd(id+10);
-      SetOutput(data);
-      return;
-    }
-    data.x = subgroupAdd(id);
-  }
-  else if(IsTest(8))
-  {
-     // Loops with different number of iterations per thread
-    for (uint i = 0; i < id; i++)
-    {
-      data.x += subgroupAdd(id);
-    }
-  }
-  else if(IsTest(9))
-  {
     // Query functions : unit tests
     data.x = float(gl_SubgroupSize);
     data.y = float(gl_SubgroupInvocationID);
     data.z = float(subgroupElect());
   }
-  else if(IsTest(10))
+  else if(IsTest(1))
   {
     // Vote functions : unit tests
     data.x = float(subgroupAny(id*2 > id+10));
@@ -313,7 +186,7 @@ void main()
       data.w = bitCount(ballot.x) + bitCount(ballot.y) + bitCount(ballot.z) + bitCount(ballot.w);
     }
   }
-  else if(IsTest(11))
+  else if(IsTest(2))
   {
     // Broadcast functions : unit tests
     if (id >= 2 && id <= 20)
@@ -324,7 +197,7 @@ void main()
       data.w = subgroupShuffle(data.x, 2+id%3);
     }
   }
-  else if(IsTest(12))
+  else if(IsTest(3))
   {
     // Scan and Prefix functions : unit tests
     if (id >= 2 && id <= 20)
@@ -346,7 +219,7 @@ void main()
       data.w = subgroupExclusiveAdd(data.y);
     }
   }
-  else if(IsTest(13))
+  else if(IsTest(4))
   {
     // Reduction functions : unit tests
     if (id >= 2 && id <= 20)
@@ -357,7 +230,7 @@ void main()
       data.w = float(subgroupAdd(id));
     }
   }
-  else if(IsTest(14))
+  else if(IsTest(5))
   {
     // Reduction functions : unit tests
     if (id >= 2 && id <= 20)
@@ -369,7 +242,7 @@ void main()
       data.w = float(subgroupXor(id));
     }
   }
-  else if(IsTest(15))
+  else if(IsTest(6))
   {
     // Reduction functions : unit tests
     if (id > 13)

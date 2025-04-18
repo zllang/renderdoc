@@ -69,7 +69,7 @@ layout(push_constant) uniform PushData
 
   const std::string comp = common + R"EOSHADER(
 
-shared uvec4 gsmUint4[COMP_TESTS];
+shared uvec4 gsmUint4[1024];
 
 struct Output
 {
@@ -126,6 +126,7 @@ void SetOutput(vec4 data)
 {
   outbuf.data[push.test].vals[gl_LocalInvocationID.y * GROUP_SIZE_X + gl_LocalInvocationID.x] = data;
 }
+
 void main()
 {
   vec4 data = vec4(0);
@@ -136,10 +137,12 @@ void main()
   if(IsTest(0))
   {
     data.x = id;
+    barrier();
   }
   else if(IsTest(1))
   {
     data.x = subgroupAdd(id);
+    barrier();
   }
   else if(IsTest(2))
   {
@@ -162,18 +165,21 @@ void main()
         data.x = subgroupAdd(id);
     }
     data.y = subgroupAdd(id);
+    barrier();
   }
   else if(IsTest(3))
   {
     // Converged threads calling a function 
     data = funcTest(id);
     data.y = subgroupAdd(id);
+    barrier();
   }
   else if(IsTest(4))
   {
     // Converged threads calling a function which has a nested function call in it
     data = nestedFunc(id);
     data.y = subgroupAdd(id);
+    barrier();
   }
   else if(IsTest(5))
   {
@@ -187,6 +193,7 @@ void main()
       data = funcD(id);
     }
     data.y = subgroupAdd(id);
+    barrier();
   }
   else if(IsTest(6))
   {
@@ -200,6 +207,7 @@ void main()
       data = funcB(id);
     }
     data.y = subgroupAdd(id);
+    barrier();
   }
   else if(IsTest(7))
   {
@@ -219,6 +227,7 @@ void main()
     {
       data.x += subgroupAdd(id);
     }
+    barrier();
   }
   else if(IsTest(9))
   {
@@ -226,92 +235,10 @@ void main()
     data.x = float(gl_SubgroupSize);
     data.y = float(gl_SubgroupInvocationID);
     data.z = float(subgroupElect());
+
+    barrier();
   }
-  else if(IsTest(10))
-  {
-    // Vote functions : unit tests
-    data.x = float(subgroupAny(id*2 > id+10));
-    data.y = float(subgroupAll(id < gl_SubgroupSize));
-    if (id > 10)
-    {
-      data.z = float(subgroupAll(id > 10));
-      uvec4 ballot = subgroupBallot(id > 20);
-      data.w = bitCount(ballot.x) + bitCount(ballot.y) + bitCount(ballot.z) + bitCount(ballot.w);
-    }
-    else
-    {
-      data.z = float(subgroupAll(id > 3));
-      uvec4 ballot = subgroupBallot(id > 4);
-      data.w = bitCount(ballot.x) + bitCount(ballot.y) + bitCount(ballot.z) + bitCount(ballot.w);
-    }
-  }
-  else if(IsTest(11))
-  {
-    // Broadcast functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      data.x = subgroupBroadcastFirst(id);
-      data.y = subgroupBroadcast(id, 5);
-      data.z = subgroupShuffle(id, id);
-      data.w = subgroupShuffle(data.x, 2+id%3);
-    }
-  }
-  else if(IsTest(12))
-  {
-    // Scan and Prefix functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      uvec4 bits = subgroupBallot(id > 4);
-      data.x = subgroupBallotExclusiveBitCount(bits);
-      bits = subgroupBallot(id > 10);
-      data.y = subgroupBallotExclusiveBitCount(bits);
-      data.z = subgroupExclusiveAdd(data.x);
-      data.w = subgroupExclusiveMul(1 + data.y);
-    }
-    else
-    {
-      uvec4 bits = subgroupBallot(id > 23);
-      data.x = subgroupBallotExclusiveBitCount(bits);
-      bits = subgroupBallot(id < 1);
-      data.y = subgroupBallotExclusiveBitCount(bits);
-      data.z = subgroupExclusiveAdd(data.x);
-      data.w = subgroupExclusiveAdd(data.y);
-    }
-  }
-  else if(IsTest(13))
-  {
-    // Reduction functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      data.x = float(subgroupMax(id));
-      data.y = float(subgroupMin(id));
-      data.z = float(subgroupMul(id));
-      data.w = float(subgroupAdd(id));
-    }
-  }
-  else if(IsTest(14))
-  {
-    // Reduction functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      uvec4 bits = subgroupBallot(id > 23);
-      data.x = float(subgroupBallotBitCount(bits));
-      data.y = float(subgroupAnd(id));
-      data.z = float(subgroupOr(id));
-      data.w = float(subgroupXor(id));
-    }
-  }
-  else if(IsTest(15))
-  {
-    // Reduction functions : unit tests
-    if (id > 13)
-    {
-      data.x = float(subgroupAllEqual(id > 15));
-      data.y = float(subgroupAllEqual(id < 23));
-      data.z = float(subgroupAllEqual(id >= 25));
-      data.w = float(subgroupAllEqual(id >= 28));
-    }
-  }
+
   SetOutput(data);
 }
 
@@ -467,7 +394,7 @@ void main()
         for(int i = 0; i < numCompTests; i++)
         {
           vkh::cmdPushConstants(cmd, layout, i);
-          vkCmdDispatch(cmd, 1, 1, 1);
+          vkCmdDispatch(cmd, 2, 1, 1);
         }
 
         popMarker(cmd);

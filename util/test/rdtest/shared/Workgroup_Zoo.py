@@ -24,6 +24,7 @@ class Workgroup_Zoo(rdtest.Subgroup_Zoo):
             150
         ]
 
+        self.workgroup = (1, 0, 0)
         if self.check_compute_tests(compute_dims, thread_checks):
             raise rdtest.TestFailureException("Some tests were not as expected")
 

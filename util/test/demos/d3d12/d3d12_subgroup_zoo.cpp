@@ -173,46 +173,6 @@ float4 main(IN input) : SV_Target0
 
   const std::string comp = compCommon + R"EOSHADER(
 
-float4 funcD(uint id)
-{
-  return WaveActiveSum(id/2).xxxx;
-}
-
-float4 nestedFunc(uint id)
-{
-  float4 ret = funcD(id/3);
-  ret.w = WaveActiveSum(id);
-  return ret;
-}
-
-float4 funcA(uint id)
-{
-   return nestedFunc(id*2);
-}
-
-float4 funcB(uint id)
-{
-   return nestedFunc(id*4);
-}
-
-float4 funcTest(uint id)
-{
-  if ((id % 2) == 0)
-  {
-    return 0.xxxx;
-  }
-  else
-  {
-    float value = WaveActiveSum(id);
-    if (id < 10)
-    {
-      return value.xxxx;
-    }
-    value += WaveActiveSum(id/2);
-    return value.xxxx;
-  }
-}
-
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
 void main(uint3 inTid : SV_DispatchThreadID)
 {
@@ -225,99 +185,12 @@ void main(uint3 inTid : SV_DispatchThreadID)
 
   if(IsTest(0))
   {
-    data.x = id;
-  }
-  else if(IsTest(1))
-  {
-    data.x = WaveActiveSum(id);
-  }
-  else if(IsTest(2))
-  {
-    // Diverged threads which reconverge 
-    if (id < 10)
-    {
-        // active threads 0-9
-        data.x = WaveActiveSum(id);
-
-        if ((id % 2) == 0)
-          data.y = WaveActiveSum(id);
-        else
-          data.y = WaveActiveSum(id);
-
-        data.x += WaveActiveSum(id);
-    }
-    else
-    {
-        // active threads 10...
-        data.x = WaveActiveSum(id);
-    }
-    data.y = WaveActiveSum(id);
-  }
-  else if(IsTest(3))
-  {
-    // Converged threads calling a function 
-    data = funcTest(id);
-    data.y = WaveActiveSum(id);
-  }
-  else if(IsTest(4))
-  {
-    // Converged threads calling a function which has a nested function call in it
-    data = nestedFunc(id);
-    data.y = WaveActiveSum(id);
-  }
-  else if(IsTest(5))
-  {
-    // Diverged threads calling the same function
-    if (id < 10)
-    {
-      data = funcD(id);
-    }
-    else
-    {
-      data = funcD(id);
-    }
-    data.y = WaveActiveSum(id);
-  }
-  else if(IsTest(6))
-  {
-    // Diverged threads calling the same function which has a nested function call in it
-    if (id < 10)
-    {
-      data = funcA(id);
-    }
-    else
-    {
-      data = funcB(id);
-    }
-    data.y = WaveActiveSum(id);
-  }
-  else if(IsTest(7))
-  {
-    // Diverged threads which early exit
-    if (id < 10)
-    {
-      data.x = WaveActiveSum(id+10);
-      SetOutput(data);
-      return;
-    }
-    data.x = WaveActiveSum(id);
-  }
-  else if(IsTest(8))
-  {
-     // Loops with different number of iterations per thread
-    for (uint i = 0; i < id; i++)
-    {
-      data.x += WaveActiveSum(id);
-    }
-  }
-  else if(IsTest(9))
-  {
     // Query functions : unit tests
     data.x = float(WaveGetLaneCount());
     data.y = float(WaveGetLaneIndex());
     data.z = float(WaveIsFirstLane());
   }
-  else if(IsTest(10))
+  else if(IsTest(1))
   {
     // Vote functions : unit tests
     data.x = float(WaveActiveAnyTrue(id*2 > id+10));
@@ -335,7 +208,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = countbits(ballot.x) + countbits(ballot.y) + countbits(ballot.z) + countbits(ballot.w);
     }
   }
-  else if(IsTest(11))
+  else if(IsTest(2))
   {
     // Broadcast functions : unit tests
     if (id >= 2 && id <= 20)
@@ -346,7 +219,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = WaveReadLaneAt(data.x, 2+id%3);
     }
   }
-  else if(IsTest(12))
+  else if(IsTest(3))
   {
     // Scan and Prefix functions : unit tests
     if (id >= 2 && id <= 20)
@@ -364,7 +237,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = WavePrefixSum(data.y);
     }
   }
-  else if(IsTest(13))
+  else if(IsTest(4))
   {
     // Reduction functions : unit tests
     if (id >= 2 && id <= 20)
@@ -375,7 +248,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = float(WaveActiveSum(id));
     }
   }
-  else if(IsTest(14))
+  else if(IsTest(5))
   {
     // Reduction functions : unit tests
     if (id >= 2 && id <= 20)
@@ -386,7 +259,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data.w = float(WaveActiveBitXor(id));
     }
   }
-  else if(IsTest(15))
+  else if(IsTest(6))
   {
     // Reduction functions : unit tests
     if (id > 13)

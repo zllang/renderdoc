@@ -6,6 +6,7 @@ import rdtest
 class Subgroup_Zoo(rdtest.TestCase):
     internal = True
     demos_test_name = None
+    workgroup = (0, 0, 0)
 
     def check_support(self, **kwargs):
         # Only allow this if explicitly run
@@ -19,7 +20,7 @@ class Subgroup_Zoo(rdtest.TestCase):
                 "4f", bufdata, 16*y*dim[0] + 16*x)
 
             trace = self.controller.DebugThread(
-                (0, 0, 0), (x, y, z))
+                self.workgroup, (x, y, z))
 
             _, variables = self.process_trace(trace)
 

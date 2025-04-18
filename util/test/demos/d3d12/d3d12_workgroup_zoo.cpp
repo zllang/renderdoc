@@ -98,6 +98,34 @@ float4 funcTest(uint id)
   }
 }
 
+float4 ComplexPartialReconvergence(uint id)
+{
+  float4 result = 0.0.xxxx;
+  // Loops with different number of iterations per thread
+  for (uint i = id; i < 23; i++)
+  {
+    result.x += WaveActiveSum(id);
+  }
+
+  if ((result.x < 5) || (id > 20))
+  {
+    result.y += WaveActiveSum(id);
+    if (id < 25)
+      result.z += WaveActiveSum(id);
+  }
+  else if (result.x < 10)
+  {
+    result.y += WaveActiveSum(id);
+
+    if (result.x > 5)
+      result.z += WaveActiveSum(id);
+  }
+
+  result.w += WaveActiveSum(id);
+
+  return result;
+}
+
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
 void main(uint3 inTid : SV_DispatchThreadID)
 {
@@ -110,10 +138,12 @@ void main(uint3 inTid : SV_DispatchThreadID)
   if(IsTest(0))
   {
     data.x = id;
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(1))
   {
     data.x = WaveActiveSum(id);
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(2))
   {
@@ -136,18 +166,21 @@ void main(uint3 inTid : SV_DispatchThreadID)
         data.x = WaveActiveSum(id);
     }
     data.y = WaveActiveSum(id);
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(3))
   {
     // Converged threads calling a function 
     data = funcTest(id);
     data.y = WaveActiveSum(id);
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(4))
   {
     // Converged threads calling a function which has a nested function call in it
     data = nestedFunc(id);
     data.y = WaveActiveSum(id);
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(5))
   {
@@ -161,6 +194,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data = funcD(id);
     }
     data.y = WaveActiveSum(id);
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(6))
   {
@@ -174,6 +208,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
       data = funcB(id);
     }
     data.y = WaveActiveSum(id);
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(7))
   {
@@ -193,6 +228,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
     {
       data.x += WaveActiveSum(id);
     }
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(9))
   {
@@ -200,91 +236,13 @@ void main(uint3 inTid : SV_DispatchThreadID)
     data.x = float(WaveGetLaneCount());
     data.y = float(WaveGetLaneIndex());
     data.z = float(WaveIsFirstLane());
+    AllMemoryBarrierWithGroupSync();
   }
   else if(IsTest(10))
   {
-    // Vote functions : unit tests
-    data.x = float(WaveActiveAnyTrue(id*2 > id+10));
-    data.y = float(WaveActiveAllTrue(id < WaveGetLaneCount()));
-    if (id > 10)
-    {
-      data.z = float(WaveActiveAllTrue(id > 10));
-      uint4 ballot = WaveActiveBallot(id > 20);
-      data.w = countbits(ballot.x) + countbits(ballot.y) + countbits(ballot.z) + countbits(ballot.w);
-    }
-    else
-    {
-      data.z = float(WaveActiveAllTrue(id > 3));
-      uint4 ballot = WaveActiveBallot(id > 4);
-      data.w = countbits(ballot.x) + countbits(ballot.y) + countbits(ballot.z) + countbits(ballot.w);
-    }
-  }
-  else if(IsTest(11))
-  {
-    // Broadcast functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      data.x = WaveReadLaneFirst(id);
-      data.y = WaveReadLaneAt(id, 5);
-      data.z = WaveReadLaneAt(id, id);
-      data.w = WaveReadLaneAt(data.x, 2+id%3);
-    }
-  }
-  else if(IsTest(12))
-  {
-    // Scan and Prefix functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      data.x = WavePrefixCountBits(id > 4);
-      data.y = WavePrefixCountBits(id > 10);
-      data.z = WavePrefixSum(data.x);
-      data.w = WavePrefixProduct(1 + data.y);
-    }
-    else
-    {
-      data.x = WavePrefixCountBits(id > 23);
-      data.y = WavePrefixCountBits(id < 1);
-      data.z = WavePrefixSum(data.x);
-      data.w = WavePrefixSum(data.y);
-    }
-  }
-  else if(IsTest(13))
-  {
-    // Reduction functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      data.x = float(WaveActiveMax(id));
-      data.y = float(WaveActiveMin(id));
-      data.z = float(WaveActiveProduct(id));
-      data.w = float(WaveActiveSum(id));
-    }
-  }
-  else if(IsTest(14))
-  {
-    // Reduction functions : unit tests
-    if (id >= 2 && id <= 20)
-    {
-      data.x = float(WaveActiveCountBits(id > 23));
-      data.y = float(WaveActiveBitAnd(id));
-      data.z = float(WaveActiveBitOr(id));
-      data.w = float(WaveActiveBitXor(id));
-    }
-  }
-  else if(IsTest(15))
-  {
-    // Reduction functions : unit tests
-    if (id > 13)
-    {
-      bool test1 = (id > 15).x;
-      bool2 test2 = bool2(test1, (id < 23));
-      bool3 test3 = bool3(test1, (id < 23), (id >= 25));
-      bool4 test4 = bool4(test1, (id < 23), (id >= 25), (id >= 28));
+    data = ComplexPartialReconvergence(id);
 
-      data.x = float(WaveActiveAllEqual(test1).x);
-      data.y = float(WaveActiveAllEqual(test2).y);
-      data.z = float(WaveActiveAllEqual(test3).z);
-      data.w = float(WaveActiveAllEqual(test4).w);
-    }
+    AllMemoryBarrierWithGroupSync();
   }
 
   SetOutput(data);
@@ -396,7 +354,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
         for(int i = 0; i < numCompTests; i++)
         {
           cmd->SetComputeRoot32BitConstant(0, i, 0);
-          cmd->Dispatch(1, 1, 1);
+          cmd->Dispatch(2, 1, 1);
         }
 
         popMarker(cmd);
