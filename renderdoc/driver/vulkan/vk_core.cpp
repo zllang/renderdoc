@@ -2415,7 +2415,7 @@ void WrappedVulkan::StartFrameCapture(DeviceOwnedWindow devWnd)
     GetResourceManager()->MarkMemoryFrameReferenced((*it)->baseResourceMem, (*it)->memOffset,
                                                     (*it)->memSize, eFrameRef_ReadBeforeWrite);
     // and sparse memory (yuck yuck yuck)
-    if((*it)->resInfo)
+    if((*it)->resType == eResBuffer && (*it)->resInfo)
       GetResourceManager()->MarkSparseMapReferenced((*it)->resInfo);
   }
 }
