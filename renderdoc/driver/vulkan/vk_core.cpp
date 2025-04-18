@@ -3218,9 +3218,12 @@ RDResult WrappedVulkan::ReadLogInitialisation(RDCFile *rdc, bool storeStructured
       // means that in a self-capture scenario we don't risk screwing up BDA allocations by having a
       // non-BDA buffer that's then promoted to BDA during self capture and steals some application
       // reserved addresses.
-      m_DebugManager = new VulkanDebugManager(this);
+      if(m_Device != VK_NULL_HANDLE)
+      {
+        m_DebugManager = new VulkanDebugManager(this);
 
-      m_Replay->CreateResources();
+        m_Replay->CreateResources();
+      }
 
       GetReplay()->WriteFrameRecord().frameInfo.fileOffset = offsetStart;
 
