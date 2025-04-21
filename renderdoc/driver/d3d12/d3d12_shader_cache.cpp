@@ -351,8 +351,6 @@ D3D12ShaderCache::D3D12ShaderCache(WrappedID3D12Device *device)
 
   if(RenderDoc::Inst().IsReplayApp())
   {
-    RDCLOG("Unoptimising internal shaders for self-capture of replay");
-
     static const GUID IRenderDoc_uuid = {
         0xa7aa6116, 0x9c8d, 0x4bba, {0x90, 0x83, 0xb4, 0xd8, 0x16, 0xb7, 0x1b, 0x78}};
 
@@ -362,7 +360,12 @@ D3D12ShaderCache::D3D12ShaderCache(WrappedID3D12Device *device)
     if(device->GetReal())
       device->GetReal()->QueryInterface(IRenderDoc_uuid, (void **)&dummy);
 
-    unopt |= (dummy != NULL);
+    if(dummy != NULL)
+    {
+      RDCLOG("Unoptimising internal shaders for self-capture of replay");
+
+      unopt = true;
+    }
 
     SAFE_RELEASE(dummy);
   }
