@@ -332,8 +332,8 @@ void DescSetLayout::Init(VulkanResourceManager *resourceMan, VulkanCreationInfo 
 
   anyStageFlags = 0;
 
-  VkDescriptorSetLayoutBindingFlagsCreateInfo *bindingFlags =
-      (VkDescriptorSetLayoutBindingFlagsCreateInfo *)FindNextStruct(
+  const VkDescriptorSetLayoutBindingFlagsCreateInfo *bindingFlags =
+      (const VkDescriptorSetLayoutBindingFlagsCreateInfo *)FindNextStruct(
           pCreateInfo, VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO);
 
   // ignore degenerate struct
@@ -1156,8 +1156,8 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan,
 
     ShaderEntry &shad = shaders[stageIndex];
 
-    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *subgroupSize =
-        (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *)FindNextStruct(
+    const VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *subgroupSize =
+        (const VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *)FindNextStruct(
             &pCreateInfo->pStages[i],
             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO);
     if(subgroupSize)
@@ -1793,8 +1793,8 @@ void VulkanCreationInfo::Pipeline::Init(VulkanResourceManager *resourceMan, Vulk
     ResourceId shadid = GetResID(pCreateInfo->stage.module);
     ShaderEntry &shad = shaders[5];    // 5 is the compute shader's index (VS, TCS, TES, GS, FS, CS)
 
-    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *subgroupSize =
-        (VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *)FindNextStruct(
+    const VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *subgroupSize =
+        (const VkPipelineShaderStageRequiredSubgroupSizeCreateInfo *)FindNextStruct(
             &pCreateInfo->stage,
             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO);
     if(subgroupSize)

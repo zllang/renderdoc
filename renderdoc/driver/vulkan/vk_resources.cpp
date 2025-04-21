@@ -3568,8 +3568,8 @@ RenderPassInfo::RenderPassInfo(const VkRenderPassCreateInfo2 &ci)
     indexRemapTable[i] = a;
 
     // VK_KHR_separate_depth_stencil_layouts
-    VkAttachmentDescriptionStencilLayout *separateStencil =
-        (VkAttachmentDescriptionStencilLayout *)FindNextStruct(
+    const VkAttachmentDescriptionStencilLayout *separateStencil =
+        (const VkAttachmentDescriptionStencilLayout *)FindNextStruct(
             &ci.pAttachments[i], VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT);
 
     if(separateStencil)
@@ -3684,8 +3684,8 @@ RenderPassInfo::RenderPassInfo(const VkRenderPassCreateInfo2 &ci)
         if(IsStencilFormat(ci.pAttachments[index].format))
         {
           // VK_KHR_separate_depth_stencil_layouts
-          VkAttachmentDescriptionStencilLayout *separateStencil =
-              (VkAttachmentDescriptionStencilLayout *)FindNextStruct(
+          const VkAttachmentDescriptionStencilLayout *separateStencil =
+              (const VkAttachmentDescriptionStencilLayout *)FindNextStruct(
                   &ci.pAttachments[index], VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_STENCIL_LAYOUT);
 
           if(separateStencil)

@@ -1825,8 +1825,8 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *live, VkInitialContents &in
 
       if(writes[i].descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK)
       {
-        VkWriteDescriptorSetInlineUniformBlock *inlineWrite =
-            (VkWriteDescriptorSetInlineUniformBlock *)FindNextStruct(
+        const VkWriteDescriptorSetInlineUniformBlock *inlineWrite =
+            (const VkWriteDescriptorSetInlineUniformBlock *)FindNextStruct(
                 &writes[i], VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK);
         memcpy(inlineData.data() + bind->offset + writes[i].dstArrayElement, inlineWrite->pData,
                inlineWrite->dataSize);
@@ -1834,8 +1834,8 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *live, VkInitialContents &in
       }
       else if(writes[i].descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
       {
-        VkWriteDescriptorSetAccelerationStructureKHR *asWrite =
-            (VkWriteDescriptorSetAccelerationStructureKHR *)FindNextStruct(
+        const VkWriteDescriptorSetAccelerationStructureKHR *asWrite =
+            (const VkWriteDescriptorSetAccelerationStructureKHR *)FindNextStruct(
                 &writes[i], VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR);
         RDCASSERTEQUAL(initial.numAccelerationStructures, writes[i].descriptorCount);
         memcpy(asData + bind->offset + writes[i].dstArrayElement, asWrite->pAccelerationStructures,
@@ -1860,8 +1860,8 @@ void WrappedVulkan::Apply_InitialState(WrappedVkRes *live, VkInitialContents &in
         }
         else if(writes[i].descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
         {
-          VkWriteDescriptorSetAccelerationStructureKHR *asWrite =
-              (VkWriteDescriptorSetAccelerationStructureKHR *)FindNextStruct(
+          const VkWriteDescriptorSetAccelerationStructureKHR *asWrite =
+              (const VkWriteDescriptorSetAccelerationStructureKHR *)FindNextStruct(
                   &writes[i], VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR);
           bind[idx].SetAccelerationStructure(writes[i].descriptorType,
                                              asWrite->pAccelerationStructures[d]);

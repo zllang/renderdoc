@@ -1899,8 +1899,8 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     }
     else
     {
-      VkPhysicalDeviceMeshShaderFeaturesEXT *meshFeats =
-          (VkPhysicalDeviceMeshShaderFeaturesEXT *)FindNextStruct(
+      const VkPhysicalDeviceMeshShaderFeaturesEXT *meshFeats =
+          (const VkPhysicalDeviceMeshShaderFeaturesEXT *)FindNextStruct(
               &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT);
 
       if(meshFeats && meshFeats->meshShader)

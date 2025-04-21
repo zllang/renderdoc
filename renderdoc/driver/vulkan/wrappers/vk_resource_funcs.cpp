@@ -511,6 +511,7 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
   VkMemoryAllocateInfo unwrapped = info;
 
   byte *tempMem = GetTempMemory(GetNextPatchSize(unwrapped.pNext));
+  byte *reusedTempMem = tempMem;
 
   UnwrapNextChain(m_State, "VkMemoryAllocateInfo", tempMem, (VkBaseInStructure *)&unwrapped);
 
@@ -530,8 +531,9 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
   bool forceBDA = false;
   if(IsCaptureMode(m_State) && AccelerationStructures())
   {
-    VkMemoryDedicatedAllocateInfo *dedicated = (VkMemoryDedicatedAllocateInfo *)FindNextStruct(
-        pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+    const VkMemoryDedicatedAllocateInfo *dedicated =
+        (const VkMemoryDedicatedAllocateInfo *)FindNextStruct(
+            pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
     if(dedicated == NULL || dedicated->image == VK_NULL_HANDLE)
     {
       // force BDA flag when creating, by adding the struct if needed
@@ -560,8 +562,9 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
 
   // remove dedicated memory struct if it is not allowed
   {
-    VkMemoryDedicatedAllocateInfo *dedicated = (VkMemoryDedicatedAllocateInfo *)FindNextStruct(
-        pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+    const VkMemoryDedicatedAllocateInfo *dedicated =
+        (const VkMemoryDedicatedAllocateInfo *)FindNextStruct(
+            pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
     if(dedicated && dedicated->image != VK_NULL_HANDLE)
     {
       VkResourceRecord *imageRecord = GetRecord(dedicated->image);
@@ -583,15 +586,16 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
   {
     ResourceId id = GetResourceManager()->WrapResource(Unwrap(device), *pMemory);
 
-    VkMemoryDedicatedAllocateInfo *dedicated = (VkMemoryDedicatedAllocateInfo *)FindNextStruct(
-        pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+    const VkMemoryDedicatedAllocateInfo *dedicated =
+        (const VkMemoryDedicatedAllocateInfo *)FindNextStruct(
+            pAllocateInfo, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
     if(dedicated && dedicated->buffer == VK_NULL_HANDLE && dedicated->image == VK_NULL_HANDLE)
     {
       dedicated = NULL;
     }
 
-    VkDedicatedAllocationMemoryAllocateInfoNV *dedicatedNV =
-        (VkDedicatedAllocationMemoryAllocateInfoNV *)FindNextStruct(
+    const VkDedicatedAllocationMemoryAllocateInfoNV *dedicatedNV =
+        (const VkDedicatedAllocationMemoryAllocateInfoNV *)FindNextStruct(
             pAllocateInfo, VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_MEMORY_ALLOCATE_INFO_NV);
     if(dedicatedNV && dedicatedNV->buffer == VK_NULL_HANDLE && dedicatedNV->image == VK_NULL_HANDLE)
     {
@@ -699,6 +703,9 @@ VkResult WrappedVulkan::vkAllocateMemory(VkDevice device, const VkMemoryAllocate
       Chunk *chunk = NULL;
 
       VkMemoryAllocateInfo serialisedInfo = info;
+      CopyNextChainForPatching("VkMemoryAllocateInfo", reusedTempMem,
+                               (VkBaseInStructure *)&serialisedInfo);
+
       VkMemoryOpaqueCaptureAddressAllocateInfo memoryDeviceAddress = {
           VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO,
       };
@@ -2517,8 +2524,9 @@ VkResult WrappedVulkan::vkCreateImage(VkDevice device, const VkImageCreateInfo *
   // reserve space for a patched view format list if necessary
   if(createInfo_adjusted.samples != VK_SAMPLE_COUNT_1_BIT)
   {
-    VkImageFormatListCreateInfo *formatListInfo = (VkImageFormatListCreateInfo *)FindNextStruct(
-        &createInfo_adjusted, VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO);
+    const VkImageFormatListCreateInfo *formatListInfo =
+        (const VkImageFormatListCreateInfo *)FindNextStruct(
+            &createInfo_adjusted, VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO);
 
     if(formatListInfo)
       tempMemSize += sizeof(VkFormat) * (formatListInfo->viewFormatCount + 1);
@@ -3337,8 +3345,8 @@ VkResult WrappedVulkan::vkBindImageMemory2(VkDevice device, uint32_t bindInfoCou
       // to memory mid-frame
       imgrecord->AddChunk(chunk);
 
-      VkBindImageMemorySwapchainInfoKHR *swapBind =
-          (VkBindImageMemorySwapchainInfoKHR *)FindNextStruct(
+      const VkBindImageMemorySwapchainInfoKHR *swapBind =
+          (const VkBindImageMemorySwapchainInfoKHR *)FindNextStruct(
               &pBindInfos[i], VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_SWAPCHAIN_INFO_KHR);
 
       if(swapBind && swapBind->swapchain != VK_NULL_HANDLE)

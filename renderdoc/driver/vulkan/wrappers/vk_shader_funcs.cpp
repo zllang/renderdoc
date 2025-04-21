@@ -1029,8 +1029,8 @@ VkResult WrappedVulkan::vkCreateGraphicsPipelines(VkDevice device, VkPipelineCac
             record->AddParent(modulerecord);
         }
 
-        VkPipelineLibraryCreateInfoKHR *libraryInfo =
-            (VkPipelineLibraryCreateInfoKHR *)FindNextStruct(
+        const VkPipelineLibraryCreateInfoKHR *libraryInfo =
+            (const VkPipelineLibraryCreateInfoKHR *)FindNextStruct(
                 &pCreateInfos[i], VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR);
 
         if(libraryInfo)
@@ -1498,6 +1498,9 @@ VkResult WrappedVulkan::vkCreateRayTracingPipelinesKHR(
           CACHE_THREAD_SERIALISER();
 
           VkRayTracingPipelineCreateInfoKHR modifiedCreateInfo = pCreateInfos[i];
+          byte *tempMem = GetTempMemory(GetNextPatchSize(pCreateInfos[i].pNext));
+          CopyNextChainForPatching("VkRayTracingPipelineCreateInfoKHR", tempMem,
+                                   (VkBaseInStructure *)&modifiedCreateInfo);
           uint64_t createFlags = GetPipelineCreateFlags(&modifiedCreateInfo);
           createFlags |= VK_PIPELINE_CREATE_RAY_TRACING_SHADER_GROUP_HANDLE_CAPTURE_REPLAY_BIT_KHR;
           SetPipelineCreateFlags(&modifiedCreateInfo, createFlags);

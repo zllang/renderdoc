@@ -1221,8 +1221,8 @@ bool WrappedVulkan::Serialise_vkBeginCommandBuffer(SerialiserType &ser, VkComman
 
       unwrappedBeginInfo.pInheritanceInfo = &unwrappedInheritInfo;
 
-      VkCommandBufferInheritanceConditionalRenderingInfoEXT *inheritanceConditionalRenderingInfo =
-          (VkCommandBufferInheritanceConditionalRenderingInfoEXT *)FindNextStruct(
+      const VkCommandBufferInheritanceConditionalRenderingInfoEXT *inheritanceConditionalRenderingInfo =
+          (const VkCommandBufferInheritanceConditionalRenderingInfoEXT *)FindNextStruct(
               BeginInfo.pInheritanceInfo,
               VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_CONDITIONAL_RENDERING_INFO_EXT);
 
@@ -2998,8 +2998,8 @@ bool WrappedVulkan::Serialise_vkCmdEndRenderPass2(SerialiserType &ser, VkCommand
         m_BakedCmdBufferInfo[m_LastCmdBufferID].renderPassOpen = false;
         m_BakedCmdBufferInfo[m_LastCmdBufferID].endBarriers.append(GetImplicitRenderPassBarriers(~0U));
 
-        VkSubpassFragmentDensityMapOffsetEndInfoQCOM *fragmentDensityOffsetStruct =
-            (VkSubpassFragmentDensityMapOffsetEndInfoQCOM *)FindNextStruct(
+        const VkSubpassFragmentDensityMapOffsetEndInfoQCOM *fragmentDensityOffsetStruct =
+            (const VkSubpassFragmentDensityMapOffsetEndInfoQCOM *)FindNextStruct(
                 &unwrappedEndInfo,
                 VK_STRUCTURE_TYPE_SUBPASS_FRAGMENT_DENSITY_MAP_OFFSET_END_INFO_QCOM);
 
@@ -5504,8 +5504,8 @@ void WrappedVulkan::ApplyPushDescriptorWrites(VkPipelineBindPoint pipelineBindPo
     }
     else if(writeDesc.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
     {
-      VkWriteDescriptorSetAccelerationStructureKHR *asWrite =
-          (VkWriteDescriptorSetAccelerationStructureKHR *)FindNextStruct(
+      const VkWriteDescriptorSetAccelerationStructureKHR *asWrite =
+          (const VkWriteDescriptorSetAccelerationStructureKHR *)FindNextStruct(
               &writeDesc, VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR);
       for(uint32_t d = 0; d < writeDesc.descriptorCount; d++, curIdx++)
       {
@@ -5524,8 +5524,8 @@ void WrappedVulkan::ApplyPushDescriptorWrites(VkPipelineBindPoint pipelineBindPo
     }
     else if(writeDesc.descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK)
     {
-      VkWriteDescriptorSetInlineUniformBlock *inlineWrite =
-          (VkWriteDescriptorSetInlineUniformBlock *)FindNextStruct(
+      const VkWriteDescriptorSetInlineUniformBlock *inlineWrite =
+          (const VkWriteDescriptorSetInlineUniformBlock *)FindNextStruct(
               &writeDesc, VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_INLINE_UNIFORM_BLOCK);
       memcpy(inlineData.data() + (*bind)->offset + writeDesc.dstArrayElement, inlineWrite->pData,
              inlineWrite->dataSize);
@@ -7220,8 +7220,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
           if(RenderingInfo.pStencilAttachment)
             renderstate.dynamicRendering.stencil = *RenderingInfo.pStencilAttachment;
 
-          VkRenderingFragmentDensityMapAttachmentInfoEXT *fragmentDensityAttachment =
-              (VkRenderingFragmentDensityMapAttachmentInfoEXT *)FindNextStruct(
+          const VkRenderingFragmentDensityMapAttachmentInfoEXT *fragmentDensityAttachment =
+              (const VkRenderingFragmentDensityMapAttachmentInfoEXT *)FindNextStruct(
                   &RenderingInfo,
                   VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_DENSITY_MAP_ATTACHMENT_INFO_EXT);
 
@@ -7232,8 +7232,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
                 fragmentDensityAttachment->imageLayout;
           }
 
-          VkRenderingFragmentShadingRateAttachmentInfoKHR *shadingRateAttachment =
-              (VkRenderingFragmentShadingRateAttachmentInfoKHR *)FindNextStruct(
+          const VkRenderingFragmentShadingRateAttachmentInfoKHR *shadingRateAttachment =
+              (const VkRenderingFragmentShadingRateAttachmentInfoKHR *)FindNextStruct(
                   &RenderingInfo,
                   VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR);
 
@@ -7245,8 +7245,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
                 shadingRateAttachment->shadingRateAttachmentTexelSize;
           }
 
-          VkMultisampledRenderToSingleSampledInfoEXT *tileOnlyMSAA =
-              (VkMultisampledRenderToSingleSampledInfoEXT *)FindNextStruct(
+          const VkMultisampledRenderToSingleSampledInfoEXT *tileOnlyMSAA =
+              (const VkMultisampledRenderToSingleSampledInfoEXT *)FindNextStruct(
                   &RenderingInfo, VK_STRUCTURE_TYPE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_INFO_EXT);
 
           if(tileOnlyMSAA)
@@ -7404,8 +7404,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
         if(RenderingInfo.pStencilAttachment)
           renderstate.dynamicRendering.stencil = *RenderingInfo.pStencilAttachment;
 
-        VkRenderingFragmentDensityMapAttachmentInfoEXT *fragmentDensityAttachment =
-            (VkRenderingFragmentDensityMapAttachmentInfoEXT *)FindNextStruct(
+        const VkRenderingFragmentDensityMapAttachmentInfoEXT *fragmentDensityAttachment =
+            (const VkRenderingFragmentDensityMapAttachmentInfoEXT *)FindNextStruct(
                 &RenderingInfo, VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_DENSITY_MAP_ATTACHMENT_INFO_EXT);
 
         if(fragmentDensityAttachment)
@@ -7414,8 +7414,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
           renderstate.dynamicRendering.fragmentDensityLayout = fragmentDensityAttachment->imageLayout;
         }
 
-        VkRenderingFragmentShadingRateAttachmentInfoKHR *shadingRateAttachment =
-            (VkRenderingFragmentShadingRateAttachmentInfoKHR *)FindNextStruct(
+        const VkRenderingFragmentShadingRateAttachmentInfoKHR *shadingRateAttachment =
+            (const VkRenderingFragmentShadingRateAttachmentInfoKHR *)FindNextStruct(
                 &RenderingInfo,
                 VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR);
 
@@ -7427,8 +7427,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
               shadingRateAttachment->shadingRateAttachmentTexelSize;
         }
 
-        VkMultisampledRenderToSingleSampledInfoEXT *tileOnlyMSAA =
-            (VkMultisampledRenderToSingleSampledInfoEXT *)FindNextStruct(
+        const VkMultisampledRenderToSingleSampledInfoEXT *tileOnlyMSAA =
+            (const VkMultisampledRenderToSingleSampledInfoEXT *)FindNextStruct(
                 &RenderingInfo, VK_STRUCTURE_TYPE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_INFO_EXT);
 
         if(tileOnlyMSAA)
@@ -7454,13 +7454,13 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
 
       for(size_t i = 0; i < renderstate.dynamicRendering.color.size() + 2; i++)
       {
-        VkRenderingAttachmentInfo *att =
-            (VkRenderingAttachmentInfo *)&renderstate.dynamicRendering.color[i];
+        const VkRenderingAttachmentInfo *att =
+            (const VkRenderingAttachmentInfo *)&renderstate.dynamicRendering.color[i];
 
         if(i == renderstate.dynamicRendering.color.size())
-          att = (VkRenderingAttachmentInfo *)&renderstate.dynamicRendering.depth;
+          att = (const VkRenderingAttachmentInfo *)&renderstate.dynamicRendering.depth;
         else if(i == renderstate.dynamicRendering.color.size() + 1)
-          att = (VkRenderingAttachmentInfo *)&renderstate.dynamicRendering.stencil;
+          att = (const VkRenderingAttachmentInfo *)&renderstate.dynamicRendering.stencil;
 
         if(!att || att->imageView == VK_NULL_HANDLE)
           continue;
@@ -7511,8 +7511,8 @@ void WrappedVulkan::vkCmdBeginRendering(VkCommandBuffer commandBuffer,
 
     record->AddChunk(scope.Get(&record->cmdInfo->alloc));
 
-    VkRenderingFragmentDensityMapAttachmentInfoEXT *densityMap =
-        (VkRenderingFragmentDensityMapAttachmentInfoEXT *)FindNextStruct(
+    const VkRenderingFragmentDensityMapAttachmentInfoEXT *densityMap =
+        (const VkRenderingFragmentDensityMapAttachmentInfoEXT *)FindNextStruct(
             pRenderingInfo, VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_DENSITY_MAP_ATTACHMENT_INFO_EXT);
 
     if(densityMap)
@@ -7522,8 +7522,8 @@ void WrappedVulkan::vkCmdBeginRendering(VkCommandBuffer commandBuffer,
         record->MarkImageViewFrameReferenced(viewRecord, ImageRange(), eFrameRef_Read);
     }
 
-    VkRenderingFragmentShadingRateAttachmentInfoKHR *shadingRate =
-        (VkRenderingFragmentShadingRateAttachmentInfoKHR *)FindNextStruct(
+    const VkRenderingFragmentShadingRateAttachmentInfoKHR *shadingRate =
+        (const VkRenderingFragmentShadingRateAttachmentInfoKHR *)FindNextStruct(
             pRenderingInfo, VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR);
 
     if(shadingRate)
