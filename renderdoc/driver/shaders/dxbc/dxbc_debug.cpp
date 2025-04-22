@@ -3449,7 +3449,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           fmt.byteWidth = 4;
 
           fmt.numComps = 4;
-          boundsClampedComps = int((stride - structOffset) / sizeof(uint32_t));
+          boundsClampedComps =
+              RDCMIN(boundsClampedComps, int((stride - structOffset) / sizeof(uint32_t)));
           fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           if(op.operands[0].comps[0] != 0xff && op.operands[0].comps[1] == 0xff &&
@@ -3472,7 +3473,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
             fmt.numComps = 4;
 
           // do not allow writing beyond the stride (we don't expect fxc to emit writes like this anyway)
-          boundsClampedComps = int((stride - structOffset) / sizeof(uint32_t));
+          boundsClampedComps =
+              RDCMIN(boundsClampedComps, int((stride - structOffset) / sizeof(uint32_t)));
           fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           for(int c = 0; c < 4; c++)
@@ -3494,7 +3496,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           fmt.numComps = 4;
 
           // clamp to out of bounds based on numElems
-          boundsClampedComps = int(numElems - elemIdx) / 4;
+          boundsClampedComps = RDCMIN(boundsClampedComps, int(numElems - elemIdx) / 4);
           fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           if(op.operands[0].comps[0] != 0xff && op.operands[0].comps[1] == 0xff &&
@@ -3516,7 +3518,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
             fmt.numComps = 4;
 
           // clamp to out of bounds based on numElems
-          boundsClampedComps = int(numElems - elemIdx) / 4;
+          boundsClampedComps = RDCMIN(boundsClampedComps, int(numElems - elemIdx) / 4);
           fmt.numComps = RDCMIN(fmt.numComps, boundsClampedComps);
 
           for(int c = 0; c < boundsClampedComps; c++)
