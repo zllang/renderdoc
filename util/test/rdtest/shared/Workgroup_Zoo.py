@@ -26,3 +26,5 @@ class Workgroup_Zoo(rdtest.Subgroup_Zoo):
 
         if self.check_compute_tests(compute_dims, thread_checks):
             raise rdtest.TestFailureException("Some tests were not as expected")
+
+        self.check_renderdoc_log()

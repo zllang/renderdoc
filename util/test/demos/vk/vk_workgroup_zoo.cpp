@@ -130,7 +130,7 @@ void main()
 {
   vec4 data = vec4(0);
   uint id = gl_SubgroupInvocationID;
-  gsmUint4[id] = id;
+  gsmUint4[id] = id.xxxx;
   SetOutput(data);
 
   if(IsTest(0))

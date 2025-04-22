@@ -273,3 +273,5 @@ class Subgroup_Zoo(rdtest.TestCase):
 
         if overallFailed:
             raise rdtest.TestFailureException("Some tests were not as expected")
+
+        self.check_renderdoc_log()
