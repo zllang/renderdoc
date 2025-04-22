@@ -1057,6 +1057,11 @@ static bool ConvertDXILConstantToShaderVariable(const Constant *constant, Shader
     }
     return true;
   }
+  else if(constant->isNULL())
+  {
+    // Nothing to do because Shader Variables created initialised to zero
+    return true;
+  }
   return false;
 }
 

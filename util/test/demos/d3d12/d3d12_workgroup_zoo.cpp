@@ -104,7 +104,7 @@ void main(uint3 inTid : SV_DispatchThreadID)
   tid = inTid;
   float4 data = 0.0f.xxxx;
   uint id = WaveGetLaneIndex();
-  gsmUint4[id] = id;
+  gsmUint4[id] = id.xxxx;
   SetOutput(data);
 
   if(IsTest(0))
