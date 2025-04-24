@@ -195,56 +195,51 @@ public:
     {
       const VulkanRenderState &state = m_pDriver->GetRenderState();
 
-      const rdcarray<VulkanStatePipeline::DescriptorAndOffsets> *srcs[] = {
-          &state.graphics.descSets,
-          &state.compute.descSets,
-      };
+      const rdcarray<VulkanStatePipeline::DescriptorAndOffsets> &src =
+          (stage == ShaderStage::Compute ? state.compute.descSets : state.graphics.descSets);
 
-      for(size_t p = 0; p < ARRAY_COUNT(srcs); p++)
+      for(size_t i = 0; i < src.size(); i++)
       {
-        for(size_t i = 0; i < srcs[p]->size(); i++)
-        {
-          const VulkanStatePipeline::DescriptorAndOffsets &srcData = srcs[p]->at(i);
-          ResourceId sourceSet = srcData.descSet;
-          const uint32_t *srcOffset = srcData.offsets.begin();
+        const VulkanStatePipeline::DescriptorAndOffsets &srcData = src[i];
+        ResourceId sourceSet = srcData.descSet;
+        const uint32_t *srcOffset = srcData.offsets.begin();
 
-          if(sourceSet == ResourceId())
+        if(sourceSet == ResourceId())
+          continue;
+
+        const VulkanCreationInfo::PipelineLayout &pipeLayoutInfo =
+            m_Creation.m_PipelineLayout[srcData.pipeLayout];
+
+        ResourceId setOrig = m_pDriver->GetResourceManager()->GetOriginalID(sourceSet);
+
+        const BindingStorage &bindStorage =
+            m_pDriver->GetCurrentDescSetBindingStorage(srcData.descSet);
+        const DescriptorSetSlot *first = bindStorage.binds.empty() ? NULL : bindStorage.binds[0];
+        for(size_t b = 0; b < bindStorage.binds.size(); b++)
+        {
+          const DescSetLayout::Binding &layoutBind =
+              m_Creation.m_DescSetLayout[pipeLayoutInfo.descSetLayouts[i]].bindings[b];
+
+          if(layoutBind.layoutDescType != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC &&
+             layoutBind.layoutDescType != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)
             continue;
 
-          const VulkanCreationInfo::PipelineLayout &pipeLayoutInfo =
-              m_Creation.m_PipelineLayout[srcData.pipeLayout];
+          uint64_t descriptorByteOffset = bindStorage.binds[b] - first;
 
-          ResourceId setOrig = m_pDriver->GetResourceManager()->GetOriginalID(sourceSet);
-
-          const BindingStorage &bindStorage =
-              m_pDriver->GetCurrentDescSetBindingStorage(srcData.descSet);
-          const DescriptorSetSlot *first = bindStorage.binds.empty() ? NULL : bindStorage.binds[0];
-          for(size_t b = 0; b < bindStorage.binds.size(); b++)
+          // inline UBOs aren't dynamic and variable size can't be used with dynamic buffers, so
+          // the count is what it is at definition time
+          for(uint32_t a = 0; a < layoutBind.descriptorCount; a++)
           {
-            const DescSetLayout::Binding &layoutBind =
-                m_Creation.m_DescSetLayout[pipeLayoutInfo.descSetLayouts[i]].bindings[b];
+            uint32_t dynamicBufferByteOffset = *srcOffset;
+            srcOffset++;
 
-            if(layoutBind.layoutDescType != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC &&
-               layoutBind.layoutDescType != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)
-              continue;
-
-            uint64_t descriptorByteOffset = bindStorage.binds[b] - first;
-
-            // inline UBOs aren't dynamic and variable size can't be used with dynamic buffers, so
-            // the count is what it is at definition time
-            for(uint32_t a = 0; a < layoutBind.descriptorCount; a++)
+            for(size_t accIdx = 0; accIdx < m_Access.size(); accIdx++)
             {
-              uint32_t dynamicBufferByteOffset = *srcOffset;
-              srcOffset++;
-
-              for(size_t accIdx = 0; accIdx < m_Access.size(); accIdx++)
+              if(m_Access[accIdx].descriptorStore == setOrig &&
+                 m_Access[accIdx].byteOffset == descriptorByteOffset + a)
               {
-                if(m_Access[accIdx].descriptorStore == setOrig &&
-                   m_Access[accIdx].byteOffset == descriptorByteOffset + a)
-                {
-                  m_Descriptors[accIdx].byteOffset += dynamicBufferByteOffset;
-                  break;
-                }
+                m_Descriptors[accIdx].byteOffset += dynamicBufferByteOffset;
+                break;
               }
             }
           }
