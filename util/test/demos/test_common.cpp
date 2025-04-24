@@ -491,7 +491,7 @@ std::vector<uint32_t> CompileShaderToSpv(const std::string &source_text, SPIRVTa
     return ret;
   }
 
-  msleep(100);
+  msleep(400);
 
   int code = pclose(pipe);
 
