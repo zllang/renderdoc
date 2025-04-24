@@ -238,14 +238,14 @@ struct OpExtInstHelper
   rdcarray<uint32_t> params;
 
   template <typename T>
-  T arg(uint32_t idx)
+  T arg(uint32_t idx) const
   {
     return T(params[idx]);
   }
 };
 
 template <>
-inline Id OpExtInstHelper::arg<Id>(uint32_t idx)
+inline Id OpExtInstHelper::arg<Id>(uint32_t idx) const
 {
   return Id::fromWord(params[idx]);
 }
