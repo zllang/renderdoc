@@ -739,6 +739,26 @@ void ThreadState::EnterEntryPoint(ShaderDebugState *state)
   EnterFunction({});
 
   m_State = NULL;
+  currentInstruction = nextInstruction;
+}
+
+bool ThreadState::WorkgroupIsDiverged(const rdcarray<ThreadState> &workgroup)
+{
+  uint32_t instr0 = ~0U;
+  for(size_t i = 0; i < workgroup.size(); i++)
+  {
+    if(workgroup[i].Finished())
+      continue;
+    if(instr0 == ~0U)
+    {
+      instr0 = workgroup[i].currentInstruction;
+      continue;
+    }
+    // not executing the same instruction
+    if(workgroup[i].currentInstruction != instr0)
+      return true;
+  }
+  return false;
 }
 
 void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> &workgroup,
@@ -3741,9 +3761,14 @@ void ThreadState::StepNext(ShaderDebugState *state, const rdcarray<ThreadState> 
       //////////////////////////////////////////////////////////////////////////////
 
     case Op::MemoryBarrier:
-    case Op::ControlBarrier:
     {
       // do nothing for now
+      break;
+    }
+    case Op::ControlBarrier:
+    {
+      // For thread barriers the threads must be converged
+      RDCASSERT(!WorkgroupIsDiverged(workgroup));
       break;
     }
     case Op::Label:

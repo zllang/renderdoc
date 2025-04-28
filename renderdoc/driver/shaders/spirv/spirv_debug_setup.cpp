@@ -2728,6 +2728,11 @@ rdcarray<ShaderDebugState> Debugger::ContinueDebug()
         if(thread.diverged)
           ++countDivergedThreads;
       }
+      for(size_t lane = 0; lane < workgroup.size(); lane++)
+      {
+        if(activeMask[lane])
+          workgroup[lane].currentInstruction = workgroup[lane].nextInstruction;
+      }
       if(countConvergePointThreads)
       {
         // all the active threads should have a convergence point if any have one

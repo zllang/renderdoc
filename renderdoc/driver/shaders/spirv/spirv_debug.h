@@ -202,6 +202,7 @@ struct ThreadState
 
   bool Finished() const;
 
+  uint32_t currentInstruction;
   uint32_t nextInstruction;
 
   const GlobalState &global;
@@ -268,6 +269,8 @@ private:
 
   void SkipIgnoredInstructions();
   void SetConvergencePoint(Id block);
+
+  static bool WorkgroupIsDiverged(const rdcarray<ThreadState> &workgroup);
 
   ShaderDebugState *m_State = NULL;
 };
