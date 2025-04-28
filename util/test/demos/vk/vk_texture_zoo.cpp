@@ -555,6 +555,9 @@ void main()
     if(!renderable && !depth)
       props2D.sampleCounts = VK_SAMPLE_COUNT_1_BIT;
 
+    if(f.texFmt == VK_FORMAT_A8_UNORM)
+      props2D.sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+
     if((props.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) || depth)
     {
       // TODO: disable 1D depth textures for now, we don't support displaying them
