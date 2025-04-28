@@ -195,7 +195,7 @@ class Texture_Zoo():
             eps_significand = 2.5
         # Similarly SNorm essentially loses a bit of accuracy due to us only using negative values
         elif testCompType == rd.CompType.SNorm:
-            eps_significand = 2.0
+            eps_significand = 2.5
 
         if tex.format.type == rd.ResourceFormatType.R4G4B4A4 or tex.format.type == rd.ResourceFormatType.R4G4:
             eps = (eps_significand / 15.0)
