@@ -76,7 +76,7 @@ class Texture_Zoo():
         pickCompType = testCompType
 
         if tex.format.type == rd.ResourceFormatType.S8:
-            pickCompType = rd.CompType.UInt
+            pickCompType = rd.CompType.Depth
 
         # When not running proxied, save non-typecasted textures to disk
         if not image_view and not self.proxied and (tex.format.compType == testCompType or
@@ -506,7 +506,7 @@ class Texture_Zoo():
 
         if comp_type == rd.CompType.SInt:
             picked = [float(a) for a in picked_combo.intValue]
-        elif comp_type == rd.CompType.UInt:
+        elif comp_type == rd.CompType.UInt or tex.format.type == rd.ResourceFormatType.S8:
             picked = [float(a) for a in picked_combo.uintValue]
         else:
             picked = list(picked_combo.floatValue)
