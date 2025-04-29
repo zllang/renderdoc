@@ -72,7 +72,7 @@ void main()
   float depth = 0.0;
   if(hasDepth == 1)
     depth = texelFetch(depthMS, loc, currentSample).r;
-  uint stencil = 0;
+  uint stencil = 0u;
   if(hasStencil == 1)
     stencil = texelFetch(stencilMS, loc, currentSample).r;
   dest.result[dstOffset] = uvec4(floatBitsToUint(depth), stencil, 0, 0);
