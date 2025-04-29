@@ -166,6 +166,9 @@ const CopyFramebuffer &getCopyFramebuffer(WrappedOpenGL *driver,
   GLuint curStencil;
   GLint stencilType;
 
+  if(colorFormat == eGL_NONE)
+    colorFormat = eGL_RGBA8;
+
   driver->glGetFramebufferAttachmentParameteriv(eGL_DRAW_FRAMEBUFFER, eGL_DEPTH_ATTACHMENT,
                                                 eGL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME,
                                                 (GLint *)&curDepth);
