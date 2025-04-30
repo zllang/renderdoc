@@ -845,7 +845,7 @@ uint32_t Program::GetRegisterIndex(OperandType type, uint32_t index) const
   else if(type == TYPE_THREAD_GROUP_SHARED_MEMORY)
   {
     return m_NumTemps + (uint32_t)m_IndexTempSizes.size() + m_NumOutputs + (m_OutputDepth ? 1 : 0) +
-           (m_OutputStencil ? 1 : 0) + (m_OutputCoverage ? 1 : 0);
+           (m_OutputStencil ? 1 : 0) + (m_OutputCoverage ? 1 : 0) + index;
   }
 
   RDCERR("Unexpected type for register index: %s", ToStr(type).c_str());
