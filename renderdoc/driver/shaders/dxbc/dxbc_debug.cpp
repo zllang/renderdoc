@@ -4591,8 +4591,8 @@ void GlobalState::PopulateGroupshared(const DXBCBytecode::Program *pBytecode)
         }
         else
         {
-          mem.count = decl.tgsmCount;
-          mem.bytestride = 4;    // raw groupshared is implicitly uint32s
+          mem.count = decl.tgsmCount / 4;    // convert from bytes to elements
+          mem.bytestride = 4;                // raw groupshared is implicitly uint32s
         }
 
         mem.data.resize(mem.bytestride * mem.count);
