@@ -179,17 +179,6 @@
                   <File Id='amdagsDLL' Name='amd_ags_x86.dll' DiskId='1' Source='dist/Release32/plugins/amd/ags/amd_ags_x86.dll' KeyPath='yes' />
                 </Component>
               </Directory>
-
-              <Directory Id='plugins_amd_counters' Name='counters'>
-                <Component Id='gpa_plugin' Guid='16CFF53A-CB61-49A1-8FE8-CDBB02DE29A4'>
-                  <File Id='GPUPerfAPICounters' Name='GPUPerfAPICounters.dll' DiskId='1' Source='dist/Release32/plugins/amd/counters/GPUPerfAPICounters.dll' KeyPath='yes' />
-                  <File Id='GPUPerfAPIDX11' Name='GPUPerfAPIDX11.dll' DiskId='1' Source='dist/Release32/plugins/amd/counters/GPUPerfAPIDX11.dll' />
-                  <File Id='GPUPerfAPIDX12' Name='GPUPerfAPIDX12.dll' DiskId='1' Source='dist/Release32/plugins/amd/counters/GPUPerfAPIDX12.dll' />
-                  <File Id='GPUPerfAPIDXGetAMDDeviceInfo' Name='GPUPerfAPIDXGetAMDDeviceInfo.dll' DiskId='1' Source='dist/Release32/plugins/amd/counters/GPUPerfAPIDXGetAMDDeviceInfo.dll' />
-                  <File Id='GPUPerfAPIGL' Name='GPUPerfAPIGL.dll' DiskId='1' Source='dist/Release32/plugins/amd/counters/GPUPerfAPIGL.dll' />
-                  <File Id='GPUPerfAPIVK' Name='GPUPerfAPIVK.dll' DiskId='1' Source='dist/Release32/plugins/amd/counters/GPUPerfAPIVK.dll' />
-                </Component>
-              </Directory>
             </Directory>
 
             <Directory Id='plugins_android' Name='android'>
