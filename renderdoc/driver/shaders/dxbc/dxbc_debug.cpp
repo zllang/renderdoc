@@ -1285,6 +1285,8 @@ void ThreadState::SetGroupsharedDst(ShaderDebugState *state, uint32_t gsmIndex,
     {
       // otherwise each entry in the groupshared storage array is a series of N
       // component-sized registers so unroll that here and assign to the first component
+      RDCASSERT(component + val.columns <= v->members.size(), component + val.columns,
+                v->members.size());
       for(uint32_t i = 0; i < val.columns; i++)
         v->members[component + i].members[0].value.u32v[0] = val.value.u32v[i];
     }
@@ -2627,6 +2629,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
           ShaderVariableChange change = {*changeVar};
 
           byte *data = global.groupshared[gsmIndex].data.data();
+          RDCASSERT(global.groupshared[gsmIndex].count <= v->members.size(),
+                    global.groupshared[gsmIndex].count, v->members.size());
           for(uint32_t i = 0; i < global.groupshared[gsmIndex].count; i++)
           {
             if(gsmStride <= 16)
@@ -2640,6 +2644,8 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
             {
               // otherwise each entry in the groupshared storage array is a series of N
               // component-sized registers so unroll that here and copy into each's first component
+              RDCASSERT(gsmStride <= v->members[i].members.size(), gsmStride,
+                        v->members[i].members.size());
               for(uint32_t c = 0; c < gsmStride; c += sizeof(uint32_t))
               {
                 memcpy(v->members[i].members[c].value.u32v.data(), data, sizeof(uint32_t));
