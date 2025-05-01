@@ -152,6 +152,8 @@ struct DebugFile
         }
       }
 
+      RDCDEBUG("lz4 decompressed %s", path.c_str());
+
       RDCASSERT(ret > 0, ret);
 
       // we resize and memcpy instead of just doing .swap() because that would
@@ -162,7 +164,10 @@ struct DebugFile
 
     if(DXBC::IsPDBFile(&contents[0], contents.size()))
     {
+      size_t oldSize = contents.size();
       DXBC::UnwrapEmbeddedPDBData(contents);
+      if(oldSize != contents.size())
+        RDCDEBUG("PDB unwrapped %s", path.c_str());
       pdb = true;
     }
 
@@ -1534,7 +1539,15 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
               found.path = tempPath;
             else if(!hasSuffix && FileIO::exists(tempPath + ".pdb"))
               found.path = tempPath + ".pdb";
-            continue;
+
+            if(!found.empty())
+            {
+              RDCDEBUG("Found %s (matched using leaf %s) when looking for %s", found.path.c_str(),
+                       tempPath.c_str(), originalPath.c_str());
+
+              // this may empty out found, if the hash doesn't match
+              found.ReadAndProcess(lz4, desiredHash);
+            }
           }
           else
           {
@@ -1546,16 +1559,16 @@ void DXBCContainer::TryFetchSeparateDebugInfo(bytebuf &byteCode, const rdcstr &d
               found.path = checkPath;
             else if(!hasSuffix && FileIO::exists(checkPath + ".pdb"))
               found.path = checkPath + ".pdb";
+
+            if(!found.empty())
+            {
+              RDCDEBUG("Found %s (matched using leaf %s) when looking for %s", found.path.c_str(),
+                       tempPath.c_str(), originalPath.c_str());
+
+              // this may empty out found, if the hash doesn't match
+              found.ReadAndProcess(lz4, desiredHash);
+            }
           }
-        }
-
-        if(!found.empty())
-        {
-          RDCDEBUG("Found %s (matched using leaf %s) when looking for %s", found.path.c_str(),
-                   tempPath.c_str(), originalPath.c_str());
-
-          // this may empty out found, if the hash doesn't match
-          found.ReadAndProcess(lz4, desiredHash);
         }
 
         if(found.empty())
