@@ -2059,6 +2059,7 @@ struct D3D12PixelHistoryPerFragmentCallback : D3D12PixelHistoryCallback
     }
     else
     {
+      renderTargetIndex = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
       for(uint32_t i = 0; i < state.rts.size(); ++i)
       {
         ResourceId img = state.rts[i].GetResResourceId();
