@@ -361,7 +361,6 @@
 
         <ComponentRef Id='rgp_plugin' />
         <ComponentRef Id='ags_plugin' />
-        <ComponentRef Id='gpa_plugin' />
         <ComponentRef Id='android_plugin' />
         <ComponentRef Id='spirv_plugin' />
         <ComponentRef Id='d3d12_plugin' />
