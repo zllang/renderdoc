@@ -1092,6 +1092,10 @@ float4 main(v2f IN, uint samp : SV_SampleIndex) : SV_Target0
 
   std::string compute = R"EOSHADER(
 
+// error X3556: integer divides may be much slower, try using uints if possible.
+// we want to do this on purpose
+#pragma warning( disable : 3556 )
+
 cbuffer consts : register(b0)
 {
   bool boolX;
@@ -1103,13 +1107,27 @@ cbuffer consts : register(b0)
 RWStructuredBuffer<uint4> bufIn : register(u0);
 RWStructuredBuffer<uint4> bufOut : register(u1);
 
-groupshared int gsmInt[128];
+struct TestStruct
+{
+  uint3 a;
+  uint3 b;
+};
+
+groupshared int gsmInt;
+groupshared TestStruct gsmStruct[8];
+groupshared int gsmIntArray[128];
 
 [numthreads(1,1,1)]
 void main(int3 inTestIndex : SV_GroupID)
 {
+  // Only want the workgroups (*,1,0) to output results
+  if ((inTestIndex.y != 1) || (inTestIndex.z != 0))
+    return;
+
   int testIndex = inTestIndex.x;
   int4 testResult = 123;
+  gsmInt = testIndex;
+  gsmStruct[gsmInt].a = inTestIndex;
   if (testIndex == 0)
   {
     testResult = bufOut[0];
@@ -1120,15 +1138,18 @@ void main(int3 inTestIndex : SV_GroupID)
   }
   else if (testIndex == 1)
   {
-    gsmInt[testIndex-1] = testIndex;
-    testResult.x = gsmInt[testIndex-1];
+    gsmStruct[gsmInt*4].a = inTestIndex;
+    int idx = 128 - gsmInt - 1;
+    gsmIntArray[idx] = testIndex;
+    testResult.x = gsmIntArray[idx/2];
     testResult.y = testIndex;
+    testResult.z = gsmStruct[gsmInt * 4].a.y;
   }
   else
   {
     testResult.x = inTestIndex.x;
   }
-  bufOut[testIndex] = testResult;
+  bufOut[gsmInt] = testResult;
 }
 
 )EOSHADER";

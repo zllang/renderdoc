@@ -245,7 +245,7 @@ class D3D12_Shader_Debug_Zoo(rdtest.TestCase):
 
             # Debug the shader
             for groupX in range(action.dispatchDimension[0]):
-                groupid = (groupX, 0, 0)
+                groupid = (groupX, 1, 0)
                 threadid = (0, 0, 0)
                 testIndex = groupX
                 trace: rd.ShaderDebugTrace = self.controller.DebugThread(groupid, threadid)
