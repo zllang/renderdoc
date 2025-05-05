@@ -5950,9 +5950,6 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
   apiWrapper->thread_builtins.resize(numThreads);
   apiWrapper->thread_props.resize(numThreads);
 
-  apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::Active] = 1;
-  apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::SubgroupId] = 0;
-
   std::unordered_map<ShaderBuiltin, ShaderVariable> &global_builtins = apiWrapper->global_builtins;
   global_builtins[ShaderBuiltin::DispatchSize] =
       ShaderVariable(rdcstr(), action->dispatchDimension[0], action->dispatchDimension[1],
@@ -6313,6 +6310,9 @@ ShaderDebugTrace *VulkanReplay::DebugComputeCommon(ShaderStage stage, uint32_t e
     else
     {
       // simple single-thread case
+      apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::Active] = 1;
+      apiWrapper->thread_props[0][(size_t)rdcspv::ThreadProperty::SubgroupId] = 0;
+
       std::unordered_map<ShaderBuiltin, ShaderVariable> &thread_builtins =
           apiWrapper->thread_builtins[0];
 
