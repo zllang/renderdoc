@@ -61,12 +61,12 @@ static ShaderConstantType MakeShaderConstantType(bool cbufferPacking, DXBC::CBuf
      type.varClass == DXBC::CLASS_SCALAR)
     ret.flags |= ShaderVariableFlags::RowMajorMatrix;
 
-  uint32_t baseElemSize = (ret.baseType == VarType::Double) ? 8 : 4;
+  uint32_t baseElemSize = VarTypeByteSize(ret.baseType);
 
   // in D3D matrices in cbuffers always take up a float4 per row/column. Structured buffers in
   // SRVs/UAVs are tightly packed
   if(cbufferPacking)
-    ret.matrixByteStride = uint8_t(baseElemSize * 4);
+    ret.matrixByteStride = AlignUp16(uint8_t(baseElemSize * 4));
   else
     ret.matrixByteStride = uint8_t(baseElemSize * (ret.RowMajor() ? ret.columns : ret.rows));
 
