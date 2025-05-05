@@ -1221,17 +1221,18 @@ void CaptureDialog::TriggerCapture()
       }
     }
 
-    QString workingDir;
+    QString workingDir = ui->workDirPath->text();
 
     // for non-remote captures, check the directory locally
-    if(m_Ctx.Replay().CurrentRemote().IsValid())
+    if(!m_Ctx.Replay().CurrentRemote().IsValid())
     {
-      workingDir = ui->workDirPath->text();
-    }
-    else
-    {
-      if(QDir(ui->workDirPath->text()).exists())
-        workingDir = ui->workDirPath->text();
+      if(!QDir(ui->workDirPath->text()).exists())
+      {
+        RDDialog::critical(
+            this, tr("Invalid working directory"),
+            tr("Invalid working directory: %1\nThis path does not exist").arg(workingDir));
+        return;
+      }
     }
 
     QString cmdLine = GetCommandLine();
