@@ -1143,12 +1143,23 @@ rdcpair<RDResult, uint32_t> Process::LaunchAndInjectIntoProcess(
     return {result, 0};
   }
 
+  if(get_basename(app) == "explorer.exe" || get_basename(app) == "dllhost.exe")
+  {
+    RDResult result;
+    SET_ERROR_RESULT(
+        result, ResultCode::InjectionFailed,
+        "For safety reasons RenderDoc does not support capturing executables with a "
+        "reserved system filename such as '%s'. Please rename your executable to capture.",
+        get_basename(app).c_str());
+    return {result, 0};
+  }
+
   PROCESS_INFORMATION pi = RunProcess(app, workingDir, cmdLine, env, false, NULL, NULL);
 
   if(pi.dwProcessId == 0)
   {
     RDResult result;
-    SET_ERROR_RESULT(result, ResultCode::InjectionFailed, "Failed to launch process");
+    SET_ERROR_RESULT(result, ResultCode::InjectionFailed, "Failed to launch process.");
     return {result, 0};
   }
 

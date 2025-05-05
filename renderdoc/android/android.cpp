@@ -1619,7 +1619,7 @@ ExecuteResult AndroidRemoteServer::ExecuteAndInject(const rdcstr &packageAndActi
       }
     }
 
-    result = RDResult(ResultCode::InjectionFailed, "Timeout was reached waiting for app to start");
+    result = RDResult(ResultCode::InjectionFailed, "Timeout was reached waiting for app to start.");
 
     uint32_t elapsed = 0, timeout = 1000 * RDCMAX(5U, Android_MaxConnectTimeout());
     while(elapsed < timeout)

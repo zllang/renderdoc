@@ -695,7 +695,7 @@ void MainWindow::OnCaptureTrigger(const QString &exe, const QString &workingDir,
       {
         RDDialog::critical(
             this, tr("Error launching capture"),
-            tr("Error launching %1 for capture.\n\n%2.").arg(exe).arg(ret.result.Message()));
+            tr("Error launching %1 for capture.\n\n%2").arg(exe).arg(ret.result.Message()));
         return;
       }
 

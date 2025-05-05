@@ -676,7 +676,7 @@ rdcpair<RDResult, uint32_t> Process::InjectIntoProcess(uint32_t pid,
   RDCUNIMPLEMENTED("Injecting into already running processes on linux");
   return {
       RDResult(ResultCode::InjectionFailed,
-               "Injecting into already running processes is not supported on non-Windows systems"),
+               "Injecting into already running processes is not supported on non-Windows systems."),
       0};
 }
 
