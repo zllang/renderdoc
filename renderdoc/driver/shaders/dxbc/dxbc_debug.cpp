@@ -1288,7 +1288,7 @@ void ThreadState::SetGroupsharedDst(ShaderDebugState *state, uint32_t gsmIndex,
       RDCASSERT(component + val.columns <= v->members.size(), component + val.columns,
                 v->members.size());
       for(uint32_t i = 0; i < val.columns; i++)
-        v->members[component + i].members[0].value.u32v[0] = val.value.u32v[i];
+        v->members[component + i].value.u32v[0] = val.value.u32v[i];
     }
 
     change.after = *changeVar;
