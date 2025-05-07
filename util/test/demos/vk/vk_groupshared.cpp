@@ -149,7 +149,9 @@ void main()
       vkh::cmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, {descSet}, {});
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe);
 
+      pushMarker(cmd, "Compute Tests");
       vkCmdDispatch(cmd, 1, 1, 1);
+      popMarker(cmd);
 
       FinishUsingBackbuffer(cmd);
 

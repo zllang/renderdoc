@@ -100,7 +100,9 @@ void main(uint3 tid : SV_GroupThreadID)
       ctx->CSSetUnorderedAccessViews(0, 1, &inUAV.GetInterfacePtr(), NULL);
       ctx->CSSetUnorderedAccessViews(1, 1, &outUAV.GetInterfacePtr(), NULL);
 
+      pushMarker("Compute Tests");
       ctx->Dispatch(1, 1, 1);
+      popMarker();
 
       Present();
     }

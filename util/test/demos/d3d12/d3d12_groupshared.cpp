@@ -129,6 +129,7 @@ void main(uint3 tid : SV_GroupThreadID)
       cmd->SetComputeRootUnorderedAccessView(0, inBuf->GetGPUVirtualAddress());
       cmd->SetComputeRootUnorderedAccessView(1, outBuf->GetGPUVirtualAddress());
 
+      pushMarker(cmd, "Compute Tests");
       setMarker(cmd, "SM5");
       cmd->SetPipelineState(pso50);
       cmd->Dispatch(1, 1, 1);
@@ -141,6 +142,7 @@ void main(uint3 tid : SV_GroupThreadID)
         cmd->SetPipelineState(pso60);
         cmd->Dispatch(1, 1, 1);
       }
+      popMarker(cmd);
 
       FinishUsingBackbuffer(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
