@@ -5114,6 +5114,8 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
         break;
       }
 
+      ShaderVariable originalValue(m_Variables[ptrId]);
+
       const MemoryTracking::Pointer &ptr = itPtr->second;
       Id baseMemoryId = ptr.baseMemoryId;
       void *memory = ptr.memory;
@@ -5128,9 +5130,11 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
 
       UpdateBackingMemoryFromVariable(memory, allocSize, val);
 
+      bool recordBaseMemoryChange = m_State && baseMemoryId != ptrId;
       ShaderVariableChange change;
       RDCASSERT(IsVariableAssigned(baseMemoryId));
-      change.before = m_Variables[baseMemoryId];
+      if(recordBaseMemoryChange)
+        change.before = m_Variables[baseMemoryId];
 
       auto itAlloc = m_Memory.m_Allocations.find(baseMemoryId);
       if(itAlloc == m_Memory.m_Allocations.end())
@@ -5141,17 +5145,36 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       const MemoryTracking::Allocation &allocation = itAlloc->second;
       UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocation.backingMemory);
 
-      // record the change to the base memory variable
-      change.after = m_Variables[baseMemoryId];
-      if(m_State)
+      // record the change to the base memory variable if it is not the ptrId variable
+      if(recordBaseMemoryChange)
+      {
+        if(!IsVariableAssigned(baseMemoryId))
+        {
+          change.before = {};
+          m_Assigned[baseMemoryId] = true;
+        }
+        change.after = m_Variables[baseMemoryId];
         m_State->changes.push_back(change);
+      }
 
-      // Update the ptr variable value
-      // Set the result to be the ptr variable which will then be recorded as a change
+      // Update the ptr variable value and manually record the change to the ptr variable
       RDCASSERT(IsVariableAssigned(ptrId));
-      result = m_Variables[ptrId];
-      result.value = val.value;
-      resultId = ptrId;
+      ShaderVariable newValue(originalValue);
+      newValue.value = val.value;
+
+      m_Live[ptrId] = true;
+      m_Variables[ptrId] = newValue;
+      m_Assigned[ptrId] = true;
+
+      if(m_State)
+      {
+        change.before = originalValue;
+        change.after = newValue;
+        m_State->changes.push_back(change);
+      }
+
+      result.name.clear();
+      resultId = INVALID_ID;
       break;
     }
     case Operation::Alloca:
@@ -6228,33 +6251,40 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
       // Save the result back to the backing memory of the pointer
       UpdateBackingMemoryFromVariable(memory, allocSize, res);
 
+      bool recordBaseMemoryChange = m_State && baseMemoryId != resultId;
       ShaderVariableChange change;
-      if(m_State)
-        change.before = a;
+      if(recordBaseMemoryChange)
+        change.before = m_Variables[baseMemoryId];
 
       UpdateMemoryVariableFromBackingMemory(baseMemoryId, allocMemoryBackingPtr);
 
       // record the change to the base memory variable
-      if(m_State)
+      if(recordBaseMemoryChange)
       {
+        if(!IsVariableAssigned(baseMemoryId))
+        {
+          change.before = {};
+          m_Assigned[baseMemoryId] = true;
+        }
         change.after = m_Variables[baseMemoryId];
         m_State->changes.push_back(change);
       }
 
       // record the change to the ptr variable value
+      bool recordPtrMemoryChange = m_State && ptrId != resultId;
       RDCASSERT(IsVariableAssigned(ptrId));
-      if(m_State)
+      if(recordPtrMemoryChange)
         change.before = m_Variables[ptrId];
       // Update the ptr variable value
       m_Variables[ptrId].value = res.value;
 
-      if(m_State)
+      if(recordPtrMemoryChange)
       {
         change.after = m_Variables[ptrId];
         m_State->changes.push_back(change);
       }
 
-      RDCASSERT(IsVariableAssigned(ptrId));
+      RDCASSERTNOTEQUAL(resultId, ptrId);
       result.value = res.value;
       break;
     }
@@ -6330,7 +6360,7 @@ void ThreadState::StepNext(ShaderDebugState *state, DebugAPIWrapper *apiWrapper,
       // The fake output variable is always in scope
       if(id == m_Output.id)
         continue;
-      // Global are always in scope
+      // Globals are always in scope
       if(m_IsGlobal[id])
         continue;
 
