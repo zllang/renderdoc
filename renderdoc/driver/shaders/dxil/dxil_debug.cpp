@@ -5058,6 +5058,13 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
     case Operation::Load:
     case Operation::LoadAtomic:
     {
+      if(DXIL::IsDXCNop(inst))
+      {
+        resultId = DXILDebug::INVALID_ID;
+        result.name.clear();
+        break;
+      }
+
       // Load(ptr)
       Id ptrId = GetArgumentId(0);
       if(ptrId == DXILDebug::INVALID_ID)
