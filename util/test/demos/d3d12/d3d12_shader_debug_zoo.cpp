@@ -1125,6 +1125,9 @@ void main(int3 inTestIndex : SV_GroupID)
     return;
 
   int testIndex = inTestIndex.x;
+  int ZERO = floor(testIndex/(testIndex+1.0e-6f));
+  int ONE = ZERO + 1;
+
   int4 testResult = 123;
   gsmInt = testIndex;
   gsmStruct[gsmInt].a = inTestIndex;
@@ -1141,7 +1144,7 @@ void main(int3 inTestIndex : SV_GroupID)
     gsmStruct[gsmInt*4].a = inTestIndex;
     int idx = 128 - gsmInt - 1;
     gsmIntArray[idx] = testIndex;
-    testResult.x = gsmIntArray[idx/2];
+    testResult.x = gsmIntArray[idx + ZERO];
     testResult.y = testIndex;
     testResult.z = gsmStruct[gsmInt * 4].a.y;
   }
