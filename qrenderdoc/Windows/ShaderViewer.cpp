@@ -2630,6 +2630,7 @@ void ShaderViewer::applyBackwardsChange()
   if(IsFirstState())
     return;
 
+  const ShaderVariable nullChange;
   for(const ShaderVariableChange &c : GetCurrentState().changes)
   {
     // if the before name is empty, this is a variable that came into scope/was created
@@ -2639,14 +2640,19 @@ void ShaderViewer::applyBackwardsChange()
       m_VariableLastUpdate[c.after.name] = m_UpdateID;
 
       // delete the matching variable (should only be one)
+      bool found = false;
       for(int i = 0; i < m_Variables.count(); i++)
       {
         if(c.after.name == m_Variables[i].name)
         {
           m_Variables.removeAt(i);
+          found = true;
           break;
         }
       }
+      if(!found)
+        qCritical("ShaderVariableChange for '%s' not found in existing variables",
+                  c.after.name.c_str());
     }
     else
     {
@@ -2664,9 +2670,18 @@ void ShaderViewer::applyBackwardsChange()
       }
 
       if(v)
+      {
+        if(!(c.after == *v))
+          qCritical("ShaderVariableChange for '%s' after does not match existing entry",
+                    c.before.name.c_str());
         *v = c.before;
+      }
       else
+      {
+        if(!(c.after == nullChange))
+          qCritical("ShaderVariableChange for '%s' does not have NULL after", c.before.name.c_str());
         m_Variables.insert(0, c.before);
+      }
     }
   }
 
@@ -2684,6 +2699,7 @@ void ShaderViewer::applyForwardsChange()
 
   rdcarray<AccessedResourceData> newAccessedResources;
 
+  const ShaderVariable nullChange;
   for(const ShaderVariableChange &c : GetCurrentState().changes)
   {
     // if the after name is empty, this is a variable going out of scope/being deleted
@@ -2693,14 +2709,19 @@ void ShaderViewer::applyForwardsChange()
       m_VariableLastUpdate[c.before.name] = m_UpdateID;
 
       // delete the matching variable (should only be one)
+      bool found = false;
       for(int i = 0; i < m_Variables.count(); i++)
       {
         if(c.before.name == m_Variables[i].name)
         {
           m_Variables.removeAt(i);
+          found = true;
           break;
         }
       }
+      if(!found)
+        qCritical("ShaderVariableChange for '%s' not found in existing variables",
+                  c.before.name.c_str());
     }
     else
     {
@@ -2718,9 +2739,18 @@ void ShaderViewer::applyForwardsChange()
       }
 
       if(v)
+      {
+        if(!(c.before == *v))
+          qCritical("ShaderVariableChange for '%s' before does not match existing entry",
+                    c.after.name.c_str());
         *v = c.after;
+      }
       else
+      {
+        if(!(c.before == nullChange))
+          qCritical("ShaderVariableChange for '%s' does not have NULL before", c.after.name.c_str());
         m_Variables.insert(0, c.after);
+      }
 
       if(c.after.type == VarType::ReadOnlyResource || c.after.type == VarType::ReadWriteResource)
       {
