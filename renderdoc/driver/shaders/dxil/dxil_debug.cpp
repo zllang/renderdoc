@@ -8741,14 +8741,7 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
         if(inst.op == Operation::Phi)
           continue;
 
-        // If the current block is in a loop, set the execution point to the next uniform block
         ExecPointReference maxPoint(curBlock, maxInst);
-        if(loopBlocks.contains(curBlock))
-        {
-          uint32_t nextUniformBlock = controlFlow.GetNextUniformBlock(curBlock);
-          maxPoint.block = nextUniformBlock;
-          maxPoint.instruction = f->blocks[nextUniformBlock]->startInstructionIdx + 1;
-        }
         for(uint32_t a = 0; a < inst.args.size(); ++a)
         {
           DXIL::Value *arg = inst.args[a];
@@ -8779,6 +8772,21 @@ ShaderDebugTrace *Debugger::BeginDebug(uint32_t eventId, const DXBC::DXBCContain
       }
       // If these do not match in size that means there is a result SSA that is never read
       RDCASSERTEQUAL(ssaRefs.size(), ssaMaxExecPoints.size());
+
+      // Update any SSA max points which are inside a loop to the next uniform block
+      // This covers the case of SSA IDs that are assigned to but never accessed
+      for(auto &it : ssaMaxExecPoints)
+      {
+        ExecPointReference &maxPoint = it.second;
+        uint32_t block = maxPoint.block;
+        // If the current block is in a loop, set the execution point to the next uniform block
+        if(loopBlocks.contains(block))
+        {
+          uint32_t nextUniformBlock = controlFlow.GetNextUniformBlock(block);
+          maxPoint.block = nextUniformBlock;
+          maxPoint.instruction = f->blocks[nextUniformBlock]->startInstructionIdx + 1;
+        }
+      }
 
       // store the block captured SSA IDs used as arguments to phi nodes
       FunctionInfo::PhiReferencedIdsPerBlock &phiReferencedIdsPerBlock =
