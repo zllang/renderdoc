@@ -251,9 +251,7 @@ struct ThreadState
   bool ExecuteInstruction(DebugAPIWrapper *apiWrapper, const rdcarray<ThreadState> &workgroup,
                           const rdcarray<bool> &activeMask);
 
-  void MarkResourceAccess(const rdcstr &name, const ResourceReferenceInfo &resRefInfo,
-                          bool directAccess, const ShaderDirectAccess &access,
-                          const ShaderBindIndex &bindIndex);
+  void MarkResourceAccess(const ShaderVariable &var);
   void SetResult(const Id &id, ShaderVariable &result, DXIL::Operation op, DXIL::DXOp dxOpCode,
                  ShaderEvents flags);
   rdcstr GetArgumentName(uint32_t i) const;
@@ -368,9 +366,6 @@ struct ThreadState
 
   // SSA Ids guaranteed to be greater than 0 and less than this value
   uint32_t m_MaxSSAId;
-
-  rdcarray<BindingSlot> m_accessedSRVs;
-  rdcarray<BindingSlot> m_accessedUAVs;
 
   // quad ID (arbitrary, just used to find neighbours for derivatives)
   uint32_t m_QuadId = 0;

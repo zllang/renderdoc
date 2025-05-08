@@ -6558,47 +6558,19 @@ void ThreadState::SetResult(const Id &id, ShaderVariable &result, Operation op, 
   }
 }
 
-void ThreadState::MarkResourceAccess(const rdcstr &name, const ResourceReferenceInfo &resRefInfo,
-                                     bool directAccess, const ShaderDirectAccess &access,
-                                     const ShaderBindIndex &bindIndex)
+void ThreadState::MarkResourceAccess(const ShaderVariable &var)
 {
   if(m_State == NULL)
     return;
 
-  if(resRefInfo.category != DescriptorCategory::ReadOnlyResource &&
-     resRefInfo.category != DescriptorCategory::ReadWriteResource)
+  if(var.type != VarType::ReadOnlyResource && var.type != VarType::ReadWriteResource)
     return;
 
-  bool isSRV = (resRefInfo.category == DescriptorCategory::ReadOnlyResource);
+  ShaderVariableChange change;
+  change.before = var;
+  change.after = var;
 
-  m_State->changes.push_back(ShaderVariableChange());
-
-  ShaderVariableChange &change = m_State->changes.back();
-  change.after.rows = change.after.columns = 1;
-  change.after.type = resRefInfo.type;
-  if(!directAccess)
-    change.after.SetBindIndex(bindIndex);
-  else
-    change.after.SetDirectAccess(access);
-  // The resource name will already have the array index appended to it (perhaps unresolved)
-  change.after.name = name;
-
-  // Check whether this resource was visited before
-  bool found = false;
-  rdcarray<BindingSlot> &accessed = isSRV ? m_accessedSRVs : m_accessedUAVs;
-  for(size_t i = 0; i < accessed.size(); ++i)
-  {
-    if(accessed[i] == resRefInfo.binding)
-    {
-      found = true;
-      break;
-    }
-  }
-
-  if(found)
-    change.before = change.after;
-  else
-    accessed.push_back(resRefInfo.binding);
+  m_State->changes.push_back(change);
 }
 
 void ThreadState::UpdateBackingMemoryFromVariable(void *ptr, uint64_t &allocSize,
@@ -7036,7 +7008,7 @@ ResourceReferenceInfo ThreadState::GetResource(Id handleId, bool &annotatedHandl
       }
       resRefInfo = directHeapAccessBinding->second;
     }
-    MarkResourceAccess(alias, resRefInfo, directAccess, access, bindIndex);
+    MarkResourceAccess(var);
     return resRefInfo;
   }
 
