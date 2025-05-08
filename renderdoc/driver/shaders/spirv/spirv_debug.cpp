@@ -403,7 +403,7 @@ void ThreadState::WritePointerValue(Id pointer, const ShaderVariable &val)
     // if this is the first local write, mark this variable as becoming alive here, instead of at
     // its declaration
     if(firstLocalWrite)
-      basechange.before.name = "";
+      basechange.before = {};
 
     m_State->changes.push_back(basechange);
 
