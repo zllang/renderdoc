@@ -2403,8 +2403,10 @@ bool ThreadState::ExecuteInstruction(DebugAPIWrapper *apiWrapper,
             {
               resName = m_Program.GetHandleAlias(baseResource);
             }
+            // Use the handle alias of the result SSA ID to match the disassembly
+            rdcstr handleAlias = m_Program.GetHandleAlias(result.name);
             result = resource;
-            result.name = resName;
+            result.name = handleAlias;
 
             // Parse the packed annotate handle properties
             // resKind : {compType, compCount} | {structStride}
